@@ -31,6 +31,12 @@ export function attachWs(app: INestApplication): WebSocketServer {
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(String(data)) as { type?: string; deviceId?: string; line?: string };
+        if (msg.type === 'cancel') {
+          s.engine.cancel();
+          const d = msg.deviceId ? s.engine.find(msg.deviceId) : [...s.engine.devices.values()][0];
+          ws.send(JSON.stringify({ type: 'cli', output: '^C', prompt: d ? s.engine.prompt(d) : '# ', events: [], state: s.engine.getState() }));
+          return;
+        }
         if (msg.type === 'cli' && msg.deviceId && msg.line !== undefined) {
           sim.rateLimit(s);
           const r = s.engine.exec(msg.deviceId, msg.line);

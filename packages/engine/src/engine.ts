@@ -85,6 +85,12 @@ export class Engine {
   private echoWait: { id: number; seq: number; got: boolean } | null = null;
   private traceHop: { ttl: number; from?: string; reply?: string } | null = null;
   highlightIds: string[] = [];
+  cancelled = false;
+
+  cancel(): void {
+    this.cancelled = true;
+    this.q = [];
+  }
 
   logActivity(msg: string): void {
     this.activity.push({ t: new Date().toISOString(), msg });
@@ -257,7 +263,7 @@ export class Engine {
 
   drain(max = 4000): void {
     let n = 0;
-    while (this.q.length && n++ < max) {
+    while (this.q.length && n++ < max && !this.cancelled) {
       this.q.sort((a, b) => a.t - b.t);
       const e = this.q.shift();
       if (!e) break;
@@ -1723,8 +1729,13 @@ export class Engine {
     const rtt: number[] = [];
     let lastReason = '';
     let ok = false;
+    this.cancelled = false;
     const icmpId = (pktSeq % 60000) + 1;
     for (let seq = 1; seq <= count; seq++) {
+      if (this.cancelled) {
+        lastReason = '^C interrupted';
+        break;
+      }
       const t0 = this.now;
       this.echoWait = { id: icmpId, seq, got: false };
       if (family === 'v4') {
@@ -1779,7 +1790,11 @@ export class Engine {
         });
       }
       this.drain();
-      if (this.echoWait.got) {
+      if (this.cancelled) {
+        lastReason = '^C interrupted';
+        break;
+      }
+      if (this.echoWait?.got) {
         ok = true;
         rtt.push(Math.max(1, this.now - t0));
         lastReason = `ICMP echo reply from ${resolved.ip}`;

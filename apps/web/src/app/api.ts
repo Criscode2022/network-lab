@@ -155,6 +155,27 @@ export class Api {
     return r;
   }
 
+  cancelPing(): void {
+    const id = this.sessionId();
+    if (!id) return;
+    try {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws?sessionId=${id}`);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'cancel' }));
+        ws.close();
+      };
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async save() {
+    const id = this.sessionId();
+    if (!id) return;
+    return this.json(`/sessions/${id}/save`, { method: 'POST', body: '{}' });
+  }
+
   async check() {
     const id = this.sessionId();
     const r = await this.json<{ ok: boolean; results: { reason: string; ok: boolean }[] }>(`/sessions/${id}/check`, { method: 'POST', body: '{}' });

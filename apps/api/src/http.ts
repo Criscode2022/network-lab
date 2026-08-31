@@ -231,6 +231,21 @@ export class SessionsController {
     return s.engine.check();
   }
 
+  @Post(':id/save')
+  save(@Param('id') id: string, @Headers('authorization') auth?: string) {
+    const s = this.sim.get(id);
+    const u = this.user(auth);
+    const json = s.engine.toLab();
+    for (const d of s.engine.devices.values()) d.startupLines = s.engine.runningConfig(d).split('\n');
+    json.devices = json.devices.map((dev) => {
+      const live = s.engine.find(dev.name);
+      return { ...dev, startup: live?.startupLines ?? dev.startup };
+    });
+    if (u.guest) return { ok: true, guest: true, json, warning: 'Guest autosave is local until you sign in.' };
+    const row = saveLab(u.id, json);
+    return { ok: true, lab: row };
+  }
+
   @Post(':id/ping')
   ping(@Param('id') id: string, @Body() body: { src: string; dst: string; family?: 'v4' | 'v6' }) {
     const s = this.sim.get(id);

@@ -48,6 +48,18 @@ describe('IPv4 ping + Linux/switch CLI', () => {
     expect(c.output.toLowerCase()).toMatch(/unknown command|unsupported|not found/);
   });
 
+  it('cancel() interrupts ping with ^C', () => {
+    const e = Engine.fromLab(twoPcSwitch());
+    const drain = e.drain.bind(e);
+    e.drain = (max?: number) => {
+      e.cancel();
+      drain(max);
+    };
+    const r = e.ping('PC1', '10.0.0.20', { count: 8 });
+    expect(r.reason).toMatch(/\^C|interrupted/i);
+    expect(r.ok).toBe(false);
+  });
+
   it('shutdown iface drops ping with exact reason', () => {
     const e = Engine.fromLab(twoPcSwitch());
     e.exec('PC2', 'ip link set eth0 down');

@@ -50,12 +50,23 @@ export class Workspace implements OnInit {
       this.termLines.set([{ text: `Connected to ${first.hostname}. Type help.` }]);
     }
     window.addEventListener('keydown', this.onKey);
+    setInterval(() => {
+      const st = this.api.state();
+      if (!st) return;
+      localStorage.setItem('nb_autosave', JSON.stringify({ id: st.id, sessionId: this.api.sessionId(), at: Date.now() }));
+      void this.api.save().catch(() => undefined);
+    }, 12000);
   }
 
   private onKey = (ev: KeyboardEvent) => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'c' && (ev.target as HTMLElement).closest('input,textarea')) {
+      this.termLines.update((l) => [...l, { text: '^C' }]);
+      this.api.cancelPing();
+    }
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') {
       ev.preventDefault();
       this.saveJson();
+      void this.api.save();
     }
     if (ev.key === 'Delete' && this.selected() && !(ev.target as HTMLElement).closest('input,textarea')) {
       this.confirmDel.set(this.selected());
