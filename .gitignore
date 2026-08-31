@@ -18,3 +18,5 @@ apps/eve-agent/node_modules/
 *.tsbuildinfo
 playwright-report/
 test-results/
+netbench-*.png
+.playwright-mcp/

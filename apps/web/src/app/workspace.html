@@ -197,7 +197,7 @@
   </div>
 
   <footer class="shrink-0 border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-500">
-    How this lab differs from real gear: {{ api.state()?.differsNote || 'Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.' }}
+    {{ api.state()?.differsNote || 'How this lab differs from real gear: Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.' }}
     Goal: {{ api.state()?.goal }}
   </footer>
 </div>
