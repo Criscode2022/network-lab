@@ -1,0 +1,31 @@
+{
+  "name": "netbench",
+  "private": true,
+  "version": "1.0.0",
+  "description": "NetBench — browser network lab for junior network and systems administrators",
+  "workspaces": [
+    "packages/*",
+    "apps/api",
+    "apps/web",
+    "apps/eve-agent"
+  ],
+  "scripts": {
+    "build": "npm run build -w @netbench/engine && npm run build -w @netbench/api --if-present && npm run build -w @netbench/web --if-present",
+    "test": "npm test -w @netbench/engine && npm test -w @netbench/api --if-present",
+    "test:engine": "npm test -w @netbench/engine",
+    "test:api": "npm test -w @netbench/api --if-present",
+    "dev:api": "npm run start:dev -w @netbench/api",
+    "dev:web": "npm start -w @netbench/web",
+    "dev:eve": "npm run dev -w @netbench/eve-agent --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "lmdb@3.5.6": true,
+    "msgpackr-extract@3.0.4": true,
+    "@parcel/watcher@2.6.0": true
+  }
+}
