@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+html,
+body,
+app-root {
+  height: 100%;
+  margin: 0;
+  background: #09090b;
+  color: #e4e4e7;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.term {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.grid-canvas {
+  background-image:
+    linear-gradient(to right, rgb(39 39 42 / 0.55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(39 39 42 / 0.55) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgb(34 211 238 / 0.6); }
+  70% { box-shadow: 0 0 0 10px rgb(34 211 238 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(34 211 238 / 0); }
+}
+.hl-pulse { animation: pulse-ring 1.2s ease-out infinite; }

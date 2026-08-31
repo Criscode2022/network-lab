@@ -1,0 +1,235 @@
+<div class="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-200">
+  <header class="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-800 px-3">
+    <div class="text-sm font-semibold tracking-wide text-cyan-300">NetBench</div>
+    <select
+      class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
+      (change)="loadLab($any($event.target).value)"
+    >
+      @for (l of labs(); track l.id) {
+        <option [value]="l.id">{{ l.name }}</option>
+      }
+    </select>
+    <button class="rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600" (click)="doCheck()">Check</button>
+    <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="saveJson()">Download JSON</button>
+    <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs">
+      Upload
+      <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
+    </label>
+    <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
+    <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="authOpen.set(true)">
+      {{ api.guest() ? 'Sign in' : 'Account' }}
+    </button>
+    <button class="rounded-md border border-cyan-800 px-2 py-1 text-xs text-cyan-300" (click)="eveOpen.set(!eveOpen())">Eve</button>
+  </header>
+
+  @if (api.warning()) {
+    <div class="border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200">{{ api.warning() }}</div>
+  }
+  @if (checkMsg()) {
+    <div class="border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs whitespace-pre-wrap" [class.text-emerald-400]="checkMsg() === 'Check passed.'" [class.text-rose-300]="checkMsg() !== 'Check passed.'">{{ checkMsg() }}</div>
+  }
+
+  <div class="flex min-h-0 flex-1">
+    <aside class="flex w-48 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/70">
+      <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Palette</div>
+      @for (p of PALETTE; track p.kind) {
+        <button
+          class="mx-2 mb-1 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-zinc-800"
+          [ngClass]="placing() === p.kind ? 'border-cyan-500 bg-cyan-950' : 'border-transparent'"
+          (click)="placing.set(p.kind)"
+        >
+          <div class="font-medium">{{ p.label }}</div>
+          <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
+        </button>
+      }
+      <p class="mt-auto px-3 py-2 text-[10px] leading-snug text-zinc-500">Click a type, then the canvas. Click port → port to cable. Copper Ethernet only.</p>
+    </aside>
+
+    <div class="relative min-w-0 flex-1">
+      <div
+        class="grid-canvas absolute inset-0 overflow-hidden"
+        (wheel)="onWheel($event, $any($event.currentTarget))"
+        (mousedown)="canvasDown($event, $any($event.currentTarget))"
+        (mousemove)="canvasMove($event)"
+      >
+        <svg class="absolute inset-0 h-full w-full" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'" style="transform-origin: 0 0">
+          @for (l of api.state()?.links ?? []; track l.id) {
+            <path [attr.d]="linkPath(l)" fill="none" [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'" [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'" stroke-width="2" />
+          }
+          @for (p of animPkts(); track p.id) {
+            <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
+              <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
+            </circle>
+          }
+        </svg>
+        <div class="absolute left-0 top-0" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'" style="transform-origin: 0 0">
+          @for (d of api.state()?.devices ?? []; track d.id) {
+            <div
+              data-dev
+              class="absolute w-24 cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
+              [ngClass]="kindColor(d.kind) + (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') + (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '')"
+              [style.left.px]="d.x"
+              [style.top.px]="d.y"
+              (mousedown)="startDrag($event, d)"
+            >
+              <div class="text-[10px] uppercase text-zinc-400">{{ d.kind }}</div>
+              <div class="truncate text-xs font-semibold">{{ d.name }}</div>
+              <div class="flex flex-wrap justify-center gap-0.5 pt-1">
+                @for (i of d.ifaces; track i.name) {
+                  @if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
+                    <button
+                      class="rounded px-0.5 font-mono text-[9px]"
+                      [ngClass]="i.operUp ? 'bg-emerald-700/70' : 'bg-zinc-800 text-zinc-500'"
+                      (click)="clickPort($event, d, i.name)"
+                      [title]="i.name"
+                    >{{ i.name }}</button>
+                  }
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <aside class="flex w-72 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/80">
+      <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium">Inspector</div>
+      @if (selected(); as d) {
+        <div class="px-3 py-2 text-sm font-semibold">{{ d.hostname }} <span class="text-zinc-500">{{ d.kind }}</span></div>
+        <div class="flex gap-1 px-2">
+          <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab()==='ifaces'" (click)="inspectorTab.set('ifaces')">Ifaces</button>
+          <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab()==='run'" (click)="inspectorTab.set('run')">Running-config</button>
+        </div>
+        @if (inspectorTab() === 'ifaces') {
+          <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+            @for (i of d.ifaces; track i.name) {
+              <div class="mb-2 border-b border-zinc-800/80 pb-1">
+                <div class="font-mono">{{ i.name }} {{ i.adminUp ? 'UP' : 'DOWN' }} {{ i.operUp ? 'UP' : 'NO-CARRIER' }}</div>
+                @if (i.ipv4) { <div>inet {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div> }
+                @for (v of i.ipv6; track v.ip) { <div class="truncate">inet6 {{ v.ip }}/{{ v.prefix }}</div> }
+                <div class="text-zinc-500">{{ i.mode }} vlan {{ i.accessVlan }} {{ i.isRadio ? 'radio' : '' }}</div>
+              </div>
+            }
+            @if (d.associatedSsid) { <div>SSID {{ d.associatedSsid }}</div> }
+          </div>
+        } @else {
+          <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
+        }
+        <button class="m-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300" (click)="confirmDel.set(d)">Delete…</button>
+      } @else {
+        <p class="px-3 py-4 text-xs text-zinc-500">Select a device.</p>
+      }
+    </aside>
+
+    @if (eveOpen()) {
+      <aside class="flex w-80 shrink-0 flex-col border-l border-zinc-800 bg-zinc-950">
+        <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium text-cyan-300">Eve — lab instructor</div>
+        <div class="flex gap-1 px-2 py-1">
+          <button class="rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="explain()">Explain selection</button>
+          <button class="rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="fixLab()">Fix my lab</button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
+          @for (m of eveMsgs(); track $index) {
+            <div class="mb-2" [class.text-cyan-200]="m.role==='eve'" [class.text-zinc-400]="m.role==='user'">
+              <span class="text-[10px] uppercase text-zinc-600">{{ m.role }}</span>
+              <div class="whitespace-pre-wrap">{{ m.text }}</div>
+            </div>
+          }
+        </div>
+        @if (pending(); as p) {
+          <div class="m-2 rounded-md border border-amber-700 bg-amber-950/50 p-2 text-xs">
+            <div class="mb-1 font-medium text-amber-200">{{ p.title }}</div>
+            <div class="flex gap-2">
+              <button class="rounded bg-amber-700 px-2 py-1" (click)="applyPending()">Apply</button>
+              <button class="rounded border border-zinc-600 px-2 py-1" (click)="discardPending()">Discard</button>
+            </div>
+          </div>
+        }
+        <textarea class="mx-2 h-16 rounded border border-zinc-800 bg-zinc-900 p-1 text-xs" [(ngModel)]="buildPrompt" placeholder="Build from prompt…"></textarea>
+        <button class="mx-2 mb-1 rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="buildFromPrompt()">Build from prompt</button>
+        <form class="flex gap-1 border-t border-zinc-800 p-2" (submit)="$event.preventDefault(); sendEve()">
+          <input class="flex-1 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs" [(ngModel)]="eveInput" name="eve" placeholder="Ask Eve…" />
+          <button class="rounded bg-cyan-800 px-2 text-xs">Send</button>
+        </form>
+      </aside>
+    }
+  </div>
+
+  <div class="flex h-52 shrink-0 border-t border-zinc-800">
+    <div class="flex min-w-0 flex-1 flex-col bg-black">
+      <div class="flex items-center gap-2 border-b border-zinc-800 px-2 py-1 text-[10px] text-zinc-500">
+        Terminal
+        <select class="bg-zinc-900 text-xs" name="termdev" [ngModel]="termDevice()" (ngModelChange)="termDevice.set($event)">
+          @for (d of api.state()?.devices ?? []; track d.id) {
+            <option [value]="d.id">{{ d.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="term min-h-0 flex-1 overflow-auto px-2 py-1 text-[11px] leading-5 text-emerald-300/90">
+        @for (line of termLines(); track $index) {
+          <pre [class.text-rose-400]="line.err" class="whitespace-pre-wrap">{{ line.text }}</pre>
+        }
+      </div>
+      <form class="flex border-t border-zinc-800" (submit)="$event.preventDefault(); runLine()">
+        <span class="term px-2 py-1 text-[11px] text-emerald-500">{{ prompt() }}</span>
+        <input class="term flex-1 bg-black px-1 py-1 text-[11px] outline-none" [(ngModel)]="termInput" name="cli" autofocus />
+      </form>
+    </div>
+    <div class="w-96 overflow-auto border-l border-zinc-800 bg-zinc-950 p-2">
+      <div class="mb-1 text-[10px] uppercase text-zinc-500">Packets</div>
+      @for (p of (api.state()?.packets ?? []).slice(-12).reverse(); track p.id) {
+        <button class="mb-1 block w-full rounded px-1 py-0.5 text-left font-mono text-[10px] hover:bg-zinc-900" (click)="selectedPkt.set(p)">
+          <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.proto }}</span>
+          {{ p.srcIp || p.srcMac }} → {{ p.dstIp || p.dstMac }}
+          @if (p.simulated) { <span class="rounded bg-zinc-800 px-1 text-[9px] text-amber-300">simulated</span> }
+          <div class="truncate text-zinc-500">{{ p.reason }}</div>
+        </button>
+      }
+      @if (selectedPkt(); as p) {
+        <div class="mt-2 rounded border border-zinc-800 p-2 text-[10px] leading-4">
+          <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
+          <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }}</div>
+          <div>IP {{ p.srcIp ?? '—' }} → {{ p.dstIp ?? '—' }} {{ p.proto }} TTL/hlim {{ p.ttl ?? '—' }}</div>
+          <div>{{ p.reason }}</div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <footer class="shrink-0 border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-500">
+    How this lab differs from real gear: {{ api.state()?.differsNote || 'Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.' }}
+    Goal: {{ api.state()?.goal }}
+  </footer>
+</div>
+
+@if (confirmDel(); as d) {
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60">
+    <div class="w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm">
+      <p>Delete {{ d.name }}?</p>
+      <div class="mt-3 flex justify-end gap-2">
+        <button class="rounded border border-zinc-600 px-3 py-1" (click)="confirmDel.set(null)">Cancel</button>
+        <button class="rounded bg-rose-700 px-3 py-1" (click)="doDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (showCheat()) {
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60" (click)="showCheat.set(false)">
+    <pre class="max-h-[80vh] w-[640px] overflow-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 font-mono text-xs" (click)="$event.stopPropagation()">{{ cheat() }}</pre>
+  </div>
+}
+
+@if (authOpen()) {
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60">
+    <form class="w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm" (submit)="$event.preventDefault(); doLogin()">
+      <p class="mb-2 font-medium">Sign in / register</p>
+      <input class="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1" [(ngModel)]="email" name="email" placeholder="email" />
+      <input class="mb-3 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1" [(ngModel)]="password" name="pw" type="password" placeholder="password" />
+      <div class="flex justify-end gap-2">
+        <button type="button" class="rounded px-2" (click)="authOpen.set(false)">Close</button>
+        <button class="rounded bg-cyan-700 px-3 py-1">Continue</button>
+      </div>
+    </form>
+  </div>
+}
