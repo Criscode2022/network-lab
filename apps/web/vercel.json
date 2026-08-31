@@ -2,5 +2,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/web/browser",
   "framework": null,
-  "rewrites": [{ "source": "/((?!api).*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://api-production-caeb.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/((?!api).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
