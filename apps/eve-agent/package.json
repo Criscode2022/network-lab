@@ -1,0 +1,16 @@
+{
+  "name": "@netbench/eve-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "eve dev",
+    "build": "eve build",
+    "start": "eve start",
+    "deploy": "eve deploy"
+  },
+  "dependencies": {
+    "eve": "latest",
+    "zod": "^4.1.5"
+  }
+}

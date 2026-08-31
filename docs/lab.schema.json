@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://netbench.local/schema/lab.schema.json",
+  "title": "NetBench Lab",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "devices", "links", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "goal": { "type": "string" },
+    "differsNote": { "type": "string" },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "x", "y"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "enum": ["workstation", "server", "switch", "router", "firewall", "ap", "wlc", "cloud"]
+          },
+          "name": { "type": "string" },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "hostname": { "type": "string" },
+          "startup": { "type": "array", "items": { "type": "string" } },
+          "post": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["a", "b"],
+        "properties": {
+          "a": { "type": "string", "description": "Name:iface" },
+          "b": { "type": "string" }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "src", "dst"],
+            "properties": {
+              "type": { "const": "ping" },
+              "src": { "type": "string" },
+              "dst": { "type": "string" },
+              "family": { "enum": ["v4", "v6"] }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "src", "dst", "expect"],
+            "properties": {
+              "type": { "const": "ssh" },
+              "src": { "type": "string" },
+              "dst": { "type": "string" },
+              "expect": { "enum": ["allow", "deny"] }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "client"],
+            "properties": { "type": { "const": "wifi-associated" }, "client": { "type": "string" } }
+          },
+          {
+            "type": "object",
+            "required": ["type", "device"],
+            "properties": { "type": { "const": "dhcp-bound" }, "device": { "type": "string" } }
+          },
+          {
+            "type": "object",
+            "required": ["type", "a", "b"],
+            "properties": { "type": { "const": "ospf-full" }, "a": { "type": "string" }, "b": { "type": "string" } }
+          }
+        ]
+      }
+    }
+  }
+}
