@@ -1,6 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 
-const API = '/api';
+const API =
+  typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? '/api'
+    : 'https://api-production-caeb.up.railway.app/api';
 
 export interface IfaceState {
   name: string;

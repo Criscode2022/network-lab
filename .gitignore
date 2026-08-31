@@ -20,3 +20,4 @@ playwright-report/
 test-results/
 netbench-*.png
 .playwright-mcp/
+.vercel-upload.json
