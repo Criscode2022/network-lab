@@ -67,7 +67,8 @@ Lab JSON schema: `packages/engine/schema/lab.schema.json`.
 
 1. **Neon** — create a project, run `sql/schema.sql`, set `DATABASE_URL`.
 2. **API** — Railway / Fly / Render / any always-on Node. `apps/api/Dockerfile`. Env: `PORT`, `JWT_SECRET`, `DATABASE_URL`.
-3. **Angular** — Vercel. Root or `apps/web` (`eve`-unrelated static). Set the API origin if not same-host.
+   Live: `https://api-production-caeb.up.railway.app/api/health`
+3. **Angular** — Vercel (preferred). `apps/web`. Off localhost the UI calls the Railway API. A Railway nginx image (`apps/web/Dockerfile`) is a public fallback if Vercel SSO is on.
 4. **Eve** — from `apps/eve-agent`:
 
 ```bash
