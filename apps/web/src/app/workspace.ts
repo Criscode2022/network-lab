@@ -363,6 +363,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return rows;
   }
 
+  portRows(d: DeviceState) {
+    const peer = new Map(this.cableRows(d).map((c) => [c.mine, c]));
+    return d.ifaces
+      .filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan') && !i.isRadio)
+      .map((i) => ({
+        name: i.name,
+        status: this.linkStatus(i),
+        up: i.operUp,
+        peer: peer.get(i.name) ?? null,
+      }));
+  }
+
   visiblePackets() {
     const last = [...(this.api.state()?.packets ?? [])].slice(-12).reverse();
     if (this.advanced()) return last;
@@ -478,7 +490,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.showHint(`Cable started on ${d.name}. Tap another device to connect.`);
   }
 
-  private finishCable(d: DeviceState) {
+  private async finishCable(d: DeviceState) {
     const from = this.cableFrom();
     if (!from || from.id === d.id) return;
     const iface = this.freeCopper(d);
@@ -488,9 +500,21 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     const a = `${this.devName(from.id)}:${from.iface}`;
     const b = `${d.name}:${iface.name}`;
-    void this.api.edit({ addLinks: [{ a, b }] });
+    const fromName = this.devName(from.id);
+    try {
+      await this.api.edit({ addLinks: [{ a, b }] });
+    } catch (e) {
+      this.showHint(String(e));
+      return;
+    }
     this.cableFrom.set(null);
-    this.showHint(`Cabled ${this.devName(from.id)} ↔ ${d.name}.`);
+    this.showHint(`Cabled ${fromName} ↔ ${d.name} (${iface.name}).`);
+    if (this.basicMode()) {
+      this.selectedId.set(d.id);
+      this.termDevice.set(d.id);
+      this.prepareIpv4Form(d);
+      this.basicSheet.set(true);
+    }
   }
 
   showHint(msg: string) {
