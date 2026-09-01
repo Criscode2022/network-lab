@@ -1,7 +1,7 @@
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { Api, PALETTE, type DeviceState, type IfaceState, type PacketEvent } from './api';
+import { Api, CABLE_TYPES, PALETTE, type CableMedia, type DeviceState, type IfacePeer, type IfaceState, type LinkState, type PacketEvent } from './api';
 import { EveClient } from './eve-client';
 
 @Component({
@@ -14,6 +14,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly eve = inject(EveClient);
   private readonly cdr = inject(ChangeDetectorRef);
   readonly PALETTE = PALETTE;
+  readonly CABLE_TYPES = CABLE_TYPES;
   labs = signal<{ id: string; name: string; goal: string }[]>([]);
   selectedId = signal<string | null>(null);
   termDevice = signal<string | null>(null);
@@ -30,6 +31,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private pendingFit = false;
   private guarded = new WeakSet<HTMLElement>();
   cableFrom = signal<{ id: string; iface: string } | null>(null);
+  cableKind = signal<CableMedia>('ethernet');
+  cableArmed = signal(false);
+  cableCursor = signal<{ x: number; y: number } | null>(null);
+  selectedLinkId = signal<string | null>(null);
+  showFreePorts = signal(false);
   placing = signal<string | null>(null);
   addOpen = signal(false);
   advanced = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_advanced') === '1');
@@ -84,7 +90,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.api.onPackets = (events) => this.animate(events);
     const b = await this.api.builtins();
     this.labs.set(b.labs);
-    await this.api.open('lab-1-first-ipv4-ping');
+    const guestLab = this.api.readGuestLab() as { id?: string; name?: string; goal?: string } | null;
+    try {
+      if (guestLab) {
+        if (guestLab.id && guestLab.name && !b.labs.some((l) => l.id === guestLab.id)) {
+          this.labs.set([{ id: guestLab.id, name: `${guestLab.name} (this browser)`, goal: guestLab.goal ?? '' }, ...b.labs]);
+        }
+        await this.api.open(undefined, guestLab);
+      } else {
+        await this.api.open('lab-1-first-ipv4-ping');
+      }
+    } catch {
+      await this.api.open('lab-1-first-ipv4-ping');
+    }
     const first = this.api.state()?.devices[0];
     if (first) {
       this.selectedId.set(first.id);
@@ -97,6 +115,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.mq.addEventListener('change', this.onMq);
     requestAnimationFrame(() => this.fitIfNarrow());
     window.addEventListener('keydown', this.onKey);
+    window.addEventListener('pagehide', this.flushGuest);
     this.saveTimer = setInterval(() => {
       const st = this.api.state();
       if (!st) return;
@@ -104,6 +123,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       void this.api.save().catch(() => undefined);
     }, 12000);
   }
+
+  private flushGuest = () => {
+    void this.api.save().catch(() => undefined);
+  };
 
   ngAfterViewInit() {
     const el = this.stage?.nativeElement;
@@ -113,6 +136,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnDestroy() {
     window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('pagehide', this.flushGuest);
     this.mq?.removeEventListener('change', this.onMq);
     if (this.saveTimer) clearInterval(this.saveTimer);
     if (this.hintTimer) clearTimeout(this.hintTimer);
@@ -163,8 +187,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleAdvanced() {
-    const next = !this.advanced();
+    this.setAdvanced(!this.advanced());
+  }
+
+  setAdvanced(next: boolean) {
     this.advanced.set(next);
+    if (!next) this.cableKind.set('ethernet');
+    this.showFreePorts.set(false);
     try {
       localStorage.setItem('nb_advanced', next ? '1' : '0');
     } catch {
@@ -172,8 +201,26 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  visibleCables() {
+    return this.advUi() ? CABLE_TYPES : CABLE_TYPES.filter((c) => !c.advanced);
+  }
+
+  cableLabel(id: CableMedia | string | undefined) {
+    if (id === 'radio') return 'Wi-Fi';
+    return CABLE_TYPES.find((c) => c.id === id)?.label ?? 'Ethernet';
+  }
+
+  effectiveCable(): CableMedia {
+    return this.advUi() ? this.cableKind() : 'ethernet';
+  }
+
   basicMode() {
     return this.isNarrow() && this.basic();
+  }
+
+  /** Advanced inspector/cables/ports. Basic mobile always stays simple. */
+  advUi() {
+    return this.advanced() && !this.basicMode();
   }
 
   toggleBasic() {
@@ -187,11 +234,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.moreOpen.set(false);
     this.addOpen.set(false);
     this.basicSheet.set(false);
-    this.cableFrom.set(null);
+    this.cancelCable();
     if (next) {
       this.mobileTab.set('canvas');
       this.eveOpen.set(false);
-      this.advanced.set(false);
+      this.setAdvanced(false);
       requestAnimationFrame(() => this.fitIfNarrow());
     }
   }
@@ -330,8 +377,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   linkStatus(i: IfaceState) {
+    if (i.status) return i.status;
     if (!i.adminUp) return 'Disabled';
-    if (!i.operUp) return 'Unplugged';
+    if (!i.operUp) return i.peer ? 'Down' : 'Unplugged';
     return 'Up';
   }
 
@@ -344,35 +392,92 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   cardIfaces(d: DeviceState) {
-    const phys = d.ifaces.filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'));
-    if (this.advanced()) return phys;
-    const used = new Set(this.cableRows(d).map((r) => r.mine));
-    const connected = phys.filter((i) => used.has(i.name));
-    return connected.length ? connected : phys.filter((i) => !i.isRadio).slice(0, 2);
+    return d.ifaces.filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'));
   }
 
   cableRows(d: DeviceState) {
-    const rows: { mine: string; peer: string; peerIface: string }[] = [];
+    const rows: { mine: string; peer: string; peerIface: string; linkId: string; cable: string; kind: string }[] = [];
     for (const l of this.api.state()?.links ?? []) {
       if (l.a.deviceId === d.id) {
-        rows.push({ mine: l.a.iface, peer: this.devName(l.b.deviceId), peerIface: l.b.iface });
+        rows.push({
+          mine: l.a.iface,
+          peer: this.devName(l.b.deviceId),
+          peerIface: l.b.iface,
+          linkId: l.id,
+          cable: l.kind === 'radio' ? 'radio' : (l.cable ?? 'ethernet'),
+          kind: l.kind,
+        });
       } else if (l.b.deviceId === d.id) {
-        rows.push({ mine: l.b.iface, peer: this.devName(l.a.deviceId), peerIface: l.a.iface });
+        rows.push({
+          mine: l.b.iface,
+          peer: this.devName(l.a.deviceId),
+          peerIface: l.a.iface,
+          linkId: l.id,
+          cable: l.kind === 'radio' ? 'radio' : (l.cable ?? 'ethernet'),
+          kind: l.kind,
+        });
       }
     }
     return rows;
   }
 
+  peerOf(d: DeviceState, iface: string): IfacePeer | null {
+    const i = d.ifaces.find((x) => x.name.toLowerCase() === iface.toLowerCase());
+    if (i?.peer) return i.peer;
+    const row = this.cableRows(d).find((c) => c.mine.toLowerCase() === iface.toLowerCase());
+    if (!row) return null;
+    return {
+      device: row.peer,
+      deviceId: '',
+      iface: row.peerIface,
+      linkId: row.linkId,
+      cable: row.cable as IfacePeer['cable'],
+    };
+  }
+
   portRows(d: DeviceState) {
-    const peer = new Map(this.cableRows(d).map((c) => [c.mine, c]));
     return d.ifaces
       .filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan') && !i.isRadio)
-      .map((i) => ({
-        name: i.name,
-        status: this.linkStatus(i),
-        up: i.operUp,
-        peer: peer.get(i.name) ?? null,
-      }));
+      .map((i) => {
+        const peer = this.peerOf(d, i.name);
+        return {
+          name: i.name,
+          status: this.linkStatus(i),
+          up: i.operUp,
+          used: !!peer,
+          peer,
+          reason: i.statusReason ?? '',
+        };
+      });
+  }
+
+  usedPortRows(d: DeviceState) {
+    return this.portRows(d).filter((p) => p.used);
+  }
+
+  freePortRows(d: DeviceState) {
+    return this.portRows(d).filter((p) => !p.used);
+  }
+
+  shortPort(name: string) {
+    if (name.toLowerCase() === 'wlan0') return 'wifi';
+    const gi = name.match(/^Gi0\/(\d+)$/i);
+    if (gi) return gi[1];
+    return name;
+  }
+
+  portChipClass(d: DeviceState, i: IfaceState) {
+    const peer = this.peerOf(d, i.name);
+    if (i.isRadio) return i.operUp ? 'bg-violet-700/80 text-violet-100' : 'border border-violet-700/60 text-violet-400';
+    if (peer && i.operUp) return 'bg-emerald-700/80 text-emerald-50';
+    if (peer && !i.operUp) return 'bg-amber-800/80 text-amber-100';
+    return 'border border-zinc-600 text-zinc-500';
+  }
+
+  portTitle(d: DeviceState, i: IfaceState) {
+    const p = this.peerOf(d, i.name);
+    if (p) return `${i.name} → ${p.device} ${p.iface} · ${this.cableLabel(p.cable)} · ${this.linkStatus(i)}`;
+    return `${i.name} free`;
   }
 
   visiblePackets() {
@@ -449,22 +554,22 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     this.showHint(
       this.basicMode()
-        ? `${name} added. Drag it. Tap it, then Cable.`
-        : `${this.kindLabel(kind)} ${name} added. Drag to move. Tap Cable, then another device to connect.`,
+        ? `${name} added. Drag it. Tap Cable, then another device.`
+        : `${this.kindLabel(kind)} ${name} added. Drag to move. Use Cable in the palette, then click two devices.`,
     );
     if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
   }
 
-  private freeCopper(d: DeviceState) {
-    const used = new Set<string>();
-    for (const l of this.api.state()?.links ?? []) {
-      if (l.a.deviceId === d.id) used.add(l.a.iface);
-      if (l.b.deviceId === d.id) used.add(l.b.iface);
+  private freePort(d: DeviceState) {
+    const cable = this.effectiveCable();
+    if (cable === 'fiber') {
+      const fiberOk = d.kind === 'switch' || d.kind === 'router' || d.kind === 'firewall' || d.kind === 'ap' || d.kind === 'wlc';
+      if (!fiberOk) return null;
     }
     return (
       d.ifaces.find(
         (i) =>
-          !used.has(i.name) &&
+          !this.peerOf(d, i.name) &&
           !i.isRadio &&
           !i.name.includes('.') &&
           !i.name.toLowerCase().startsWith('vlan'),
@@ -472,43 +577,108 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
+  armCable(kind?: CableMedia) {
+    if (kind) this.cableKind.set(kind);
+    if (!this.advUi()) this.cableKind.set('ethernet');
+    this.cableArmed.set(true);
+    this.cableFrom.set(null);
+    this.placing.set(null);
+    this.addOpen.set(false);
+    this.basicSheet.set(false);
+    this.selectedLinkId.set(null);
+    if (this.isNarrow()) this.mobileTab.set('canvas');
+    this.showHint(
+      this.advUi()
+        ? `${this.cableLabel(this.effectiveCable())}: click a free port, then a port on another device. Or click two devices.`
+        : `Ethernet: tap two devices to connect. First free ports are used.`,
+    );
+  }
+
+  cancelCable() {
+    this.cableFrom.set(null);
+    this.cableArmed.set(false);
+    this.cableCursor.set(null);
+  }
+
+  selectedLink(): LinkState | null {
+    const id = this.selectedLinkId();
+    if (!id) return null;
+    return this.api.state()?.links.find((l) => l.id === id) ?? null;
+  }
+
+  async unplug(linkId: string) {
+    try {
+      await this.api.edit({ removeLinks: [linkId] });
+    } catch (e) {
+      this.showHint(String(e));
+      return;
+    }
+    this.selectedLinkId.set(null);
+    this.showHint('Cable removed.');
+  }
+
   startCable(ev: Event, d: DeviceState) {
     ev.stopPropagation();
     ev.preventDefault();
     const from = this.cableFrom();
     if (from && from.id !== d.id) {
-      this.finishCable(d);
+      void this.finishCable(d);
       return;
     }
-    const iface = this.freeCopper(d);
+    const iface = this.freePort(d);
     if (!iface) {
-      this.showHint(`${d.name} has no free Ethernet port.`);
+      this.showHint(
+        this.effectiveCable() === 'fiber'
+          ? `${d.name} has no fiber (SFP) port. Use Ethernet, or pick a switch/router.`
+          : `${d.name} has no free Ethernet port.`,
+      );
       return;
     }
     this.cableFrom.set({ id: d.id, iface: iface.name });
+    this.cableArmed.set(true);
     this.basicSheet.set(false);
-    this.showHint(`Cable started on ${d.name}. Tap another device to connect.`);
+    this.showHint(
+      `${this.cableLabel(this.effectiveCable())} started on ${d.name} ${this.advUi() ? iface.name : ''}. Tap another device.`.replace(
+        /\s+/g,
+        ' ',
+      ),
+    );
   }
 
-  private async finishCable(d: DeviceState) {
+  private async finishCable(d: DeviceState, ifaceName?: string) {
     const from = this.cableFrom();
     if (!from || from.id === d.id) return;
-    const iface = this.freeCopper(d);
-    if (!iface) {
-      this.showHint(`${d.name} has no free Ethernet port.`);
+    const iface = ifaceName ? d.ifaces.find((i) => i.name === ifaceName) : this.freePort(d);
+    if (!iface || iface.isRadio) {
+      this.showHint(
+        this.effectiveCable() === 'fiber'
+          ? `${d.name} has no fiber (SFP) port.`
+          : `${d.name} has no free Ethernet port.`,
+      );
+      return;
+    }
+    if (this.peerOf(d, iface.name)) {
+      this.showHint(`${d.name} ${iface.name} is already cabled.`);
       return;
     }
     const a = `${this.devName(from.id)}:${from.iface}`;
     const b = `${d.name}:${iface.name}`;
     const fromName = this.devName(from.id);
+    const cable = this.effectiveCable();
     try {
-      await this.api.edit({ addLinks: [{ a, b }] });
+      await this.api.edit({ addLinks: [{ a, b, cable }] });
     } catch (e) {
       this.showHint(String(e));
       return;
     }
     this.cableFrom.set(null);
-    this.showHint(`Cabled ${fromName} ↔ ${d.name} (${iface.name}).`);
+    this.cableCursor.set(null);
+    const stay = this.cableArmed();
+    this.showHint(
+      stay
+        ? `${this.cableLabel(cable)} ${fromName}:${from.iface} ↔ ${d.name}:${iface.name}. Tap two more, or Cancel.`
+        : `${this.cableLabel(cable)} ${fromName}:${from.iface} ↔ ${d.name}:${iface.name}.`,
+    );
     if (this.basicMode()) {
       this.selectedId.set(d.id);
       this.termDevice.set(d.id);
@@ -576,7 +746,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       `labName=${st?.name ?? ''}`,
       sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}` : 'selectedDevice=none',
       pkt ? `selectedPacket=${pkt.proto} ${pkt.srcIp ?? ''} → ${pkt.dstIp ?? ''} reason=${pkt.reason}` : 'selectedPacket=none',
-      'Use labId=labSessionId on every tool. Eight devices only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
+      'Use labId=labSessionId (UUID) on every tool. Never pass confirmToken. Never ask the user for a token — UI Approve mints it. Eight devices only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
     ].join('\n');
   }
 
@@ -594,11 +764,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.confirmDel.set(this.selected());
     }
     if (ev.key === 'Escape') {
-      this.cableFrom.set(null);
+      this.cancelCable();
       this.placing.set(null);
       this.confirmDel.set(null);
       this.addOpen.set(false);
       this.basicSheet.set(false);
+      this.selectedLinkId.set(null);
     }
   };
 
@@ -657,6 +828,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   canvasMove(ev: PointerEvent) {
     if (this.pointers.has(ev.pointerId)) this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (this.cableFrom()) {
+      const el = this.stageEl ?? this.stage?.nativeElement;
+      if (el) this.cableCursor.set(this.worldFromEvent(ev, el));
+    }
     if (this.pinch && this.pointers.size >= 2) {
       ev.preventDefault();
       this.movePinch();
@@ -717,10 +892,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
     const from = this.cableFrom();
-    if (from && from.id !== d.id && (this.basicMode() || !this.advanced())) {
-      this.finishCable(d);
-      this.basicSheet.set(false);
-      return;
+    if (this.cableArmed() || from) {
+      if (from && from.id !== d.id) {
+        void this.finishCable(d);
+        this.basicSheet.set(false);
+        return;
+      }
+      if (!from) {
+        this.startCable(ev, d);
+        return;
+      }
     }
     const host = (ev.currentTarget as HTMLElement).closest('.grid-canvas') as HTMLElement | null;
     if (host) {
@@ -741,6 +922,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     this.selectedId.set(d.id);
     this.termDevice.set(d.id);
+    this.showFreePorts.set(false);
+    this.selectedLinkId.set(null);
     this.tapAt = { x: d.x, y: d.y };
     this.dragging = { id: d.id, ox: d.x - ev.clientX, oy: d.y - ev.clientY };
   }
@@ -866,7 +1049,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       minX = Math.min(minX, d.x);
       minY = Math.min(minY, d.y);
       maxX = Math.max(maxX, d.x + 96);
-      maxY = Math.max(maxY, d.y + 64);
+      maxY = Math.max(maxY, d.y + 96);
     }
     const pad = 32;
     const bw = Math.max(maxX - minX, 1);
@@ -881,21 +1064,72 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   clickPort(ev: Event, d: DeviceState, iface: string) {
     ev.stopPropagation();
+    ev.preventDefault();
+    const i = d.ifaces.find((x) => x.name === iface);
+    if (i?.isRadio) {
+      this.showHint('Wi-Fi uses association (nmcli), not a copper cable.');
+      return;
+    }
+    const busy = this.peerOf(d, iface);
+    if (busy) {
+      this.selectedLinkId.set(busy.linkId);
+      this.showHint(`${d.name} ${iface} is already cabled to ${busy.device} ${busy.iface}. Unplug it first.`);
+      return;
+    }
     const from = this.cableFrom();
     if (!from) {
       this.cableFrom.set({ id: d.id, iface });
-      this.showHint(`Cable started on ${d.name} ${iface}. Tap a port on another device.`);
+      this.cableArmed.set(true);
+      this.showHint(`${this.cableLabel(this.effectiveCable())} from ${d.name} ${iface}. Click a free port on another device.`);
       return;
     }
     if (from.id === d.id) {
       this.cableFrom.set({ id: d.id, iface });
       return;
     }
-    const a = `${this.devName(from.id)}:${from.iface}`;
-    const b = `${d.name}:${iface}`;
-    void this.api.edit({ addLinks: [{ a, b }] });
-    this.cableFrom.set(null);
-    this.showHint(`Cabled ${this.devName(from.id)} ↔ ${d.name}.`);
+    void this.finishCable(d, iface);
+  }
+
+  selectLink(ev: Event, l: LinkState) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    this.selectedLinkId.set(l.id);
+    this.selectedId.set(null);
+    this.basicSheet.set(false);
+  }
+
+  rubberPath() {
+    const from = this.cableFrom();
+    const cur = this.cableCursor();
+    const st = this.api.state();
+    if (!from || !cur || !st) return '';
+    const a = st.devices.find((d) => d.id === from.id);
+    if (!a) return '';
+    return `M ${a.x + 48} ${a.y + 36} L ${cur.x} ${cur.y}`;
+  }
+
+  linkStroke(l: LinkState) {
+    if (this.selectedLinkId() === l.id) return '#22d3ee';
+    if (l.kind === 'radio') return '#a78bfa';
+    if (l.cable === 'fiber') return '#fb923c';
+    if (l.cable === 'crossover') return '#2dd4bf';
+    if (l.cable === 'straight') return '#94a3b8';
+    return '#64748b';
+  }
+
+  linkDash(l: LinkState) {
+    if (l.kind === 'radio') return '6 4';
+    if (l.cable === 'crossover') return '8 3';
+    if (l.cable === 'fiber') return '2 3';
+    return '0';
+  }
+
+  linkIsDown(l: LinkState) {
+    if (l.kind === 'radio') return false;
+    const st = this.api.state();
+    const da = st?.devices.find((d) => d.id === l.a.deviceId);
+    const ia = da?.ifaces.find((i) => i.name === l.a.iface);
+    return !!ia && !ia.operUp;
   }
 
   devName(id: string) {

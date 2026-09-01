@@ -201,7 +201,7 @@ export function labFromSpec(spec: string): LabJson {
     else vlanData = vlanWifi === 10 ? 20 : 10;
   }
 
-  let nPc = countDevices(text, 'pcs?|workstations?|hosts?|laptops?');
+  let nPc = countDevices(text, 'pcs?|workstations?|hosts?|laptops?|workers?|employees?');
   let nSrv = countDevices(text, 'servers?');
   let nSw = countPhrase(text, 'switches|switch|sw');
   let nR = countDevices(text, 'routers?');

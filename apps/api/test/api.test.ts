@@ -99,6 +99,30 @@ describe('sessions + engine path/check', () => {
   });
 });
 
+describe('guest session save', () => {
+  it('returns lab json a browser can restore', async () => {
+    const guest = await request(server).post('/api/auth/guest').send({}).expect(201);
+    const token = guest.body.token as string;
+    const opened = await request(server)
+      .post('/api/sessions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ labId: 'lab-1-first-ipv4-ping' })
+      .expect(201);
+    const saved = await request(server)
+      .post(`/api/sessions/${opened.body.sessionId}/save`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(201);
+    expect(saved.body.guest).toBe(true);
+    expect(saved.body.json.devices.length).toBeGreaterThanOrEqual(3);
+    const restored = await request(server)
+      .post('/api/sessions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ lab: saved.body.json })
+      .expect(201);
+    expect(restored.body.state.devices.length).toBe(saved.body.json.devices.length);
+  });
+});
+
 describe('confirmToken + patch schema', () => {
   it('rejects missing confirmToken on patch/config/build', async () => {
     const { sessionId } = await openLab('lab-1-first-ipv4-ping');
@@ -119,6 +143,17 @@ describe('confirmToken + patch schema', () => {
       .send({ deviceId: 'pc1', commands: ['hostname PC1b'], confirmToken: tok.body.confirmToken });
     expect(r.status).toBeLessThan(400);
     expect(r.body.runningConfig).toContain('PC1b');
+  });
+
+  it('eve/tools/confirm mints a token Eve can use without a model-supplied token', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post('/api/eve/tools/confirm').send({ labId: sessionId, purpose: 'build_lab' }).expect(201);
+    expect(tok.body.confirmToken).toBeTruthy();
+    const built = await request(server)
+      .post('/api/eve/tools/build_lab')
+      .send({ labId: sessionId, spec: 'two PCs and a switch', confirmToken: tok.body.confirmToken });
+    expect(built.status).toBeLessThan(400);
+    expect(built.body.state.devices.length).toBeGreaterThanOrEqual(3);
   });
 
   it('patch schema rejects unknown device types', async () => {

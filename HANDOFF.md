@@ -2,7 +2,7 @@
 
 Read this file before changing code. It is the continuation brief for another coding agent: product rules, architecture, how to run and deploy, UI modes, Eve, tests, recent work, and what not to break.
 
-Last updated: 2026-09-01. Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`. HEAD at write time: `6d4de07`.
+Last updated: 2026-09-01. Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`.
 
 ---
 
@@ -20,7 +20,7 @@ It is **not** Packet Tracer and **not** a CCIE catalog.
 - Drops must keep an **honest reason** (packet inspector + `get_path`). Do not fake success.
 - Approximations (SSH crypto, RF, OSPF P2P) are marked **simulated**.
 - The forwarding engine is a **long-running Node process**. Do not put it on a 10s serverless timeout.
-- Palette is junior-admin only. Copper Ethernet for wired cables; Wi-Fi is a simplified BSS then IP.
+- Palette is junior-admin only. Wired cables: Ethernet (auto-MDIX), straight-through, crossover, fiber. Wi-Fi is a simplified BSS then IP. No console/serial.
 
 ---
 
@@ -83,7 +83,8 @@ Pure TypeScript. Import in tests: `@netbench/engine`.
 | --- | --- |
 | `src/engine.ts` | Discrete-event forwarding, CLI `exec`, ping, path, check |
 | `src/devices.ts` | `createDevice`, iface defaults (`adminUp` false on Cisco until no-shut) |
-| `src/types.ts` | `DeviceKind`, `KIND_PORTS`, `LabJson`, `LabPatch`, checks |
+| `src/types.ts` | `DeviceKind`, `KIND_PORTS`, `CableMedia`, `LabJson`, `LabPatch`, checks |
+| `src/cables.ts` | Cable types, like/unlike pairing, fiber SFP check |
 | `src/labs.ts` | Eight builtin labs |
 | `src/build.ts` | `labFromSpec(spec)` for Eve Builder |
 | `src/patch.ts` | Validate/apply `LabPatch` |
@@ -109,6 +110,8 @@ Linux hosts (`workstation`, `server`, plus firewall/cloud CLI): `ip addr add`, `
 Cisco-like (`switch`, `router`, `ap`, `wlc`): start at **user** exec; need `enable` then `conf t`. `operUp` requires `adminUp` **and** a peer (or radio assoc).
 
 **Important:** `Engine.addLink` now sets `adminUp = true` on both ends. The first lab only `no shut`s Gi0/1 and Gi0/2 in startup; a third PC used to land on Gi0/3 still shutdown. Do not revert that without replacing it.
+
+`addLink` rejects an occupied port (`already cabled`). Optional 4th arg / patch field `cable`: `ethernet` (default, auto-MDIX, always gets carrier), `straight`, `crossover`, `fiber`. Straight/crossover follow CCNA like/unlike rules (switch is the only intermediary). Wrong type still creates the cable but `operUp` is false (`Wrong cable`). Fiber is refused on workstation/server/cloud (no SFP). `getState` ifaces include `peer`, `status`, `statusReason`.
 
 ### `labFromSpec(spec)`
 
@@ -147,7 +150,7 @@ Global prefix `/api`. CORS `origin: true`. Long-running: `tsx src/main.ts` (scri
 | Edit topology | `POST /api/sessions/:id/edit` `{ patch?, move? }` — **no** confirmToken (user UI) |
 | Eve mutations | `POST /api/sessions/:id/{patch,config,build}` **require** `confirmToken` |
 | Confirm | `POST /api/sessions/:id/confirm` `{ purpose }` |
-| Eve tools | `POST /api/eve/tools/{get_lab_state,get_device,get_path,run_check,apply_device_config,apply_lab_patch,build_lab,highlight_devices,list_commands}` |
+| Eve tools | `POST /api/eve/tools/{confirm,get_lab_state,get_device,get_path,run_check,apply_device_config,apply_lab_patch,build_lab,highlight_devices,list_commands}` |
 | WS | `GET /ws?sessionId=` (not under `/api`) |
 
 `purpose` values: `apply_lab_patch`, `apply_device_config`, `build_lab`. Missing token → 403. Rate limit: 60 CLI/tool calls per minute per session.
@@ -158,7 +161,7 @@ DI: Nest ESM — inject with `@Inject(Class)` where needed. Do not assume string
 
 - Without `DATABASE_URL`: in-memory maps (tests / guest).
 - With Neon: **SELECT users/labs on login/list/get** (not only cache), **await writes**. Schema: `sql/schema.sql`.
-- Guests: JWT + banner; reload loses unsaved labs unless they sign in.
+- Guests: JWT + banner; lab JSON autosaves to `localStorage.nb_guest_lab` and is restored on reload. Sign in to copy that lab onto the account.
 
 ### WebSocket (`create-app.ts`)
 
@@ -199,25 +202,25 @@ Local: `cd apps/web && npx ng serve --host 127.0.0.1 --port 4200 --proxy-config 
 | **Desktop** (`innerWidth >= 768`) | md+ | Palette + canvas + inspector + terminal + packets. Eve header toggle. |
 | **Full mobile** | narrow && `basic()` false | Tabs: Canvas / Palette / Inspect / Term / Eve. |
 | **Basic mobile** | narrow && `basic()` true (**default** `localStorage.nb_basic !== '0'`) | Canvas only. Header: Check + **Basic on**. FAB **+ Add**. Tap device → bottom sheet. |
-| **Simple vs Advanced** | `localStorage.nb_advanced === '1'` | Simple: IPv4 first, hide IPv6/MAC/running-config. Advanced: all ifaces, IPv6, MAC. Basic forces advanced off. |
+| **Simple vs Advanced** | `localStorage.nb_advanced === '1'` | **Simple:** device-to-device Ethernet (auto-MDIX), used ports + peer only, IPv4, hide IPv6/MAC/running-config. **Advanced:** cable types, port grid on cards, all ifaces, IPv6, MAC, running-config. Basic forces Advanced off. |
 
-`basicMode()` = `isNarrow() && basic()`. Desktop ignores Basic even if the flag is on.
+`basicMode()` = `isNarrow() && basic()`. Desktop ignores Basic even if the flag is on. Desktop Simple vs Advanced is the main mode split. Cards/cables use `advUi()` = `advanced() && !basicMode()` so a phone in Basic never shows the port grid even if Advanced was on at desktop width.
 
 ### Canvas mechanics
 
 - World layer: CSS `translate(pan.x, pan.y) scale(pan.s)`. SVG is **4000×3000+** so paths are not clipped on a ~390px phone. Do **not** size the SVG `inset-0 h-full w-full` (that was the missing-cable bug).
-- Cables: SVG `<path>` from `linkPath` (`device.x+48, y+28`). Radio = dashed purple.
+- Cables: SVG `<path>` from `linkPath` (`device.x+48, y+28`). Click a cable to inspect/unplug. Radio = dashed purple; fiber orange; crossover teal dashed; wrong-cable dimmed. Rubber-band while cabling.
 - Pan: one pointer. Pinch: two pointers. Wheel zoom 0.35–2.4 around cursor. Safari `gesturestart/change/end` on the canvas (non-passive, `NgZone` not enough — use `cdr.detectChanges()`).
 - `touch-action: none` on `.grid-canvas`. `setPointerCapture` wrapped in try/catch (synthetic events throw).
 - Narrow: `fitToView()` after lab load / becoming narrow / add in Basic.
 
 ### Adding devices and cables
 
-- Desktop palette: click type, then click canvas (`placing` signal).
+- Desktop palette: **Cables** (Ethernet always; Straight/Crossover/Fiber in Advanced) then device types. Click a cable to arm; click two devices (or two free ports in Advanced). Stays armed until Cancel/Escape.
 - Mobile: `place(kind)` **auto-drops** at view center (`addDevice` + `dropPoint` + unique `PC3` names).
-- Basic FAB opens a bottom sheet of `PALETTE`.
-- **Cable:** `startCable` / `finishCable` pick first free non-radio iface (`freeCopper`). After a successful cable in Basic, reopen the sheet on the target device so ports update.
-- `POST /sessions/:id/edit` `{ addDevices, addLinks, removeDeviceIds }` and `{ move: [{ id, x, y }] }`.
+- Basic FAB **Cable** (left) + **+ Add** (right). Add sheet has Cable first, then `PALETTE`.
+- **Cable:** `startCable` / `finishCable` pick first free non-radio iface (`freePort`). Advanced `clickPort` uses that exact port and refuses used ports. After a successful cable in Basic, reopen the sheet on the target device so ports update.
+- `POST /sessions/:id/edit` `{ addDevices, addLinks: [{ a, b, cable? }], removeDeviceIds, removeLinks }` and `{ move: [{ id, x, y }] }`.
 
 ### Add IP
 
@@ -232,8 +235,9 @@ Each PC has its **own** `eth0`. Three PCs on one switch: `PC1:eth0→SW1:Gi0/1`,
 
 ### Inspector / Basic sheet
 
-- Simple + Basic: **Ports** list (`portRows`: name, Up/Unplugged/Disabled, peer). Then IPv4.
-- Cards show connected port chips (`cableRows`) even in Basic.
+- Simple + Basic: **Used ports** (`usedPortRows`: name, Up/Wrong cable/Disabled, peer, Unplug). Free ports hidden behind “Show N free ports”. Then IPv4.
+- Advanced inspector: every iface with peer, cable type, MAC, IPv6, running-config.
+- Simple cards: `Gi0/1 → PC1` (used only). Advanced cards: port grid (filled = used, outline = free). Used ports on switch/router come from engine `iface.peer` (fallback: links).
 - Close + Delete half-width flex row on inspector and Basic sheet. Mobile Close → Canvas tab.
 
 ### localStorage keys
@@ -244,6 +248,7 @@ Each PC has its **own** `eth0`. Three PCs on one switch: `PC1:eth0→SW1:Gi0/1`,
 | `nb_advanced` | `'1'` = Advanced inspector/cards |
 | `nb_token` | JWT |
 | `nb_autosave` | last session id |
+| `nb_guest_lab` | Guest lab JSON snapshot (`{ v:1, at, lab }`) restored on reload |
 | `nb_eve:{userId}:{nestSessionId}` | Eve session id |
 
 ### Screenshots
@@ -256,9 +261,9 @@ Do **not** commit `netbench-*.png` (root `.gitignore`). Playwright MCP writes th
 
 eve **0.47.x**. `defineAgent({ model })` only — **no `name`**. Sandbox: just-bash locally; Vercel sandbox on Vercel.
 
-- Model: `openai/gpt-5.4-mini` with Gateway fallbacks `google/gemini-2.5-flash`, `openai/gpt-4.1-mini`. **Do not** set `anthropic/claude-sonnet-4.5` — free-tier AI Gateway returns `MODEL_CALL_FAILED`.
+- Model: `minimax/minimax-m3` (main agent + explainer/fixer/builder). Gateway fallbacks: `openai/gpt-5.4-mini`, `google/gemini-2.5-flash`, `openai/gpt-4.1-mini`. **Do not** set `anthropic/claude-sonnet-4.5` — free-tier AI Gateway returns `MODEL_CALL_FAILED`.
 - Channel `agent/channels/eve.ts`: `auth: [vercelOidc(), localDev(), none()]`, `cors: true` so browser guests work.
-- Tools under `agent/tools/*.ts`. Mutating tools: `approval: always()` then `mintConfirm` + Nest.
+- Tools under `agent/tools/*.ts`. Mutating tools: `approval: always()`, then `mintConfirm` via `POST /api/eve/tools/confirm` (never take `confirmToken` from the model).
 - Subagents: explainer / fixer / builder with skills in `agent/skills/`.
 - Evals: `apps/eve-agent/evals/*.eval.ts` (shutdown iface, ROAS, OSPF, wifi nmcli, refuse BGP, build office).
 - Local: `cd apps/eve-agent && npx eve start --host 127.0.0.1 --port 4010` (needs `AI_GATEWAY_API_KEY` in `.env`).
@@ -340,17 +345,18 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 | `a6d4324` | Inspector Close \| Delete |
 | `a33a410` | `addLink` no-shuts both ends; list every cable |
 | `6d4de07` | Basic cards/sheet show ports without Advanced |
+| (this) | Simple vs Advanced split; Ethernet/straight/crossover/fiber; used-port display; occupied-port reject |
 
 ### Known pitfalls
 
 1. **SVG viewport clipping** — SVG must be world-sized, not `h-full w-full`.
 2. **Zoneless Angular** — gesture/pinch native listeners need `cdr.detectChanges()`.
 3. **Switch ports admin down** — only Gi0/1–2 are no-shut in lab-1 startup; new cables must `adminUp` (engine `addLink`).
-4. **Eve model** — not Sonnet on free Gateway.
+4. **Eve model** — `minimax/minimax-m3` default. Not Sonnet on free Gateway.
 5. **Eve URL** — Angular must not use Railway `/eve` for the drawer.
 6. **`defineAgent({ name })`** — invalid on eve 0.47.
 7. **Tailwind `flex` vs `[class.hidden]`** — use `[ngClass]` to choose `hidden` **or** `flex`, not both.
-8. **Guest labs** vanish on reload; Neon SELECT must run on login/list.
+8. **Guest labs** persist in `localStorage.nb_guest_lab` and restore on reload. Neon SELECT still required for signed-in lab lists.
 9. **Builder spec** — bare “PC” must count; VLAN per role; emit ping Check.
 
 ---
@@ -363,9 +369,9 @@ These are ideas, not commitments:
 - Default route / gateway helper next to Add IP.
 - Ping button on the Basic sheet (PC → other PC / server).
 - Persist Basic/Advanced per user account, not only localStorage.
-- Railway API auto-deploy confirmation after engine-only commits (`addLink` lives in the engine image).
-- Hide unused switch ports behind “show free ports” if the Basic sheet feels long (8×Gi).
-- Desktop Basic is unused; only phones.
+- Railway API auto-deploy confirmation after engine-only commits (`addLink` / cable types live in the engine image).
+- Desktop Basic is unused; only phones. Desktop uses Simple vs Advanced.
+- Console cable (out-of-band CLI) — not in the palette.
 
 ---
 

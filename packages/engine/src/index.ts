@@ -4,5 +4,13 @@ export { listCommands, helpText, COMMANDS } from './commands.ts';
 export { validatePatch } from './patch.ts';
 export { BUILTIN_LABS, labById } from './labs.ts';
 export { dualStackOfficeLab, labFromSpec } from './build.ts';
+export {
+  CABLE_MEDIA,
+  cableCarrier,
+  cableLabel,
+  fiberCapable,
+  isIntermediary,
+  neededCable,
+} from './cables.ts';
 export * from './types.ts';
 export * from './ip.ts';

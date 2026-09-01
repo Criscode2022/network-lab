@@ -4,15 +4,15 @@ import { z } from 'zod';
 import { mintConfirm, nest } from '../lib/nest.ts';
 
 export default defineTool({
-  description: 'Create a new lab JSON from a sentence and load it. Requires UI HITL. Palette only.',
+  description:
+    'Create a new lab from a sentence and load it. labId is the labSessionId UUID from context (not the lab name). Do not pass a confirmToken — UI Approve already happened before this runs. Palette only; large offices become a small representative topology.',
   approval: always(),
   inputSchema: z.object({
     labId: z.string(),
     spec: z.string(),
-    confirmToken: z.string().optional(),
   }),
   async execute(input) {
-    const confirmToken = input.confirmToken || (await mintConfirm(input.labId, 'build_lab'));
-    return nest('/eve/tools/build_lab', { ...input, confirmToken });
+    const confirmToken = await mintConfirm(input.labId, 'build_lab');
+    return nest('/eve/tools/build_lab', { labId: input.labId, spec: input.spec, confirmToken });
   },
 });

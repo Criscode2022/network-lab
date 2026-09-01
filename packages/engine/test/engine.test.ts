@@ -26,6 +26,20 @@ function twoPcSwitch(extra?: Partial<LabJson>): LabJson {
 }
 
 describe('IPv4 ping + Linux/switch CLI', () => {
+  it('toLab round-trips live IPs and cables for guest restore', () => {
+    const e = Engine.fromLab(twoPcSwitch());
+    e.addDevice('workstation', 'PC3', 40, 40);
+    e.addLink('PC3:eth0', 'SW1:Gi0/3');
+    e.exec('PC3', 'ip addr add 10.0.0.30/24 dev eth0');
+    e.exec('PC3', 'ip link set eth0 up');
+    const lab = e.toLab();
+    const e2 = Engine.fromLab(lab);
+    expect(e2.dev('PC3').ifaces[0].ipv4?.ip).toBe('10.0.0.30');
+    expect(e2.operUp(e2.dev('PC3'), e2.dev('PC3').ifaces[0])).toBe(true);
+    const ping = e2.ping('PC1', '10.0.0.20', { count: 1 });
+    expect(ping.ok, ping.reason).toBe(true);
+  });
+
   it('two PCs on a switch ping after ip addr/link', () => {
     const e = Engine.fromLab(twoPcSwitch());
     const r = e.ping('PC1', '10.0.0.20', { count: 1 });
@@ -343,6 +357,13 @@ describe('Eve eval scenarios (engine, no dummy LLM)', () => {
     expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
   });
 
+  it('labFromSpec caps a 50-worker office to a junior-sized topology', () => {
+    const lab = labFromSpec('create a complex office of 50 workers and several departments');
+    const pcs = lab.devices.filter((d) => d.kind === 'workstation');
+    expect(pcs.length).toBeGreaterThanOrEqual(1);
+    expect(pcs.length).toBeLessThanOrEqual(6);
+  });
+
   it('labFromSpec two PCs and a switch is not the office lab and pings', () => {
     const lab = labFromSpec('two PCs and a switch');
     expect(lab.devices.some((d) => d.kind === 'ap')).toBe(false);
@@ -416,6 +437,135 @@ describe('patch schema', () => {
       configs: [{ device: 'R9', commands: ['enable', 'conf t'] }],
     });
     expect(r.ok).toBe(true);
+  });
+
+  it('accepts cable type on addLinks and rejects unknown cable', () => {
+    const ok = validatePatch({ addLinks: [{ a: 'R1:Gi0/0', b: 'SW1:Gi0/1', cable: 'fiber' }] });
+    expect(ok.ok).toBe(true);
+    const bad = validatePatch({ addLinks: [{ a: 'R1:Gi0/0', b: 'SW1:Gi0/1', cable: 'coax' }] });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toMatch(/unknown cable/);
+  });
+});
+
+describe('cables and used ports', () => {
+  type IfaceView = {
+    name: string;
+    operUp: boolean;
+    status: string;
+    peer: { device: string; iface: string; linkId: string; cable: string } | null;
+  };
+  type StateView = { devices: { name: string; kind: string; ifaces: IfaceView[] }[]; links: { cable?: string }[] };
+
+  function iface(st: StateView, dev: string, name: string) {
+    const d = st.devices.find((x) => x.name === dev);
+    const i = d?.ifaces.find((x) => x.name === name);
+    if (!i) throw new Error(`missing ${dev} ${name}`);
+    return i;
+  }
+
+  it('reports used switch and router ports from getState', () => {
+    const e = Engine.fromLab({
+      schemaVersion: 1,
+      id: 'ports',
+      name: 'ports',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip addr add 10.0.0.10/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'switch', name: 'SW1', x: 80, y: 0, startup: ['enable', 'conf t', 'int Gi0/1', 'no shut', 'int Gi0/2', 'no shut', 'end'] },
+        {
+          kind: 'router',
+          name: 'R1',
+          x: 160,
+          y: 0,
+          startup: ['enable', 'conf t', 'int Gi0/0', 'ip address 10.0.0.1 255.255.255.0', 'no shut', 'end'],
+        },
+      ],
+      links: [
+        { a: 'PC1:eth0', b: 'SW1:Gi0/1' },
+        { a: 'R1:Gi0/0', b: 'SW1:Gi0/2' },
+      ],
+      checks: [],
+    });
+    const st = e.getState() as unknown as StateView;
+    const sw1 = iface(st, 'SW1', 'Gi0/1');
+    expect(sw1.operUp).toBe(true);
+    expect(sw1.status).toBe('Up');
+    expect(sw1.peer).toMatchObject({ device: 'PC1', iface: 'eth0', cable: 'ethernet' });
+    const sw2 = iface(st, 'SW1', 'Gi0/2');
+    expect(sw2.peer).toMatchObject({ device: 'R1', iface: 'Gi0/0' });
+    expect(iface(st, 'SW1', 'Gi0/3').peer).toBeNull();
+    expect(iface(st, 'SW1', 'Gi0/3').status).toBe('Disabled');
+    const r0 = iface(st, 'R1', 'Gi0/0');
+    expect(r0.peer).toMatchObject({ device: 'SW1', iface: 'Gi0/2' });
+    expect(iface(st, 'R1', 'Gi0/1').peer).toBeNull();
+  });
+
+  it('rejects a second cable on an occupied port', () => {
+    const e = Engine.fromLab(twoPcSwitch());
+    expect(() => e.addLink('PC1:eth0', 'SW1:Gi0/3')).toThrow(/already cabled/);
+  });
+
+  it('ethernet auto-MDIX links PC to PC; straight-through does not', () => {
+    const e = Engine.fromLab({
+      schemaVersion: 1,
+      id: 'pcpc',
+      name: 'pcpc',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip addr add 10.0.0.10/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'workstation', name: 'PC2', x: 1, y: 0, startup: ['ip addr add 10.0.0.20/24 dev eth0', 'ip link set eth0 up'] },
+      ],
+      links: [],
+      checks: [],
+    });
+    e.addLink('PC1:eth0', 'PC2:eth0', true, 'ethernet');
+    expect(e.operUp(e.dev('PC1'), e.dev('PC1').ifaces[0])).toBe(true);
+    e.removeLink(e.links[0].id);
+    e.addLink('PC1:eth0', 'PC2:eth0', true, 'straight');
+    expect(e.operUp(e.dev('PC1'), e.dev('PC1').ifaces[0])).toBe(false);
+    const st = e.getState() as unknown as StateView;
+    expect(iface(st, 'PC1', 'eth0').status).toBe('Wrong cable');
+  });
+
+  it('crossover links two switches; straight-through links PC to switch', () => {
+    const e = Engine.fromLab({
+      schemaVersion: 1,
+      id: 'cables',
+      name: 'cables',
+      devices: [
+        { kind: 'switch', name: 'SW1', x: 0, y: 0, startup: ['enable', 'conf t', 'int Gi0/1', 'no shut', 'int Gi0/2', 'no shut', 'end'] },
+        { kind: 'switch', name: 'SW2', x: 1, y: 0, startup: ['enable', 'conf t', 'int Gi0/1', 'no shut', 'end'] },
+        { kind: 'workstation', name: 'PC1', x: 2, y: 0, startup: ['ip link set eth0 up'] },
+      ],
+      links: [],
+      checks: [],
+    });
+    e.addLink('SW1:Gi0/1', 'SW2:Gi0/1', true, 'crossover');
+    expect(e.operUp(e.dev('SW1'), e.dev('SW1').ifaces[0])).toBe(true);
+    e.addLink('PC1:eth0', 'SW1:Gi0/2', true, 'straight');
+    expect(e.operUp(e.dev('PC1'), e.dev('PC1').ifaces[0])).toBe(true);
+    e.removeLink(e.links[0].id);
+    e.addLink('SW1:Gi0/1', 'SW2:Gi0/1', true, 'straight');
+    expect(e.operUp(e.dev('SW1'), e.dev('SW1').ifaces[0])).toBe(false);
+  });
+
+  it('fiber is refused on a PC and works between switch and router', () => {
+    const e = Engine.fromLab({
+      schemaVersion: 1,
+      id: 'fiber',
+      name: 'fiber',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0 },
+        { kind: 'switch', name: 'SW1', x: 1, y: 0 },
+        { kind: 'router', name: 'R1', x: 2, y: 0 },
+      ],
+      links: [],
+      checks: [],
+    });
+    expect(() => e.addLink('PC1:eth0', 'SW1:Gi0/1', true, 'fiber')).toThrow(/no SFP/);
+    e.addLink('R1:Gi0/0', 'SW1:Gi0/1', true, 'fiber');
+    const st = e.getState() as unknown as StateView;
+    expect(iface(st, 'SW1', 'Gi0/1').peer).toMatchObject({ device: 'R1', iface: 'Gi0/0', cable: 'fiber' });
+    expect(iface(st, 'SW1', 'Gi0/1').operUp).toBe(true);
   });
 });
 

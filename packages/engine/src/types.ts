@@ -228,11 +228,15 @@ export interface Device {
   shutdownIfaces: Set<string>;
 }
 
+/** Physical wired cable. `ethernet` is auto-MDIX (always links). Radio links omit this. */
+export type CableMedia = 'ethernet' | 'straight' | 'crossover' | 'fiber';
+
 export interface Link {
   id: string;
   a: { deviceId: string; iface: string };
   b: { deviceId: string; iface: string };
   kind: 'copper' | 'radio';
+  cable?: CableMedia;
   ssid?: string;
 }
 
@@ -340,7 +344,7 @@ export interface LabJson {
     /** Commands applied after every device has run startup (Wi-Fi associate, dhclient). */
     post?: string[];
   }[];
-  links: { a: string; b: string }[];
+  links: { a: string; b: string; cable?: CableMedia }[];
   checks: LabCheck[];
 }
 
@@ -387,7 +391,7 @@ export interface CheckResult {
 export interface LabPatch {
   addDevices?: { type: DeviceKind; name: string; x?: number; y?: number }[];
   removeDeviceIds?: string[];
-  addLinks?: { a: string; b: string }[];
+  addLinks?: { a: string; b: string; cable?: CableMedia }[];
   removeLinks?: string[];
   configs?: { device: string; commands: string[] }[];
 }

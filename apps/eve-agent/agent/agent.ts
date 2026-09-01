@@ -1,12 +1,12 @@
 import { defineAgent } from 'eve';
 
-/** Free-tier AI Gateway rejects Claude Sonnet; mini is in the product palette and allowed. */
+/** MiniMax M3 is the default. Keep cheap Gateway fallbacks if M3 is unavailable. Do not set Claude Sonnet — free-tier AI Gateway returns MODEL_CALL_FAILED. */
 export default defineAgent({
-  model: 'openai/gpt-5.4-mini',
+  model: 'minimax/minimax-m3',
   modelOptions: {
     providerOptions: {
       gateway: {
-        models: ['openai/gpt-5.4-mini', 'google/gemini-2.5-flash', 'openai/gpt-4.1-mini'],
+        models: ['minimax/minimax-m3', 'openai/gpt-5.4-mini', 'google/gemini-2.5-flash', 'openai/gpt-4.1-mini'],
       },
     },
   },

@@ -21,8 +21,10 @@ import {
   slaacAddress,
   wildcardToPrefix,
 } from './ip.ts';
+import { cableCarrier, cableLabel, fiberCapable } from './cables.ts';
 import type {
   AclRule,
+  CableMedia,
   CheckResult,
   CliResult,
   Device,
@@ -41,7 +43,7 @@ import type {
   RouteV4,
   RouteV6,
 } from './types.ts';
-import { DEVICE_KINDS } from './types.ts';
+import { DEVICE_KINDS, HOST_KINDS } from './types.ts';
 
 let pktSeq = 1;
 function nid(p: string): string {
@@ -112,7 +114,7 @@ export class Engine {
       (dev as Device & { postLines?: string[] }).postLines = [...(d.post ?? [])];
       e.devices.set(dev.id, dev);
     }
-    for (const l of json.links) e.addLink(l.a, l.b, false);
+    for (const l of json.links) e.addLink(l.a, l.b, false, l.cable ?? 'ethernet');
     for (const d of e.devices.values()) {
       for (const line of d.startupLines) {
         e.exec(d.id, line);
@@ -139,21 +141,100 @@ export class Engine {
       description: this.description,
       goal: this.goal,
       differsNote: this.differsNote,
-      devices: [...this.devices.values()].map((d) => ({
-        id: d.id,
-        kind: d.kind,
-        name: d.name,
-        x: d.x,
-        y: d.y,
-        hostname: d.hostname,
-        startup: d.startupLines,
-      })),
+      devices: [...this.devices.values()].map((d) => {
+        const post = this.snapshotPost(d);
+        return {
+          id: d.id,
+          kind: d.kind,
+          name: d.name,
+          x: d.x,
+          y: d.y,
+          hostname: d.hostname,
+          startup: this.snapshotStartup(d),
+          ...(post.length ? { post } : {}),
+        };
+      }),
       links: this.links.filter((l) => l.kind === 'copper').map((l) => ({
         a: `${this.dev(l.a.deviceId).name}:${l.a.iface}`,
         b: `${this.dev(l.b.deviceId).name}:${l.b.iface}`,
+        ...(l.cable && l.cable !== 'ethernet' ? { cable: l.cable } : {}),
       })),
       checks: this.checks,
     };
+  }
+
+  /** Replayable CLI that rebuilds current addressing, ports, and routes. */
+  snapshotStartup(d: Device): string[] {
+    const linux = HOST_KINDS.includes(d.kind) || d.kind === 'firewall' || d.kind === 'cloud';
+    if (linux) {
+      const L: string[] = [];
+      if (d.hostname && d.hostname !== d.name) L.push(`hostname ${d.hostname}`);
+      for (const i of d.ifaces) {
+        if (i.ipv4) L.push(`ip addr add ${i.ipv4.ip}/${i.ipv4.prefix} dev ${i.name}`);
+        for (const v of i.ipv6.filter((x) => !x.ip.toLowerCase().startsWith('fe80'))) {
+          L.push(`ip addr add ${v.ip}/${v.prefix} dev ${i.name}`);
+        }
+        if (i.adminUp) L.push(`ip link set ${i.name} up`);
+      }
+      if (d.defaultGw4) L.push(`ip route add default via ${d.defaultGw4}`);
+      if (d.defaultGw6) L.push(`ip route add default via ${d.defaultGw6}`);
+      if (d.sshListen) L.push('systemctl start ssh');
+      return L;
+    }
+    const L: string[] = ['enable', 'conf t'];
+    if (d.hostname) L.push(`hostname ${d.hostname}`);
+    if (d.kind === 'switch') {
+      for (const v of d.vlans.filter((x) => x !== 1)) L.push(`vlan ${v}`);
+    }
+    for (const i of d.ifaces) {
+      L.push(`interface ${i.name}`);
+      if (i.mode === 'access' && (d.kind === 'switch' || i.isRadio)) {
+        L.push('switchport mode access');
+        L.push(`switchport access vlan ${i.accessVlan}`);
+      }
+      if (i.mode === 'trunk') {
+        L.push('switchport mode trunk');
+        L.push(`switchport trunk allowed vlan ${i.allowedVlans === 'all' ? 'all' : i.allowedVlans.join(',')}`);
+      }
+      if (i.encapVlan) L.push(`encapsulation dot1Q ${i.encapVlan}`);
+      if (i.ipv4) L.push(`ip address ${i.ipv4.ip} ${formatIPv4(prefixToMask(i.ipv4.prefix))}`);
+      for (const v of i.ipv6.filter((x) => !x.ip.toLowerCase().startsWith('fe80'))) {
+        L.push(`ipv6 address ${v.ip}/${v.prefix}`);
+      }
+      L.push(i.adminUp ? 'no shutdown' : 'shutdown');
+    }
+    if (d.defaultGw4 && d.kind === 'switch') L.push(`ip default-gateway ${d.defaultGw4}`);
+    for (const r of d.routesV4.filter((x) => x.proto === 'static')) {
+      L.push(`ip route ${r.dest} ${formatIPv4(prefixToMask(r.prefix))} ${r.nexthop ?? r.iface}`);
+    }
+    if (d.ospf.enabled) {
+      L.push('router ospf 1');
+      if (d.ospf.routerId) L.push(`router-id ${d.ospf.routerId}`);
+      for (const n of d.ospf.networks) L.push(`network ${n.network} ${n.wildcard} area 0`);
+    }
+    for (const p of d.dhcpPools) {
+      L.push(`ip dhcp pool ${p.name}`);
+      if (p.network) L.push(`network ${p.network} ${formatIPv4(prefixToMask(p.prefix ?? 24))}`);
+      if (p.gateway) L.push(`default-router ${p.gateway}`);
+    }
+    for (const w of d.wifi) {
+      L.push(`ssid ${w.ssid}`);
+      L.push(`vlan ${w.vlan}`);
+      if (w.psk) L.push(`wpa2-psk ${w.psk}`);
+      L.push(`channel ${w.channel}`);
+    }
+    L.push('end');
+    return L;
+  }
+
+  snapshotPost(d: Device): string[] {
+    if (!d.associatedSsid) return [];
+    const ap =
+      (d.associatedAp ? this.devices.get(d.associatedAp) : undefined) ??
+      [...this.devices.values()].find((x) => x.kind === 'ap' && x.wifi.some((w) => w.ssid === d.associatedSsid));
+    const conf = ap?.wifi.find((w) => w.ssid === d.associatedSsid);
+    const psk = conf?.psk;
+    return [`nmcli wifi connect ${d.associatedSsid}${psk ? ` password ${psk}` : ''}`];
   }
 
   snapshotRunning(): Record<string, string> {
@@ -192,7 +273,7 @@ export class Engine {
     this.recomputeStp();
   }
 
-  addLink(a: string, b: string, log = true): Link {
+  addLink(a: string, b: string, log = true, cable: CableMedia = 'ethernet'): Link {
     const ea = parseEndpoint(a);
     const eb = parseEndpoint(b);
     const da = this.dev(ea.name);
@@ -201,6 +282,16 @@ export class Engine {
     const ib = findIface(db, eb.iface);
     if (!ia || !ib) throw new Error(`unknown iface on ${a} or ${b}`);
     if (ia.isRadio || ib.isRadio) throw new Error('copper cable cannot terminate on a radio port; associate Wi-Fi instead');
+    const taken = (dev: Device, iface: Iface) => {
+      const p = this.peer(dev.id, iface.name);
+      if (p) throw new Error(`${dev.name} ${iface.name} is already cabled to ${p.dev.name} ${p.iface.name}`);
+    };
+    taken(da, ia);
+    taken(db, ib);
+    if (cable === 'fiber') {
+      if (!fiberCapable(da.kind)) throw new Error(`fiber cannot terminate on ${da.name} (${da.kind} has no SFP)`);
+      if (!fiberCapable(db.kind)) throw new Error(`fiber cannot terminate on ${db.name} (${db.kind} has no SFP)`);
+    }
     ia.adminUp = true;
     ib.adminUp = true;
     const id = nid('L');
@@ -209,9 +300,10 @@ export class Engine {
       a: { deviceId: da.id, iface: ia.name },
       b: { deviceId: db.id, iface: ib.name },
       kind: 'copper',
+      cable,
     };
     this.links.push(link);
-    if (log) this.logActivity(`cable ${a} — ${b}`);
+    if (log) this.logActivity(`${cableLabel(cable)} ${a} — ${b}`);
     this.recomputeStp();
     return link;
   }
@@ -248,7 +340,7 @@ export class Engine {
     if (iface.parent) {
       const p = findIface(dev, iface.parent);
       if (!p?.adminUp) return false;
-      return !!this.peer(dev.id, iface.parent);
+      return this.copperUp(dev, iface.parent);
     }
     if (iface.name.toLowerCase().startsWith('vlan')) {
       return iface.adminUp;
@@ -256,7 +348,28 @@ export class Engine {
     if (iface.isRadio) {
       return iface.adminUp && (!!dev.associatedAp || dev.kind === 'ap');
     }
-    return !!this.peer(dev.id, iface.name);
+    return this.copperUp(dev, iface.name);
+  }
+
+  private copperUp(dev: Device, ifaceName: string): boolean {
+    const p = this.peer(dev.id, ifaceName);
+    if (!p || p.link.kind === 'radio') return false;
+    return cableCarrier(p.link.cable, dev.kind, p.dev.kind).ok;
+  }
+
+  ifaceStatus(dev: Device, iface: Iface): { status: string; reason: string } {
+    if (!iface.adminUp) return { status: 'Disabled', reason: 'administratively down' };
+    if (iface.isRadio) {
+      return this.operUp(dev, iface)
+        ? { status: 'Up', reason: 'associated' }
+        : { status: 'Unplugged', reason: 'not associated' };
+    }
+    const p = this.peer(dev.id, iface.parent ?? iface.name);
+    if (!p || p.link.kind === 'radio') return { status: 'Unplugged', reason: 'no cable' };
+    const carry = cableCarrier(p.link.cable, dev.kind, p.dev.kind);
+    if (!carry.ok) return { status: 'Wrong cable', reason: carry.reason ?? 'wrong cable' };
+    if (!this.operUp(dev, iface)) return { status: 'Down', reason: 'no carrier' };
+    return { status: 'Up', reason: 'up' };
   }
 
   schedule(dt: number, run: () => void): void {
@@ -2703,7 +2816,7 @@ export class Engine {
         applied.push(`remove ${id}`);
       }
       for (const l of patch.addLinks ?? []) {
-        this.addLink(l.a, l.b);
+        this.addLink(l.a, l.b, true, l.cable ?? 'ethernet');
         applied.push(`link ${l.a} ${l.b}`);
       }
       for (const l of patch.removeLinks ?? []) this.removeLink(l);
@@ -2744,23 +2857,40 @@ export class Engine {
         associatedAp: d.associatedAp,
         ospfNeighbors: d.ospf.neighbors,
         sshListen: d.sshListen,
-        ifaces: d.ifaces.map((i) => ({
-          name: i.name,
-          mac: i.mac,
-          adminUp: i.adminUp,
-          operUp: this.operUp(d, i),
-          ipv4: i.ipv4,
-          ipv6: i.ipv6,
-          mode: i.mode,
-          accessVlan: i.accessVlan,
-          isRadio: i.isRadio,
-          zone: i.zone,
-        })),
+        ifaces: d.ifaces.map((i) => {
+          const look = i.parent ?? i.name;
+          const p = this.peer(d.id, look);
+          const st = this.ifaceStatus(d, i);
+          return {
+            name: i.name,
+            mac: i.mac,
+            adminUp: i.adminUp,
+            operUp: this.operUp(d, i),
+            status: st.status,
+            statusReason: st.reason,
+            ipv4: i.ipv4,
+            ipv6: i.ipv6,
+            mode: i.mode,
+            accessVlan: i.accessVlan,
+            isRadio: i.isRadio,
+            zone: i.zone,
+            peer: p
+              ? {
+                  device: p.dev.name,
+                  deviceId: p.dev.id,
+                  iface: p.iface.name,
+                  linkId: p.link.id,
+                  cable: p.link.kind === 'radio' ? 'radio' : (p.link.cable ?? 'ethernet'),
+                }
+              : null,
+          };
+        }),
         runningConfig: this.runningConfig(d),
       })),
       links: this.links.map((l) => ({
         id: l.id,
         kind: l.kind,
+        cable: l.kind === 'radio' ? undefined : (l.cable ?? 'ethernet'),
         ssid: l.ssid,
         a: { device: this.dev(l.a.deviceId).name, iface: l.a.iface, deviceId: l.a.deviceId },
         b: { device: this.dev(l.b.deviceId).name, iface: l.b.iface, deviceId: l.b.deviceId },

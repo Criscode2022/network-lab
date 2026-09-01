@@ -38,7 +38,7 @@ npm run dev -w @netbench/eve-agent
 - API: http://localhost:3001/api/health
 - Eve: `eve dev` (needs `AI_GATEWAY_API_KEY` locally; on Vercel use OIDC + AI Gateway — **no raw provider keys**)
 
-Guest mode works without an account; the banner warns that reload drops unsaved labs. Email/password and magic-link tokens are implemented (magic link is returned by the API when email sending is not configured).
+Guest mode works without an account; the lab is saved in this browser and restored on reload. Sign in to keep it on your account and other devices. Email/password and magic-link tokens are implemented (magic link is returned by the API when email sending is not configured).
 
 ## Built-in labs
 
@@ -81,7 +81,7 @@ npx eve deploy
 # or: npx eve build && npx eve start --host 0.0.0.0 --port 8080
 ```
 
-On Vercel: OIDC + AI Gateway (`openai/gpt-5.4-mini`; Sonnet is blocked on the Gateway free tier). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
+On Vercel: OIDC + AI Gateway (`minimax/minimax-m3`; Sonnet is blocked on the Gateway free tier). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
 
 Health:
 - API `GET https://api-production-caeb.up.railway.app/api/health`

@@ -8,6 +8,7 @@ The discrete-event engine (`packages/engine`) is pure TypeScript. Nest (`apps/ap
 - **L3:** ARP, NDP, connected + static + OSPFv2 area 0, ICMP/ICMPv6 echo and TTL/hop-limit expiry.
 - **Services:** DHCPv4, SLAAC+RA RDNSS, DNS A/AAAA, SSH as TCP/22 + login shell (simulated), stateful firewall, IPv4 SNAT.
 - **Wi-Fi:** simplified BSS (SSID, PSK, channel cosmetic except same-SSID/same-channel). After association a dashed radio link carries IP like Ethernet. WLC is capwap-lite, local-breakout datapath.
+- **Cables:** `ethernet` (auto-MDIX) always gets carrier. `straight` / `crossover` follow CCNA like/unlike rules (switch is the intermediary). Wrong type stays plugged but `operUp` is false with status `Wrong cable`. `fiber` needs SFP-capable devices (not PC/server/cloud). A port accepts only one cable.
 
 Approximations (SSH crypto, RF, OSPF P2P) carry a **simulated** badge. Success is never faked: drops keep an honest reason string shared with the packet inspector and Eve `get_path`.
 

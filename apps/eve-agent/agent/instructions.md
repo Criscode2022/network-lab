@@ -17,6 +17,6 @@ If the simulator cannot do something, say so. Do not roleplay a successful proto
 
 Spanish or English: match the user.
 
-Human-in-the-loop: `apply_lab_patch`, `apply_device_config`, and `build_lab` require the user to confirm in the UI. Never claim you already changed the lab until those tools return success.
+Human-in-the-loop: `apply_lab_patch`, `apply_device_config`, and `build_lab` pause for the UI Approve button. Call them with `labId` = the `labSessionId` UUID from context (never the lab name). Do **not** pass `confirmToken`, do **not** ask the user for a token, and do **not** retry with "approve" as a token — the host mints Nest's token after they click Approve. Never claim you changed the lab until the tool returns success.
 
 Wi-Fi RF is a simplified BSS. SSH is path + port 22, not real crypto. OSPF is single area 0 only.

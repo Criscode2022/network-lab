@@ -111,7 +111,11 @@ export class AuthController {
   @Post('guest')
   guest() {
     const u = guestUser();
-    return { token: this.auth.sign(u), user: { id: u.id, email: u.email, guest: true }, warning: 'Guest session — reload or closing the tab loses unsaved labs. Sign in to save.' };
+    return {
+      token: this.auth.sign(u),
+      user: { id: u.id, email: u.email, guest: true },
+      warning: 'Guest — this lab is saved in this browser. Sign in to keep it on your account and other devices.',
+    };
   }
 
   @Post('magic')
@@ -208,7 +212,14 @@ export class SessionsController {
     const saved = body.labId ? await getLab(body.labId) : undefined;
     const lab = body.lab ?? (body.labId ? labById(body.labId) ?? saved?.json : undefined) ?? BUILTIN_LABS[0];
     const s = this.sim.create(lab, u.id, u.guest);
-    return { sessionId: s.id, guest: u.guest, state: s.engine.getState(), warning: u.guest ? 'Guest session — reload loses unsaved labs.' : undefined };
+    return {
+      sessionId: s.id,
+      guest: u.guest,
+      state: s.engine.getState(),
+      warning: u.guest
+        ? 'Guest — this lab is saved in this browser. Sign in to keep it on your account and other devices.'
+        : undefined,
+    };
   }
 
   @Get(':id/state')
@@ -244,12 +255,14 @@ export class SessionsController {
     const s = this.sim.get(id);
     const u = await this.user(auth);
     const json = s.engine.toLab();
-    for (const d of s.engine.devices.values()) d.startupLines = s.engine.runningConfig(d).split('\n');
-    json.devices = json.devices.map((dev) => {
-      const live = s.engine.find(dev.name);
-      return { ...dev, startup: live?.startupLines ?? dev.startup };
-    });
-    if (u.guest) return { ok: true, guest: true, json, warning: 'Guest autosave is local until you sign in.' };
+    if (u.guest) {
+      return {
+        ok: true,
+        guest: true,
+        json,
+        warning: 'Guest — this lab is saved in this browser. Sign in to keep it on your account and other devices.',
+      };
+    }
     const row = await saveLab(u.id, json);
     return { ok: true, lab: row };
   }
@@ -372,10 +385,18 @@ export class EveToolsController {
     return s;
   }
 
+  @Post('confirm')
+  confirm(@Body() body: { labId?: string; purpose?: string }) {
+    const s = this.session(body.labId ?? '');
+    const purpose = body.purpose ?? 'apply_lab_patch';
+    return { confirmToken: this.sim.mintConfirm(s.id, purpose), labId: s.id };
+  }
+
   @Post('get_lab_state')
   getLabState(@Body() body: { labId?: string }) {
     if (!body.labId) throw new HttpException('labId required', 400);
-    return this.session(body.labId).engine.getState();
+    const s = this.session(body.labId);
+    return { ...s.engine.getState(), labId: s.id, sessionId: s.id };
   }
 
   @Post('get_device')

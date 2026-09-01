@@ -23,6 +23,9 @@ export interface EveHitl {
   options?: EveOption[];
 }
 
+const APPROVE_RE = /approve|allow|yes/i;
+const DENY_RE = /cancel|deny|reject|no/i;
+
 export interface EveChatMsg {
   role: 'user' | 'eve';
   text: string;
@@ -59,6 +62,7 @@ export class EveClient {
   private streamAbort: AbortController | null = null;
   private streamIndex = 0;
   private context: () => string = () => '';
+  private hitlBatch: EveHitl[] = [];
 
   bind(opts: { nestSessionId: string; userId: string; context: () => string }): void {
     this.nestSessionId = opts.nestSessionId;
@@ -124,17 +128,37 @@ export class EveClient {
 
   async respond(optionId: string, requestId?: string): Promise<void> {
     const id = this.sessionId();
-    const hitl = this.hitl();
-    const rid = requestId ?? hitl?.requestId;
+    const batch = this.hitlBatch.length ? this.hitlBatch : this.hitl() ? [this.hitl()!] : [];
+    const rid = requestId ?? batch[0]?.requestId;
     if (!id || !rid) return;
     this.busy.set(true);
+    this.error.set(null);
+    const approve = APPROVE_RE.test(optionId);
+    const responses = batch
+      .map((h) => {
+        if (h.kind === 'tool-approval' || h.toolName) {
+          const oid = this.pickOption(h, approve);
+          return { requestId: h.requestId, optionId: oid };
+        }
+        if (h.requestId === rid) return { requestId: h.requestId, optionId };
+        return null;
+      })
+      .filter((x): x is { requestId: string; optionId: string } => !!x);
+    if (!responses.length) responses.push({ requestId: rid, optionId: approve ? 'approve' : 'cancel' });
     try {
-      await this.postJson(`/eve/v1/session/${id}`, { inputResponses: [{ requestId: rid, optionId }] });
+      await this.postJson(`/eve/v1/session/${id}`, { inputResponses: responses });
       this.hitl.set(null);
+      this.hitlBatch = [];
     } catch (e) {
       this.busy.set(false);
       this.error.set(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  private pickOption(h: EveHitl, approve: boolean): string {
+    const re = approve ? APPROVE_RE : DENY_RE;
+    const fallback = approve ? 'approve' : 'cancel';
+    return h.options?.find((o) => re.test(o.id) || re.test(o.label))?.id ?? fallback;
   }
 
   stop(): void {
@@ -217,21 +241,30 @@ export class EveClient {
       });
     }
     if (t === 'input.requested') {
-      const req = data.requests?.[0];
-      if (req) {
-        this.hitl.set({
-          requestId: req.requestId,
-          kind: req.kind,
-          prompt: req.prompt,
-          toolName: req.action?.toolName,
-          toolInput: req.action?.input,
-          options: req.options,
-        });
-      }
+      const reqs = data.requests ?? [];
+      this.hitlBatch = reqs.map((req) => ({
+        requestId: req.requestId,
+        kind: req.kind,
+        prompt: req.prompt,
+        toolName: req.action?.toolName,
+        toolInput: req.action?.input,
+        options:
+          req.options?.length
+            ? req.options
+            : req.kind === 'tool-approval' || req.action?.toolName
+              ? [
+                  { id: 'approve', label: 'Approve' },
+                  { id: 'cancel', label: 'Cancel' },
+                ]
+              : undefined,
+      }));
+      const req = this.hitlBatch[0];
+      if (req) this.hitl.set(req);
       this.busy.set(false);
     }
     if (t === 'input.resolved') {
       this.hitl.set(null);
+      this.hitlBatch = [];
     }
     if (t === 'action.result') {
       this.onLabMutated?.();

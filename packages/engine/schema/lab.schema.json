@@ -38,7 +38,11 @@
         "required": ["a", "b"],
         "properties": {
           "a": { "type": "string", "description": "Name:iface" },
-          "b": { "type": "string" }
+          "b": { "type": "string" },
+          "cable": {
+            "enum": ["ethernet", "straight", "crossover", "fiber"],
+            "description": "ethernet is auto-MDIX (default). straight/crossover follow CCNA like/unlike rules. fiber needs SFP-capable devices."
+          }
         }
       }
     },

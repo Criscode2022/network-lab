@@ -31,9 +31,22 @@
         <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
       </label>
       <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
-      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="toggleAdvanced()">
-        {{ advanced() ? 'Simple view' : 'Advanced' }}
-      </button>
+      <div class="flex rounded-md border border-zinc-700 p-0.5">
+        <button
+          class="rounded px-2 py-0.5 text-xs"
+          [ngClass]="!advanced() ? 'bg-zinc-700 text-white' : 'text-zinc-400'"
+          (click)="setAdvanced(false)"
+        >
+          Simple
+        </button>
+        <button
+          class="rounded px-2 py-0.5 text-xs"
+          [ngClass]="advanced() ? 'bg-cyan-800 text-white' : 'text-zinc-400'"
+          (click)="setAdvanced(true)"
+        >
+          Advanced
+        </button>
+      </div>
     </div>
     @if (!basicMode()) {
       <button
@@ -66,8 +79,12 @@
       <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="openCheat(); moreOpen.set(false)">
         Cheat sheet
       </button>
-      <button class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300" (click)="toggleAdvanced(); moreOpen.set(false)">
-        {{ advanced() ? 'Simple view' : 'Advanced view' }}
+      <button
+        class="rounded-md border px-2 py-1.5 text-xs"
+        [ngClass]="advanced() ? 'border-cyan-700 bg-cyan-900/50 text-cyan-200' : 'border-zinc-700'"
+        (click)="toggleAdvanced(); moreOpen.set(false)"
+      >
+        {{ advanced() ? 'Advanced on' : 'Advanced' }}
       </button>
     </div>
   }
@@ -93,6 +110,19 @@
       <aside
         class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/70 md:w-48 md:flex-none md:border-r"
       >
+        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Cables</div>
+        <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0">
+          @for (c of visibleCables(); track c.id) {
+            <button
+              class="min-h-12 rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:min-h-0 md:py-1.5"
+              [ngClass]="cableArmed() && effectiveCable() === c.id ? 'border-amber-400 bg-amber-950/70' : 'border-zinc-800 md:border-transparent'"
+              (click)="armCable(c.id)"
+            >
+              <div class="font-medium">{{ c.label }}</div>
+              <div class="text-[10px] text-zinc-500">{{ c.hint }}</div>
+            </button>
+          }
+        </div>
         <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Add device</div>
         <p class="px-3 pb-2 text-[11px] leading-snug text-zinc-400 md:hidden">Tap a type. It appears on the canvas — then drag it.</p>
         <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0 md:pb-0">
@@ -108,7 +138,11 @@
           }
         </div>
         <p class="mt-auto hidden px-3 py-2 text-[10px] leading-snug text-zinc-500 md:block">
-          Click a type, then the canvas to place it. Click Cable on two devices (or port → port in Advanced).
+          {{
+            advUi()
+              ? 'Advanced: pick a cable type, then click free ports (or two devices). Filled ports are in use.'
+              : 'Simple: pick Ethernet, then click two devices. First free ports are used. IPv4 only.'
+          }}
         </p>
       </aside>
     }
@@ -122,7 +156,7 @@
             Goal: {{ api.state()?.goal }}
           </div>
         }
-        @if (hint() || placing() || cableFrom()) {
+        @if (hint() || placing() || cableFrom() || cableArmed()) {
           <div
             class="absolute inset-x-2 z-10 rounded-md border border-cyan-800 bg-zinc-950/90 px-2 py-1.5 text-[11px] text-cyan-100"
             [class.top-10]="!!api.state()?.goal"
@@ -132,12 +166,41 @@
               Click the grid to place a {{ kindLabel(k) }}.
               <button class="ml-2 underline" (click)="placing.set(null)">Cancel</button>
             } @else if (cableFrom(); as c) {
-              Tap another device to finish the cable from {{ devName(c.id) }}.
-              <button class="ml-2 underline" (click)="cableFrom.set(null)">Cancel</button>
+              {{ cableLabel(effectiveCable()) }} from {{ devName(c.id) }}{{ advUi() ? ' ' + c.iface : '' }}. Tap the other end.
+              <button class="ml-2 underline" (click)="cancelCable()">Cancel</button>
+            } @else if (cableArmed()) {
+              {{ cableLabel(effectiveCable()) }} ready. {{ advUi() ? 'Click a free port or two devices.' : 'Tap two devices.' }}
+              <button class="ml-2 underline" (click)="cancelCable()">Cancel</button>
             } @else {
               {{ hint() }}
             }
           </div>
+        }
+        @if (selectedLink(); as l) {
+          <div
+            class="absolute inset-x-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-800 bg-zinc-950/95 px-2 py-1.5 text-[11px] text-amber-100"
+            [class.bottom-16]="basicMode()"
+            [class.bottom-3]="!basicMode()"
+          >
+            <span class="font-medium">{{ cableLabel(l.kind === 'radio' ? 'radio' : l.cable) }}</span>
+            <span class="font-mono">{{ l.a.device }}:{{ l.a.iface }} — {{ l.b.device }}:{{ l.b.iface }}</span>
+            @if (linkIsDown(l)) {
+              <span class="rounded bg-amber-900 px-1 text-amber-200">no link</span>
+            }
+            @if (l.kind !== 'radio') {
+              <button class="rounded bg-rose-800 px-2 py-0.5 text-rose-100" (click)="unplug(l.id)">Unplug</button>
+            }
+            <button class="underline" (click)="selectedLinkId.set(null)">Close</button>
+          </div>
+        }
+        @if (basicMode()) {
+          <button
+            class="absolute bottom-3 left-3 z-10 min-h-11 rounded-full px-4 text-sm font-medium shadow-lg"
+            [ngClass]="cableArmed() ? 'bg-amber-600 text-white' : 'bg-zinc-800 text-zinc-100'"
+            (click)="armCable('ethernet')"
+          >
+            Cable
+          </button>
         }
         <button
           class="absolute bottom-3 right-3 z-10 min-h-11 rounded-full bg-cyan-700 px-4 text-sm font-medium text-white shadow-lg md:hidden"
@@ -168,11 +231,33 @@
             >
               @for (l of api.state()?.links ?? []; track l.id) {
                 <path
+                  data-link
                   [attr.d]="linkPath(l)"
                   fill="none"
-                  [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'"
-                  [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'"
+                  stroke="transparent"
+                  stroke-width="14"
+                  stroke-linecap="round"
+                  class="cursor-pointer"
+                  (pointerdown)="selectLink($event, l)"
+                />
+                <path
+                  [attr.d]="linkPath(l)"
+                  fill="none"
+                  [attr.stroke]="linkStroke(l)"
+                  [attr.stroke-dasharray]="linkDash(l)"
+                  [attr.stroke-width]="selectedLinkId() === l.id ? 3.5 : 2"
+                  [attr.opacity]="linkIsDown(l) ? '0.45' : '1'"
+                  class="pointer-events-none"
+                />
+              }
+              @if (cableFrom() && cableCursor()) {
+                <path
+                  [attr.d]="rubberPath()"
+                  fill="none"
+                  stroke="#22d3ee"
+                  stroke-dasharray="5 4"
                   stroke-width="2"
+                  class="pointer-events-none"
                 />
               }
               @for (p of animPkts(); track p.id) {
@@ -185,7 +270,9 @@
             @for (d of api.state()?.devices ?? []; track d.id) {
               <div
                 data-dev
-                class="absolute w-24 cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
+                class="absolute cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
+                [class.w-24]="!advUi()"
+                [class.w-28]="advUi()"
                 [ngClass]="
                   kindColor(d.kind) +
                   (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') +
@@ -201,14 +288,21 @@
                 @if (primaryIpv4(d); as ip) {
                   <div class="truncate font-mono text-[9px] text-emerald-300/90">{{ ip }}</div>
                 }
-                @if (cableRows(d).length) {
-                  <div class="flex flex-wrap justify-center gap-0.5 pt-0.5">
-                    @for (c of cableRows(d); track c.mine) {
-                      <span class="rounded bg-emerald-800/80 px-0.5 font-mono text-[8px] leading-4 text-emerald-100" [title]="c.mine + ' → ' + c.peer">{{ c.mine }}</span>
-                    }
-                  </div>
-                }
-                @if (!advanced()) {
+                @if (!advUi()) {
+                  @if (usedPortRows(d).length) {
+                    <div class="flex flex-col gap-0.5 pt-0.5">
+                      @for (p of usedPortRows(d); track p.name) {
+                        <div
+                          class="truncate font-mono text-[8px] leading-3"
+                          [class.text-emerald-200]="p.up"
+                          [class.text-amber-200]="!p.up"
+                          [title]="p.name + ' → ' + p.peer?.device + ' ' + p.peer?.iface"
+                        >
+                          {{ p.name }} → {{ p.peer?.device }}
+                        </div>
+                      }
+                    </div>
+                  }
                   <button
                     class="mt-1 rounded bg-zinc-950/50 px-1.5 py-0.5 text-[9px] text-zinc-200"
                     (pointerdown)="$event.stopPropagation()"
@@ -217,15 +311,20 @@
                     Cable
                   </button>
                 } @else {
-                  <div class="flex flex-wrap justify-center gap-0.5 pt-1">
+                  <div
+                    class="grid gap-0.5 pt-1"
+                    [class.grid-cols-4]="cardIfaces(d).length > 4"
+                    [class.grid-cols-2]="cardIfaces(d).length <= 4"
+                  >
                     @for (i of cardIfaces(d); track i.name) {
                       <button
-                        class="rounded px-0.5 font-mono text-[9px]"
-                        [ngClass]="i.operUp ? 'bg-emerald-700/70' : 'bg-zinc-800 text-zinc-500'"
+                        class="rounded px-0.5 font-mono text-[9px] leading-4"
+                        [ngClass]="portChipClass(d, i)"
+                        (pointerdown)="$event.stopPropagation()"
                         (click)="clickPort($event, d, i.name)"
-                        [title]="i.name"
+                        [title]="portTitle(d, i)"
                       >
-                        {{ i.name }}
+                        {{ shortPort(i.name) }}
                       </button>
                     }
                   </div>
@@ -244,9 +343,22 @@
       >
         <div class="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
           <div class="text-xs font-medium">Inspector</div>
-          <button class="text-[11px] text-cyan-400" (click)="toggleAdvanced()">
-            {{ advanced() ? 'Simple view' : 'Advanced' }}
-          </button>
+          <div class="flex rounded-md border border-zinc-700 p-0.5">
+            <button
+              class="rounded px-1.5 py-0.5 text-[11px]"
+              [ngClass]="!advanced() ? 'bg-zinc-700 text-white' : 'text-zinc-400'"
+              (click)="setAdvanced(false)"
+            >
+              Simple
+            </button>
+            <button
+              class="rounded px-1.5 py-0.5 text-[11px]"
+              [ngClass]="advanced() ? 'bg-cyan-800 text-white' : 'text-zinc-400'"
+              (click)="setAdvanced(true)"
+            >
+              Advanced
+            </button>
+          </div>
         </div>
         @if (selected(); as d) {
           <div class="px-3 py-2">
@@ -255,15 +367,33 @@
           </div>
           @if (!advanced()) {
             <div class="min-h-0 flex-1 overflow-auto px-3 pb-2 text-sm">
-              <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Ports</div>
-              @for (p of portRows(d); track p.name) {
-                <div class="mb-1 flex flex-wrap items-baseline gap-x-2 font-mono text-xs">
-                  <span [class.text-emerald-300]="p.up" [class.text-zinc-500]="!p.up">{{ p.name }}</span>
+              <p class="mb-2 text-[11px] leading-snug text-zinc-500">Simple view — cables between devices, IPv4 only. Switch to Advanced to pick ports and cable types.</p>
+              <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Used ports</div>
+              @for (p of usedPortRows(d); track p.name) {
+                <div class="mb-1 flex flex-wrap items-center gap-x-2 font-mono text-xs">
+                  <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
                   <span class="text-zinc-500">{{ p.status }}</span>
                   @if (p.peer; as c) {
-                    <span>→ {{ c.peer }} {{ c.peerIface }}</span>
+                    <span>→ {{ c.device }} {{ c.iface }}</span>
+                    @if (c.cable !== 'ethernet' && c.cable !== 'radio') {
+                      <span class="text-[10px] text-zinc-500">{{ cableLabel(c.cable) }}</span>
+                    }
+                    <button class="text-[10px] text-rose-300" (click)="unplug(c.linkId)">Unplug</button>
                   }
                 </div>
+              } @empty {
+                <p class="text-xs text-zinc-500">No cables on this device.</p>
+              }
+              @if (freePortRows(d).length) {
+                <button class="mt-1 text-[11px] text-cyan-400" (click)="showFreePorts.set(!showFreePorts())">
+                  {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free
+                  {{ freePortRows(d).length === 1 ? 'port' : 'ports' }}
+                </button>
+                @if (showFreePorts()) {
+                  @for (p of freePortRows(d); track p.name) {
+                    <div class="mt-1 font-mono text-xs text-zinc-500">{{ p.name }} · {{ p.status }}</div>
+                  }
+                }
               }
               <div class="mb-1 mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
               @for (row of ipv4Rows(d); track row.name) {
@@ -312,7 +442,26 @@
               <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
                 @for (i of d.ifaces; track i.name) {
                   <div class="mb-2 border-b border-zinc-800/80 pb-1">
-                    <div class="font-mono">{{ i.name }} · {{ linkStatus(i) }}</div>
+                    <div class="font-mono">
+                      {{ i.name }} ·
+                      <span [class.text-emerald-300]="i.operUp" [class.text-amber-300]="!!i.peer && !i.operUp" [class.text-zinc-500]="!i.peer">{{
+                        linkStatus(i)
+                      }}</span>
+                    </div>
+                    @if (i.peer; as p) {
+                      <div class="text-zinc-300">
+                        → {{ p.device }} {{ p.iface }}
+                        <span class="text-zinc-500">{{ cableLabel(p.cable) }}</span>
+                        @if (!i.isRadio) {
+                          <button class="ml-1 text-rose-300" (click)="unplug(p.linkId)">Unplug</button>
+                        }
+                      </div>
+                    } @else if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
+                      <div class="text-zinc-600">free</div>
+                    }
+                    @if (i.statusReason && i.status === 'Wrong cable') {
+                      <div class="text-amber-300/90">{{ i.statusReason }}</div>
+                    }
                     @if (i.ipv4) {
                       <div>IPv4 {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div>
                     }
@@ -524,15 +673,29 @@
     >
       <div class="text-lg font-semibold">{{ d.name }}</div>
       <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
-      <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">Ports</div>
-      @for (p of portRows(d); track p.name) {
-        <div class="mt-1 flex flex-wrap items-baseline gap-x-2 font-mono text-sm">
-          <span [class.text-emerald-300]="p.up" [class.text-zinc-500]="!p.up">{{ p.name }}</span>
+      <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">Used ports</div>
+      @for (p of usedPortRows(d); track p.name) {
+        <div class="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-sm">
+          <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
           <span class="text-xs text-zinc-500">{{ p.status }}</span>
           @if (p.peer; as c) {
-            <span class="text-xs text-zinc-300">→ {{ c.peer }} {{ c.peerIface }}</span>
+            <span class="text-xs text-zinc-300">→ {{ c.device }} {{ c.iface }}</span>
+            <button class="text-xs text-rose-300" (click)="unplug(c.linkId)">Unplug</button>
           }
         </div>
+      } @empty {
+        <p class="mt-1 text-sm text-zinc-500">No cables yet</p>
+      }
+      @if (freePortRows(d).length) {
+        <button class="mt-2 text-xs text-cyan-400" (click)="showFreePorts.set(!showFreePorts())">
+          {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free
+          {{ freePortRows(d).length === 1 ? 'port' : 'ports' }}
+        </button>
+        @if (showFreePorts()) {
+          @for (p of freePortRows(d); track p.name) {
+            <div class="mt-1 font-mono text-sm text-zinc-500">{{ p.name }} · {{ p.status }}</div>
+          }
+        }
       }
       <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
       @for (row of ipv4Rows(d); track row.name) {
@@ -579,9 +742,18 @@
       class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       (click)="$event.stopPropagation()"
     >
+      <div class="text-sm font-medium">Connect or add</div>
+      <button
+        class="mb-3 mt-2 min-h-12 w-full rounded-lg border px-3 text-left text-sm"
+        [ngClass]="cableArmed() ? 'border-amber-400 bg-amber-950/60' : 'border-zinc-600'"
+        (click)="armCable('ethernet')"
+      >
+        <div class="font-medium">Cable</div>
+        <div class="text-[11px] text-zinc-400">Tap two devices. First free ports are used.</div>
+      </button>
       <div class="text-sm font-medium">Add a device</div>
       <p class="mb-3 text-[11px] text-zinc-400">
-        {{ basicMode() ? 'It appears on the canvas. Drag it, tap it, then Cable.' : 'It drops in the middle of the canvas. Drag it into place, then tap Cable to connect.' }}
+        {{ basicMode() ? 'It appears on the canvas. Drag it, then Cable.' : 'It drops in the middle of the canvas. Drag it, then Cable.' }}
       </p>
       <div class="grid grid-cols-2 gap-2">
         @for (p of PALETTE; track p.kind) {

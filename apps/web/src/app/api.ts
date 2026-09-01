@@ -7,17 +7,30 @@ const WS = LOCAL
   ? `${typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss' : 'ws'}://${typeof location !== 'undefined' ? location.host : '127.0.0.1:4200'}/ws`
   : 'wss://api-production-caeb.up.railway.app/ws';
 
+export type CableMedia = 'ethernet' | 'straight' | 'crossover' | 'fiber';
+
+export interface IfacePeer {
+  device: string;
+  deviceId: string;
+  iface: string;
+  linkId: string;
+  cable: CableMedia | 'radio';
+}
+
 export interface IfaceState {
   name: string;
   mac: string;
   adminUp: boolean;
   operUp: boolean;
+  status?: string;
+  statusReason?: string;
   ipv4?: { ip: string; prefix: number };
   ipv6: { ip: string; prefix: number }[];
   mode: string;
   accessVlan: number;
   isRadio?: boolean;
   zone?: string;
+  peer?: IfacePeer | null;
 }
 
 export interface DeviceState {
@@ -36,6 +49,7 @@ export interface DeviceState {
 export interface LinkState {
   id: string;
   kind: 'copper' | 'radio';
+  cable?: CableMedia;
   ssid?: string;
   a: { device: string; iface: string; deviceId: string };
   b: { device: string; iface: string; deviceId: string };
@@ -85,6 +99,13 @@ export const PALETTE: { kind: string; label: string; hint: string }[] = [
   { kind: 'cloud', label: 'Internet', hint: 'Outside network stub' },
 ];
 
+export const CABLE_TYPES: { id: CableMedia; label: string; hint: string; advanced?: boolean }[] = [
+  { id: 'ethernet', label: 'Ethernet', hint: 'Auto-MDIX — any two Ethernet ports get a link' },
+  { id: 'straight', label: 'Straight-through', hint: 'Unlike devices: PC or router to a switch', advanced: true },
+  { id: 'crossover', label: 'Crossover', hint: 'Like devices: PC–PC, switch–switch, router–router', advanced: true },
+  { id: 'fiber', label: 'Fiber', hint: 'SFP on switch, router, firewall, AP, WLC', advanced: true },
+];
+
 type WsMsg = {
   type?: string;
   output?: string;
@@ -96,6 +117,10 @@ type WsMsg = {
 };
 
 @Injectable({ providedIn: 'root' })
+const GUEST_LAB_KEY = 'nb_guest_lab';
+
+type GuestSnap = { v: 1; at: number; lab: unknown };
+
 export class Api {
   token = signal<string | null>(localStorage.getItem('nb_token'));
   guest = signal(true);
@@ -107,6 +132,7 @@ export class Api {
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private cliWaiters: Array<(msg: WsMsg) => void> = [];
 
   private headers(): HeadersInit {
@@ -182,7 +208,9 @@ export class Api {
     this.token.set(r.token);
     localStorage.setItem('nb_token', r.token);
     this.guest.set(true);
-    this.warning.set(r.warning ?? 'Guest session — reload loses unsaved labs. Sign in to save.');
+    this.warning.set(
+      r.warning ?? 'Guest — this lab is saved in this browser. Sign in to keep it on your account and other devices.',
+    );
   }
 
   async login(email: string, password: string): Promise<void> {
@@ -191,6 +219,7 @@ export class Api {
     localStorage.setItem('nb_token', r.token);
     this.guest.set(false);
     this.warning.set(null);
+    await this.promoteGuestLab();
   }
 
   async register(email: string, password: string): Promise<void> {
@@ -199,6 +228,45 @@ export class Api {
     localStorage.setItem('nb_token', r.token);
     this.guest.set(false);
     this.warning.set(null);
+    await this.promoteGuestLab();
+  }
+
+  readGuestLab(): unknown | null {
+    try {
+      const raw = localStorage.getItem(GUEST_LAB_KEY);
+      if (!raw) return null;
+      const snap = JSON.parse(raw) as GuestSnap;
+      return snap?.lab ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeGuestLab(lab: unknown): void {
+    try {
+      const snap: GuestSnap = { v: 1, at: Date.now(), lab };
+      localStorage.setItem(GUEST_LAB_KEY, JSON.stringify(snap));
+    } catch {
+      /* quota / private mode */
+    }
+  }
+
+  private async promoteGuestLab(): Promise<void> {
+    const lab = this.readGuestLab();
+    if (!lab || typeof lab !== 'object') return;
+    try {
+      await this.json('/labs', { method: 'POST', body: JSON.stringify(lab) });
+    } catch {
+      /* account save is optional */
+    }
+  }
+
+  persistSoon(): void {
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.save().catch(() => undefined);
+    }, 600);
   }
 
   builtins() {
@@ -207,6 +275,10 @@ export class Api {
 
   async open(labId?: string, lab?: unknown): Promise<void> {
     if (!this.token()) await this.startGuest();
+    if (!lab && labId) {
+      const guest = this.readGuestLab() as { id?: string } | null;
+      if (guest && guest.id === labId) lab = guest;
+    }
     const r = await this.json<{ sessionId: string; state: LabState; warning?: string }>('/sessions', {
       method: 'POST',
       body: JSON.stringify({ labId, lab }),
@@ -215,12 +287,14 @@ export class Api {
     this.state.set(r.state);
     if (r.warning) this.warning.set(r.warning);
     this.connectWs();
+    this.persistSoon();
   }
 
   async refresh(): Promise<void> {
     const id = this.sessionId();
     if (!id) return;
     this.state.set(await this.json<LabState>(`/sessions/${id}/state`));
+    this.persistSoon();
   }
 
   async cli(deviceId: string, line: string) {
@@ -237,7 +311,10 @@ export class Api {
         });
         this.ws!.send(JSON.stringify({ type: 'cli', deviceId, line }));
       });
-      if (reply.state) this.state.set(reply.state);
+      if (reply.state) {
+        this.state.set(reply.state);
+        this.persistSoon();
+      }
       return {
         output: reply.output ?? '',
         prompt: reply.prompt ?? '',
@@ -251,6 +328,7 @@ export class Api {
       { method: 'POST', body: JSON.stringify({ deviceId, line }) },
     );
     this.state.set(r.state);
+    this.persistSoon();
     return r;
   }
 
@@ -266,7 +344,12 @@ export class Api {
   async save() {
     const id = this.sessionId();
     if (!id) return;
-    return this.json(`/sessions/${id}/save`, { method: 'POST', body: '{}' });
+    const r = await this.json<{ ok?: boolean; guest?: boolean; json?: unknown }>(`/sessions/${id}/save`, {
+      method: 'POST',
+      body: '{}',
+    });
+    if (this.guest() && r.json) this.writeGuestLab(r.json);
+    return r;
   }
 
   async check() {
@@ -280,6 +363,7 @@ export class Api {
     const id = this.sessionId();
     const r = await this.json<{ state: LabState }>(`/sessions/${id}/edit`, { method: 'POST', body: JSON.stringify({ patch, move }) });
     this.state.set(r.state);
+    this.persistSoon();
   }
 
   async confirm(purpose: string) {
@@ -291,6 +375,7 @@ export class Api {
     const id = this.sessionId();
     const r = await this.json<{ state: LabState }>(`/sessions/${id}/patch`, { method: 'POST', body: JSON.stringify({ patch, confirmToken }) });
     this.state.set(r.state);
+    this.persistSoon();
   }
 
   async applyConfig(deviceId: string, commands: string[], confirmToken: string) {
@@ -299,8 +384,10 @@ export class Api {
       method: 'POST',
       body: JSON.stringify({ deviceId, commands, confirmToken }),
     });
-    if (r.state) this.state.set(r.state);
-    else await this.refresh();
+    if (r.state) {
+      this.state.set(r.state);
+      this.persistSoon();
+    } else await this.refresh();
   }
 
   async highlight(deviceIds: string[]) {

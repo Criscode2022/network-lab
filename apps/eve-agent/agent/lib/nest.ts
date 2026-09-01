@@ -22,8 +22,13 @@ export async function nestGet<T>(path: string): Promise<T> {
   return json;
 }
 
-/** Mint a one-time Nest confirmToken after Eve HITL has already approved the tool. */
+/**
+ * Mint a one-time Nest confirmToken after Eve HITL has already approved the tool.
+ * Never take a token from the model — it will invent "approve" / request ids.
+ * Resolves labId as either the Nest session UUID or the engine lab id.
+ */
 export async function mintConfirm(labId: string, purpose: string): Promise<string> {
-  const r = await nest<{ confirmToken: string }>(`/sessions/${labId}/confirm`, { purpose });
+  const r = await nest<{ confirmToken: string }>('/eve/tools/confirm', { labId, purpose });
+  if (!r.confirmToken) throw new Error(`confirmToken mint failed for labId=${labId}`);
   return r.confirmToken;
 }

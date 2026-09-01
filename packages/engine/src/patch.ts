@@ -1,4 +1,5 @@
-import { DEVICE_KINDS, type DeviceKind, type LabPatch } from './types.ts';
+import { CABLE_MEDIA } from './cables.ts';
+import { DEVICE_KINDS, type CableMedia, type DeviceKind, type LabPatch } from './types.ts';
 
 export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | { ok: false; error: string } {
   if (!input || typeof input !== 'object') return { ok: false, error: 'patch must be an object' };
@@ -37,7 +38,14 @@ export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | {
     for (const l of p.addLinks) {
       const rec = l as Record<string, unknown>;
       if (typeof rec?.a !== 'string' || typeof rec?.b !== 'string') return { ok: false, error: 'link needs a and b as Name:iface' };
-      patch.addLinks.push({ a: rec.a, b: rec.b });
+      let cable: CableMedia | undefined;
+      if (rec.cable !== undefined) {
+        if (typeof rec.cable !== 'string' || !CABLE_MEDIA.includes(rec.cable as CableMedia)) {
+          return { ok: false, error: `unknown cable ${String(rec.cable)}` };
+        }
+        cable = rec.cable as CableMedia;
+      }
+      patch.addLinks.push({ a: rec.a, b: rec.b, ...(cable ? { cable } : {}) });
     }
   }
   if (p.removeLinks !== undefined) {
