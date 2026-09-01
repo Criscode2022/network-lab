@@ -485,13 +485,15 @@
       } @empty {
         <p class="mt-1 text-sm text-zinc-500">No IPv4 yet</p>
       }
-      <div class="mt-4 grid grid-cols-2 gap-2">
-        <button class="min-h-12 rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">Cable</button>
-        <button class="min-h-12 rounded-lg border border-rose-800 text-sm text-rose-300" (click)="basicSheet.set(false); confirmDel.set(d)">
+      <button class="mt-4 min-h-12 w-full rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">Cable</button>
+      <div class="mt-2 flex gap-2">
+        <button class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 text-sm text-zinc-200" (click)="basicSheet.set(false)">
+          Close
+        </button>
+        <button class="min-h-12 min-w-0 flex-1 rounded-lg border border-rose-800 text-sm text-rose-300" (click)="basicSheet.set(false); confirmDel.set(d)">
           Delete
         </button>
       </div>
-      <button class="mt-2 min-h-11 w-full text-sm text-zinc-400" (click)="basicSheet.set(false)">Close</button>
     </div>
   </div>
 }
