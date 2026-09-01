@@ -500,6 +500,19 @@ describe('cables and used ports', () => {
     expect(iface(st, 'R1', 'Gi0/1').peer).toBeNull();
   });
 
+  it('cabling a new PC brings both Ethernet ports up', () => {
+    const e = Engine.fromLab(twoPcSwitch());
+    e.addDevice('workstation', 'PC3', 40, 40);
+    const pc3 = e.dev('PC3');
+    expect(pc3.ifaces[0].adminUp).toBe(true);
+    expect(pc3.ifaces[0].name).toBe('eth0');
+    e.addLink('PC3:eth0', 'SW1:Gi0/3');
+    const st = e.getState() as unknown as StateView;
+    expect(iface(st, 'PC3', 'eth0').status).toBe('Up');
+    expect(iface(st, 'SW1', 'Gi0/3').status).toBe('Up');
+    expect(iface(st, 'PC3', 'wlan0').status).toBe('Unplugged');
+  });
+
   it('rejects a second cable on an occupied port', () => {
     const e = Engine.fromLab(twoPcSwitch());
     expect(() => e.addLink('PC1:eth0', 'SW1:Gi0/3')).toThrow(/already cabled/);

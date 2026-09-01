@@ -2,21 +2,59 @@
   <header
     class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5 md:h-12 md:flex-nowrap md:gap-3 md:px-3"
   >
-    <div class="text-sm font-semibold tracking-wide text-cyan-300">NetBench</div>
-    <select
-      class="order-last w-full min-w-0 basis-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs md:order-none md:w-auto md:max-w-56 md:flex-none md:basis-auto md:py-1"
-      (change)="loadLab($any($event.target).value)"
-    >
-      @for (l of labs(); track l.id) {
-        <option [value]="l.id">{{ l.name }}</option>
+    <div class="flex items-center gap-1">
+      <div class="text-sm font-semibold tracking-wide text-cyan-300">NetBench</div>
+      @if (basicMode()) {
+        <button
+          type="button"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: Basic mode"
+          (click)="openHelp('basics', $event)"
+        >
+          ?
+        </button>
       }
-    </select>
-    <button
-      class="min-h-9 rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600 md:min-h-0"
-      (click)="doCheck()"
+    </div>
+    <div
+      class="order-last flex w-full min-w-0 basis-full items-center gap-1 md:order-none md:w-auto md:flex-none md:basis-auto"
     >
-      Check
-    </button>
+      <select
+        class="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs md:w-auto md:max-w-56 md:flex-none md:py-1"
+        (change)="loadLab($any($event.target).value)"
+      >
+        @for (l of labs(); track l.id) {
+          <option [value]="l.id">{{ l.name }}</option>
+        }
+      </select>
+      @if (basicMode()) {
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: this lab"
+          (click)="openHelp('lab', $event)"
+        >
+          ?
+        </button>
+      }
+    </div>
+    <div class="flex items-center gap-1">
+      <button
+        class="min-h-9 rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600 md:min-h-0"
+        (click)="doCheck()"
+      >
+        Check
+      </button>
+      @if (basicMode()) {
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: Check"
+          (click)="openHelp('check', $event)"
+        >
+          ?
+        </button>
+      }
+    </div>
     <button
       class="min-h-9 rounded-md px-3 py-1 text-xs font-medium md:hidden"
       [ngClass]="basic() ? 'bg-cyan-800 text-white' : 'border border-zinc-700'"
@@ -140,8 +178,8 @@
         <p class="mt-auto hidden px-3 py-2 text-[10px] leading-snug text-zinc-500 md:block">
           {{
             advUi()
-              ? 'Advanced: pick a cable type, then click free ports (or two devices). Filled ports are in use.'
-              : 'Simple: pick Ethernet, then click two devices. First free ports are used. IPv4 only.'
+              ? 'Advanced: pick a cable, then click ports. Without a cable armed, click a port to enable or disable it.'
+              : 'Simple: pick Ethernet, then click two devices. Click a port status to enable or disable it.'
           }}
         </p>
       </aside>
@@ -151,9 +189,20 @@
       <div class="relative min-h-0 min-w-0 flex-1">
         @if (api.state()?.goal) {
           <div
-            class="pointer-events-none absolute left-2 right-16 top-2 z-10 line-clamp-2 rounded-md bg-zinc-950/85 px-2 py-1 text-[10px] leading-snug text-zinc-300 md:right-2"
+            class="absolute left-2 right-16 top-2 z-10 flex items-start gap-1 rounded-md bg-zinc-950/85 px-2 py-1 text-[10px] leading-snug text-zinc-300 md:right-2"
+            [class.pointer-events-none]="!basicMode()"
           >
-            Goal: {{ api.state()?.goal }}
+            <span class="line-clamp-2 min-w-0 flex-1">Goal: {{ api.state()?.goal }}</span>
+            @if (basicMode()) {
+              <button
+                type="button"
+                class="pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+                aria-label="Help: lab goal"
+                (click)="openHelp('goal', $event)"
+              >
+                ?
+              </button>
+            }
           </div>
         }
         @if (hint() || placing() || cableFrom() || cableArmed()) {
@@ -194,13 +243,23 @@
           </div>
         }
         @if (basicMode()) {
-          <button
-            class="absolute bottom-3 left-3 z-10 min-h-11 rounded-full px-4 text-sm font-medium shadow-lg"
-            [ngClass]="cableArmed() ? 'bg-amber-600 text-white' : 'bg-zinc-800 text-zinc-100'"
-            (click)="armCable('ethernet')"
-          >
-            Cable
-          </button>
+          <div class="absolute bottom-3 left-3 z-10 flex items-center gap-1">
+            <button
+              class="min-h-11 rounded-full px-4 text-sm font-medium shadow-lg"
+              [ngClass]="cableArmed() ? 'bg-amber-600 text-white' : 'bg-zinc-800 text-zinc-100'"
+              (click)="armCable('ethernet')"
+            >
+              Cable
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-base font-semibold text-zinc-200 shadow-lg hover:border-cyan-500 hover:text-cyan-200"
+              aria-label="Help: cables"
+              (click)="openHelp('cable', $event)"
+            >
+              ?
+            </button>
+          </div>
         }
         <button
           class="absolute bottom-3 right-3 z-10 min-h-11 rounded-full bg-cyan-700 px-4 text-sm font-medium text-white shadow-lg md:hidden"
@@ -292,14 +351,17 @@
                   @if (usedPortRows(d).length) {
                     <div class="flex flex-col gap-0.5 pt-0.5">
                       @for (p of usedPortRows(d); track p.name) {
-                        <div
-                          class="truncate font-mono text-[8px] leading-3"
+                        <button
+                          type="button"
+                          class="truncate rounded font-mono text-[8px] leading-3 transition hover:bg-zinc-950/70 hover:ring-1 hover:ring-cyan-400/50"
                           [class.text-emerald-200]="p.up"
                           [class.text-amber-200]="!p.up"
-                          [title]="p.name + ' → ' + p.peer?.device + ' ' + p.peer?.iface"
+                          [title]="statusToggleTitle(d, p.name)"
+                          (pointerdown)="$event.stopPropagation()"
+                          (click)="toggleIface(d, p.name, $event)"
                         >
-                          {{ p.name }} → {{ p.peer?.device }}
-                        </div>
+                          {{ p.name }} → {{ p.peer?.device }} · {{ p.status }}
+                        </button>
                       }
                     </div>
                   }
@@ -372,7 +434,14 @@
               @for (p of usedPortRows(d); track p.name) {
                 <div class="mb-1 flex flex-wrap items-center gap-x-2 font-mono text-xs">
                   <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
-                  <span class="text-zinc-500">{{ p.status }}</span>
+                  <button
+                    type="button"
+                    [ngClass]="statusBtnClassFor(d, p.name)"
+                    [title]="statusToggleTitle(d, p.name)"
+                    (click)="toggleIface(d, p.name, $event)"
+                  >
+                    {{ p.status }}
+                  </button>
                   @if (p.peer; as c) {
                     <span>→ {{ c.device }} {{ c.iface }}</span>
                     @if (c.cable !== 'ethernet' && c.cable !== 'radio') {
@@ -391,7 +460,17 @@
                 </button>
                 @if (showFreePorts()) {
                   @for (p of freePortRows(d); track p.name) {
-                    <div class="mt-1 font-mono text-xs text-zinc-500">{{ p.name }} · {{ p.status }}</div>
+                    <div class="mt-1 font-mono text-xs text-zinc-500">
+                      {{ p.name }} ·
+                      <button
+                        type="button"
+                        [ngClass]="statusBtnClassFor(d, p.name)"
+                        [title]="statusToggleTitle(d, p.name)"
+                        (click)="toggleIface(d, p.name, $event)"
+                      >
+                        {{ p.status }}
+                      </button>
+                    </div>
                   }
                 }
               }
@@ -444,9 +523,14 @@
                   <div class="mb-2 border-b border-zinc-800/80 pb-1">
                     <div class="font-mono">
                       {{ i.name }} ·
-                      <span [class.text-emerald-300]="i.operUp" [class.text-amber-300]="!!i.peer && !i.operUp" [class.text-zinc-500]="!i.peer">{{
-                        linkStatus(i)
-                      }}</span>
+                      <button
+                        type="button"
+                        [ngClass]="statusBtnClass(i)"
+                        [title]="statusToggleTitle(d, i.name)"
+                        (click)="toggleIface(d, i.name, $event)"
+                      >
+                        {{ linkStatus(i) }}
+                      </button>
                     </div>
                     @if (i.peer; as p) {
                       <div class="text-zinc-300">
@@ -671,13 +755,42 @@
       class="absolute inset-x-0 bottom-0 max-h-[75dvh] overflow-auto rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
       (click)="$event.stopPropagation()"
     >
-      <div class="text-lg font-semibold">{{ d.name }}</div>
-      <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
-      <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">Used ports</div>
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <div class="text-lg font-semibold">{{ d.name }}</div>
+          <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
+        </div>
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: this device"
+          (click)="openHelp('add', $event)"
+        >
+          ?
+        </button>
+      </div>
+      <div class="mt-3 flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500">
+        <span>Used ports</span>
+        <button
+          type="button"
+          class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold normal-case text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: ports"
+          (click)="openHelp('ports', $event)"
+        >
+          ?
+        </button>
+      </div>
       @for (p of usedPortRows(d); track p.name) {
         <div class="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-sm">
           <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
-          <span class="text-xs text-zinc-500">{{ p.status }}</span>
+          <button
+            type="button"
+            [ngClass]="statusBtnClassFor(d, p.name)"
+            [title]="statusToggleTitle(d, p.name)"
+            (click)="toggleIface(d, p.name, $event)"
+          >
+            {{ p.status }}
+          </button>
           @if (p.peer; as c) {
             <span class="text-xs text-zinc-300">→ {{ c.device }} {{ c.iface }}</span>
             <button class="text-xs text-rose-300" (click)="unplug(c.linkId)">Unplug</button>
@@ -686,6 +799,9 @@
       } @empty {
         <p class="mt-1 text-sm text-zinc-500">No cables yet</p>
       }
+      <button type="button" class="mt-1 text-left text-xs text-cyan-400" (click)="openHelp('status', $event)">
+        What do Up and Disabled mean?
+      </button>
       @if (freePortRows(d).length) {
         <button class="mt-2 text-xs text-cyan-400" (click)="showFreePorts.set(!showFreePorts())">
           {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free
@@ -693,11 +809,31 @@
         </button>
         @if (showFreePorts()) {
           @for (p of freePortRows(d); track p.name) {
-            <div class="mt-1 font-mono text-sm text-zinc-500">{{ p.name }} · {{ p.status }}</div>
+            <div class="mt-1 font-mono text-sm text-zinc-500">
+              {{ p.name }} ·
+              <button
+                type="button"
+                [ngClass]="statusBtnClassFor(d, p.name)"
+                [title]="statusToggleTitle(d, p.name)"
+                (click)="toggleIface(d, p.name, $event)"
+              >
+                {{ p.status }}
+              </button>
+            </div>
           }
         }
       }
-      <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
+      <div class="mt-3 flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500">
+        <span>IPv4</span>
+        <button
+          type="button"
+          class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold normal-case text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: IPv4"
+          (click)="openHelp('ipv4', $event)"
+        >
+          ?
+        </button>
+      </div>
       @for (row of ipv4Rows(d); track row.name) {
         <div class="mt-1 font-mono text-base text-emerald-300">{{ row.ip }}</div>
         <div class="text-xs text-zinc-500">{{ row.name }} · {{ row.status }}</div>
@@ -723,7 +859,19 @@
           </button>
         }
       }
-      <button class="mt-4 min-h-12 w-full rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">Cable</button>
+      <div class="mt-4 flex items-center gap-2">
+        <button class="min-h-12 min-w-0 flex-1 rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">
+          Cable
+        </button>
+        <button
+          type="button"
+          class="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-600 text-base font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+          aria-label="Help: cables"
+          (click)="openHelp('cable', $event)"
+        >
+          ?
+        </button>
+      </div>
       <div class="mt-2 flex gap-2">
         <button class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 text-sm text-zinc-200" (click)="basicSheet.set(false)">
           Close
@@ -742,7 +890,19 @@
       class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       (click)="$event.stopPropagation()"
     >
-      <div class="text-sm font-medium">Connect or add</div>
+      <div class="flex items-center justify-between gap-2">
+        <div class="text-sm font-medium">Connect or add</div>
+        @if (basicMode()) {
+          <button
+            type="button"
+            class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
+            aria-label="Help: add a device"
+            (click)="openHelp('add', $event)"
+          >
+            ?
+          </button>
+        }
+      </div>
       <button
         class="mb-3 mt-2 min-h-12 w-full rounded-lg border px-3 text-left text-sm"
         [ngClass]="cableArmed() ? 'border-amber-400 bg-amber-950/60' : 'border-zinc-600'"
@@ -766,6 +926,43 @@
           </button>
         }
       </div>
+    </div>
+  </div>
+}
+
+@if (basicMode() && helpView(); as h) {
+  <div
+    class="fixed inset-0 z-30 flex items-end justify-center bg-black/60 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
+    (click)="helpOpen.set(null)"
+  >
+    <div
+      class="max-h-[80dvh] w-full max-w-md overflow-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-4 shadow-xl"
+      (click)="$event.stopPropagation()"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="'nb-help-title'"
+    >
+      <div class="flex items-start justify-between gap-3">
+        <h2 id="nb-help-title" class="text-lg font-semibold text-zinc-100">{{ h.title }}</h2>
+        <button
+          type="button"
+          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 hover:bg-zinc-800"
+          aria-label="Close help"
+          (click)="helpOpen.set(null)"
+        >
+          ×
+        </button>
+      </div>
+      @for (p of h.body; track $index) {
+        <p class="mt-3 text-sm leading-6 text-zinc-300">{{ p }}</p>
+      }
+      <button
+        type="button"
+        class="mt-4 min-h-12 w-full rounded-lg bg-cyan-700 text-sm font-medium text-white hover:bg-cyan-600"
+        (click)="helpOpen.set(null)"
+      >
+        Got it
+      </button>
     </div>
   </div>
 }

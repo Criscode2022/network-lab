@@ -28,7 +28,7 @@ export function newIface(name: string, kind: DeviceKind): Iface {
   return {
     name,
     mac,
-    adminUp: linux && !radio,
+    adminUp: linux,
     ipv6,
     mode: l2 || radio ? 'access' : 'routed',
     accessVlan: 1,

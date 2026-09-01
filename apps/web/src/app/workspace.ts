@@ -4,6 +4,8 @@ import { NgClass } from '@angular/common';
 import { Api, CABLE_TYPES, PALETTE, type CableMedia, type DeviceState, type IfacePeer, type IfaceState, type LinkState, type PacketEvent } from './api';
 import { EveClient } from './eve-client';
 
+type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status';
+
 @Component({
   selector: 'app-workspace',
   imports: [FormsModule, NgClass],
@@ -73,8 +75,81 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   email = '';
   password = '';
   animPkts = signal<{ id: string; x1: number; y1: number; x2: number; y2: number; drop?: boolean }[]>([]);
+  helpOpen = signal<HelpId | null>(null);
+  readonly HELP: Record<HelpId, { title: string; body: string[] }> = {
+    basics: {
+      title: 'Basic mode',
+      body: [
+        'This is the simple phone view: a drawing of the network, nothing else.',
+        'Tap a box to see its cables and IP. Use Cable to plug two devices. Use + Add for a new PC or switch. Check tests the lab goal (usually a ping).',
+        'You can turn Basic off in the header if you want the full editor with a terminal.',
+      ],
+    },
+    lab: {
+      title: 'This lab',
+      body: [
+        'The menu picks a practice scenario. Each lab has a goal — what must work when you press Check.',
+        'Start with First IPv4 ping: two PCs on a switch should ping. Then try labs with a missing gateway or a shutdown port.',
+      ],
+    },
+    check: {
+      title: 'Check',
+      body: [
+        'Check runs this lab’s test, usually a ping between two PCs.',
+        'Green means the path works. Red lists why it failed: no cable, no IPv4, a disabled port, or a wrong gateway.',
+        'Fix one thing, then Check again. That is how you debug a real network too.',
+      ],
+    },
+    goal: {
+      title: 'Lab goal',
+      body: [
+        'The sentence at the top is the job. Check is true only when that job is done.',
+        'Read it before you add devices. Most first labs already have cables — you only confirm or fix them.',
+      ],
+    },
+    cable: {
+      title: 'Cables',
+      body: [
+        'Tap Cable, then tap two devices. Ethernet uses the first free port on each (PC eth0, switch Gi0/1, Gi0/2, …).',
+        'A green name on the card means the link is up. Dim or amber means the port is disabled or the cable type is wrong.',
+        'Tap a cable on the canvas to unplug it. Each PC has its own eth0 — you never share one Ethernet port across PCs.',
+      ],
+    },
+    add: {
+      title: 'Add a device',
+      body: [
+        '+ Add drops a device in the middle of the canvas. Drag it where you want, then Cable it.',
+        'PC = a computer you ping from. Switch = a box that joins cables. Router = different IP networks. Server = a host with a service.',
+        'A switch usually has no IPv4. That is normal for layer 2.',
+      ],
+    },
+    ports: {
+      title: 'Ports',
+      body: [
+        'Used ports are the ones with a cable. The name on the left is this device; the arrow is the neighbor.',
+        'Up = the port is on and the cable has link. Disabled = administratively down — tap that word to turn it on. Unplugged = no cable.',
+        'Show free ports if you need an empty switch jack. Do not plug two cables into the same port.',
+      ],
+    },
+    ipv4: {
+      title: 'IPv4 address',
+      body: [
+        'PCs and routers need an IPv4 address to ping. Same network means the same prefix, often /24 (255.255.255.0).',
+        'Example: 10.0.0.10/24 can ping 10.0.0.20/24. 10.0.1.20/24 is a different network and needs a router.',
+        'Add IP fills the next free host on the busiest subnet. A switch with no IP is fine.',
+      ],
+    },
+    status: {
+      title: 'Up and Disabled',
+      body: [
+        'Tap Up or Disabled to shut or no-shut the port. Same idea as ip link set eth0 down on Linux, or shutdown on a Cisco switch.',
+        'A cabled port that is Disabled will not pass pings. Turn it Up, then Check.',
+      ],
+    },
+  };
 
   selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
+  helpView = computed(() => this.helpContent());
   worldW = computed(() => {
     let m = 4000;
     for (const d of this.api.state()?.devices ?? []) m = Math.max(m, d.x + 400);
@@ -216,6 +291,29 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   basicMode() {
     return this.isNarrow() && this.basic();
+  }
+
+  openHelp(id: HelpId, ev?: Event) {
+    ev?.stopPropagation();
+    ev?.preventDefault();
+    this.helpOpen.set(id);
+  }
+
+  helpContent() {
+    const id = this.helpOpen();
+    if (!id) return null;
+    const base = this.HELP[id];
+    const st = this.api.state();
+    if ((id === 'goal' || id === 'lab') && st) {
+      const extra =
+        id === 'goal' && st.goal
+          ? [`This lab: ${st.goal}`]
+          : id === 'lab'
+            ? [`${st.name}${st.goal ? ` — ${st.goal}` : ''}`]
+            : [];
+      return { title: id === 'lab' ? st.name || base.title : base.title, body: [...extra, ...base.body] };
+    }
+    return base;
   }
 
   /** Advanced inspector/cables/ports. Basic mobile always stays simple. */
@@ -377,10 +475,58 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   linkStatus(i: IfaceState) {
+    if (i.isRadio && !i.adminUp) return 'Radio off';
     if (i.status) return i.status;
     if (!i.adminUp) return 'Disabled';
     if (!i.operUp) return i.peer ? 'Down' : 'Unplugged';
     return 'Up';
+  }
+
+  statusBtnClass(i: IfaceState) {
+    const color = i.operUp
+      ? 'text-emerald-300'
+      : i.peer && !i.operUp
+        ? 'text-amber-300'
+        : 'text-zinc-500';
+    return `${color} cursor-pointer rounded px-1 -mx-0.5 transition hover:bg-zinc-800 hover:ring-1 hover:ring-cyan-500/50`;
+  }
+
+  statusBtnClassFor(d: DeviceState, name: string) {
+    const i = d.ifaces.find((x) => x.name === name);
+    return i ? this.statusBtnClass(i) : 'cursor-pointer rounded px-1 text-zinc-500 hover:bg-zinc-800';
+  }
+
+  statusToggleTitle(d: DeviceState, iface: string) {
+    const i = d.ifaces.find((x) => x.name === iface);
+    if (!i) return 'Toggle port';
+    if (i.isRadio) return i.adminUp ? 'Click to disable Wi-Fi radio' : 'Click to enable Wi-Fi radio';
+    return i.adminUp ? 'Click to disable this port' : 'Click to enable this port';
+  }
+
+  async toggleIface(d: DeviceState, iface: string, ev?: Event) {
+    ev?.stopPropagation();
+    ev?.preventDefault();
+    const i = d.ifaces.find((x) => x.name === iface);
+    if (!i) return;
+    const enable = !i.adminUp;
+    const linux = d.kind === 'workstation' || d.kind === 'server' || d.kind === 'firewall' || d.kind === 'cloud';
+    const cmds = linux
+      ? [`ip link set ${iface} ${enable ? 'up' : 'down'}`]
+      : ['enable', 'conf t', `interface ${iface}`, enable ? 'no shutdown' : 'shutdown', 'end'];
+    this.termDevice.set(d.id);
+    try {
+      for (const line of cmds) {
+        const r = await this.api.cli(d.id, line);
+        if (r.error) {
+          this.showHint(r.output || `Failed: ${line}`);
+          return;
+        }
+      }
+      await this.api.refresh();
+      this.showHint(`${d.name} ${iface} ${enable ? 'up' : 'disabled'}`);
+    } catch (e) {
+      this.showHint(String(e));
+    }
   }
 
   ipv6Rows(i: IfaceState) {
@@ -468,16 +614,25 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   portChipClass(d: DeviceState, i: IfaceState) {
     const peer = this.peerOf(d, i.name);
-    if (i.isRadio) return i.operUp ? 'bg-violet-700/80 text-violet-100' : 'border border-violet-700/60 text-violet-400';
-    if (peer && i.operUp) return 'bg-emerald-700/80 text-emerald-50';
-    if (peer && !i.operUp) return 'bg-amber-800/80 text-amber-100';
-    return 'border border-zinc-600 text-zinc-500';
+    const hover = 'cursor-pointer transition hover:ring-1 hover:ring-cyan-400/70 hover:brightness-125';
+    if (i.isRadio) {
+      return `${hover} ${i.operUp ? 'bg-violet-700/80 text-violet-100' : 'border border-violet-700/60 text-violet-400'}`;
+    }
+    if (peer && i.operUp) return `${hover} bg-emerald-700/80 text-emerald-50`;
+    if (peer && !i.operUp) return `${hover} bg-amber-800/80 text-amber-100`;
+    if (!i.adminUp) return `${hover} border border-zinc-700 text-zinc-600`;
+    return `${hover} border border-zinc-500 text-zinc-400`;
   }
 
   portTitle(d: DeviceState, i: IfaceState) {
     const p = this.peerOf(d, i.name);
-    if (p) return `${i.name} → ${p.device} ${p.iface} · ${this.cableLabel(p.cable)} · ${this.linkStatus(i)}`;
-    return `${i.name} free`;
+    const st = this.linkStatus(i);
+    if (this.cableArmed() || this.cableFrom()) {
+      if (p) return `${i.name} is cabled — unplug first`;
+      return `${i.name} ${st} — click to attach cable`;
+    }
+    if (p) return `${i.name} → ${p.device} ${p.iface} · ${this.cableLabel(p.cable)} · ${st} — click to ${i.adminUp ? 'disable' : 'enable'}`;
+    return `${i.name} ${st} — click to ${i.adminUp ? 'disable' : 'enable'}`;
   }
 
   visiblePackets() {
@@ -764,6 +919,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.confirmDel.set(this.selected());
     }
     if (ev.key === 'Escape') {
+      if (this.helpOpen()) {
+        this.helpOpen.set(null);
+        return;
+      }
       this.cancelCable();
       this.placing.set(null);
       this.confirmDel.set(null);
@@ -1067,7 +1226,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     ev.preventDefault();
     const i = d.ifaces.find((x) => x.name === iface);
     if (i?.isRadio) {
-      this.showHint('Wi-Fi uses association (nmcli), not a copper cable.');
+      if (this.cableArmed() || this.cableFrom()) {
+        this.showHint('Wi-Fi uses association (nmcli), not a copper cable.');
+        return;
+      }
+      void this.toggleIface(d, iface, ev);
+      return;
+    }
+    if (!this.cableArmed() && !this.cableFrom()) {
+      void this.toggleIface(d, iface, ev);
       return;
     }
     const busy = this.peerOf(d, iface);
