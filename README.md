@@ -2,6 +2,8 @@
 
 Browser network lab for a junior network and systems administrator — plus **Eve**, a Vercel eve instructor agent.
 
+**Continuing this repo (coding agents):** read [`HANDOFF.md`](./HANDOFF.md) first. It covers architecture, UI modes (Basic / mobile / desktop), Eve, deploy URLs, and what not to regress.
+
 Not Packet Tracer. Not a CCIE catalog. Eight device types, dual-stack IPv4/IPv6, honest drops.
 
 ## Apps
