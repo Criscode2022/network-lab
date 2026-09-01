@@ -1,4 +1,8 @@
-const API = process.env.NETBENCH_API_URL || 'http://127.0.0.1:3001';
+const API =
+  process.env.NETBENCH_API_URL ||
+  (process.env.VERCEL || process.env.RAILWAY_ENVIRONMENT
+    ? 'https://api-production-caeb.up.railway.app'
+    : 'http://127.0.0.1:3001');
 
 export async function nest<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(`${API}/api${path}`, {

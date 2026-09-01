@@ -13,6 +13,7 @@ apps/web/.angular/
 apps/api/dist/
 packages/engine/dist/
 apps/eve-agent/.eve/
+apps/eve-agent/.output/
 apps/eve-agent/node_modules/
 .idea/
 *.tsbuildinfo

@@ -69,14 +69,15 @@ Lab JSON schema: `packages/engine/schema/lab.schema.json`.
 2. **API** — Railway / Fly / Render / any always-on Node. `apps/api/Dockerfile`. Env: `PORT`, `JWT_SECRET`, `DATABASE_URL`.
    Live: `https://api-production-caeb.up.railway.app/api/health`
 3. **Angular** — Vercel (preferred). `apps/web`. Off localhost the UI calls the Railway API. A Railway nginx image (`apps/web/Dockerfile`) is a public fallback if Vercel SSO is on.
-4. **Eve** — from `apps/eve-agent`:
+4. **Eve** — from `apps/eve-agent`. Preferred: Vercel (`eve link` / `eve deploy`, OIDC + AI Gateway). Self-host: `apps/eve-agent/Dockerfile` on a long-running Node host (`eve build && eve start`). Off localhost, tools call `https://api-production-caeb.up.railway.app`.
 
 ```bash
 cd apps/eve-agent
 npx eve link
 npx eve deploy
+# or: npx eve build && npx eve start --host 0.0.0.0 --port 8080
 ```
 
 On Vercel: OIDC + AI Gateway (`anthropic/claude-sonnet-4.5` or `openai/gpt-5.4-mini`). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
 
-Health: `GET /api/health` (API), `GET /eve/v1/health` (eve).
+Health: `GET /api/health` (API), `GET /eve/v1/health` (eve). Public Angular fallback: `https://web-production-033453.up.railway.app/`.
