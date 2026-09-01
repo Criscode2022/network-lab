@@ -1,128 +1,222 @@
-<div class="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-200">
-  <header class="flex h-12 shrink-0 items-center gap-3 border-b border-zinc-800 px-3">
+<div class="flex h-dvh min-h-0 flex-col bg-zinc-950 text-zinc-200">
+  <header
+    class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5 md:h-12 md:flex-nowrap md:gap-3 md:px-3"
+  >
     <div class="text-sm font-semibold tracking-wide text-cyan-300">NetBench</div>
     <select
-      class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
+      class="order-last w-full min-w-0 basis-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs md:order-none md:w-auto md:max-w-56 md:flex-none md:basis-auto md:py-1"
       (change)="loadLab($any($event.target).value)"
     >
       @for (l of labs(); track l.id) {
         <option [value]="l.id">{{ l.name }}</option>
       }
     </select>
-    <button class="rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600" (click)="doCheck()">Check</button>
-    <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="saveJson()">Download JSON</button>
-    <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs">
-      Upload
-      <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
-    </label>
-    <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
-    <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="authOpen.set(true)">
+    <button
+      class="min-h-9 rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600 md:min-h-0"
+      (click)="doCheck()"
+    >
+      Check
+    </button>
+    <div class="hidden items-center gap-1.5 md:flex">
+      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="saveJson()">Download JSON</button>
+      <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs">
+        Upload
+        <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
+      </label>
+      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
+    </div>
+    <button
+      class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:hidden"
+      (click)="moreOpen.set(!moreOpen())"
+    >
+      More
+    </button>
+    <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:py-1" (click)="authOpen.set(true)">
       {{ api.guest() ? 'Sign in' : 'Account' }}
     </button>
-    <button class="rounded-md border border-cyan-800 px-2 py-1 text-xs text-cyan-300" (click)="eveOpen.set(!eveOpen())">Eve</button>
+    <button
+      class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300 md:py-1"
+      (click)="toggleEve()"
+    >
+      Eve
+    </button>
   </header>
 
+  @if (moreOpen() && isNarrow()) {
+    <div class="flex flex-wrap gap-1.5 border-b border-zinc-800 px-2 py-1.5 md:hidden">
+      <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="saveJson(); moreOpen.set(false)">
+        Download JSON
+      </button>
+      <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1.5 text-xs">
+        Upload
+        <input type="file" accept="application/json" class="hidden" (change)="importJson($event); moreOpen.set(false)" />
+      </label>
+      <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="openCheat(); moreOpen.set(false)">
+        Cheat sheet
+      </button>
+    </div>
+  }
+
   @if (api.warning()) {
-    <div class="border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200">{{ api.warning() }}</div>
+    <div class="line-clamp-2 border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200 md:line-clamp-none">{{ api.warning() }}</div>
   }
   @if (checkMsg()) {
-    <div class="border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs whitespace-pre-wrap" [class.text-emerald-400]="checkMsg() === 'Check passed.'" [class.text-rose-300]="checkMsg() !== 'Check passed.'">{{ checkMsg() }}</div>
+    <div
+      class="border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs whitespace-pre-wrap"
+      [class.text-emerald-400]="checkMsg() === 'Check passed.'"
+      [class.text-rose-300]="checkMsg() !== 'Check passed.'"
+    >
+      {{ checkMsg() }}
+    </div>
   }
 
-  <div class="flex min-h-0 flex-1">
-    <aside class="flex w-48 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/70">
-      <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Palette</div>
-      @for (p of PALETTE; track p.kind) {
-        <button
-          class="mx-2 mb-1 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-zinc-800"
-          [ngClass]="placing() === p.kind ? 'border-cyan-500 bg-cyan-950' : 'border-transparent'"
-          (click)="placing.set(p.kind)"
-        >
-          <div class="font-medium">{{ p.label }}</div>
-          <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
-        </button>
-      }
-      <p class="mt-auto px-3 py-2 text-[10px] leading-snug text-zinc-500">Click a type, then the canvas. Click port → port to cable. Copper Ethernet only.</p>
-    </aside>
-
-    <div class="relative min-w-0 flex-1">
-      <div
-        class="grid-canvas absolute inset-0 overflow-hidden"
-        (wheel)="onWheel($event, $any($event.currentTarget))"
-        (mousedown)="canvasDown($event, $any($event.currentTarget))"
-        (mousemove)="canvasMove($event)"
+  <div
+    class="min-h-0 flex-col md:flex-row"
+    [ngClass]="isNarrow() && mobileTab() === 'term' ? 'hidden' : 'flex flex-1'"
+  >
+    @if (showPalette()) {
+      <aside
+        class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/70 md:w-48 md:flex-none md:border-r"
       >
-        <svg class="absolute inset-0 h-full w-full" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'" style="transform-origin: 0 0">
-          @for (l of api.state()?.links ?? []; track l.id) {
-            <path [attr.d]="linkPath(l)" fill="none" [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'" [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'" stroke-width="2" />
-          }
-          @for (p of animPkts(); track p.id) {
-            <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
-              <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
-            </circle>
-          }
-        </svg>
-        <div class="absolute left-0 top-0" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'" style="transform-origin: 0 0">
-          @for (d of api.state()?.devices ?? []; track d.id) {
-            <div
-              data-dev
-              class="absolute w-24 cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
-              [ngClass]="kindColor(d.kind) + (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') + (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '')"
-              [style.left.px]="d.x"
-              [style.top.px]="d.y"
-              (mousedown)="startDrag($event, d)"
+        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Palette</div>
+        <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0 md:pb-0">
+          @for (p of PALETTE; track p.kind) {
+            <button
+              class="rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:py-1.5"
+              [ngClass]="placing() === p.kind ? 'border-cyan-500 bg-cyan-950' : 'border-zinc-800 md:border-transparent'"
+              (click)="place(p.kind)"
             >
-              <div class="text-[10px] uppercase text-zinc-400">{{ d.kind }}</div>
-              <div class="truncate text-xs font-semibold">{{ d.name }}</div>
-              <div class="flex flex-wrap justify-center gap-0.5 pt-1">
-                @for (i of d.ifaces; track i.name) {
-                  @if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
-                    <button
-                      class="rounded px-0.5 font-mono text-[9px]"
-                      [ngClass]="i.operUp ? 'bg-emerald-700/70' : 'bg-zinc-800 text-zinc-500'"
-                      (click)="clickPort($event, d, i.name)"
-                      [title]="i.name"
-                    >{{ i.name }}</button>
-                  }
-                }
-              </div>
-            </div>
+              <div class="font-medium">{{ p.label }}</div>
+              <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
+            </button>
           }
         </div>
-      </div>
-    </div>
+        <p class="mt-auto hidden px-3 py-2 text-[10px] leading-snug text-zinc-500 md:block">
+          Click a type, then the canvas. Click port → port to cable. Copper Ethernet only.
+        </p>
+      </aside>
+    }
 
-    <aside class="flex w-72 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/80">
-      <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium">Inspector</div>
-      @if (selected(); as d) {
-        <div class="px-3 py-2 text-sm font-semibold">{{ d.hostname }} <span class="text-zinc-500">{{ d.kind }}</span></div>
-        <div class="flex gap-1 px-2">
-          <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab()==='ifaces'" (click)="inspectorTab.set('ifaces')">Ifaces</button>
-          <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab()==='run'" (click)="inspectorTab.set('run')">Running-config</button>
-        </div>
-        @if (inspectorTab() === 'ifaces') {
-          <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
-            @for (i of d.ifaces; track i.name) {
-              <div class="mb-2 border-b border-zinc-800/80 pb-1">
-                <div class="font-mono">{{ i.name }} {{ i.adminUp ? 'UP' : 'DOWN' }} {{ i.operUp ? 'UP' : 'NO-CARRIER' }}</div>
-                @if (i.ipv4) { <div>inet {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div> }
-                @for (v of i.ipv6; track v.ip) { <div class="truncate">inet6 {{ v.ip }}/{{ v.prefix }}</div> }
-                <div class="text-zinc-500">{{ i.mode }} vlan {{ i.accessVlan }} {{ i.isRadio ? 'radio' : '' }}</div>
+    @if (showCanvas()) {
+      <div class="relative min-h-0 min-w-0 flex-1">
+        <div
+          class="grid-canvas absolute inset-0 overflow-hidden touch-none"
+          (wheel)="onWheel($event, $any($event.currentTarget))"
+          (pointerdown)="canvasDown($event, $any($event.currentTarget))"
+          (pointermove)="canvasMove($event)"
+          (pointerup)="canvasUp()"
+          (pointercancel)="canvasUp()"
+        >
+          <svg
+            class="absolute inset-0 h-full w-full"
+            [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'"
+            style="transform-origin: 0 0"
+          >
+            @for (l of api.state()?.links ?? []; track l.id) {
+              <path
+                [attr.d]="linkPath(l)"
+                fill="none"
+                [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'"
+                [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'"
+                stroke-width="2"
+              />
+            }
+            @for (p of animPkts(); track p.id) {
+              <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
+                <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
+              </circle>
+            }
+          </svg>
+          <div
+            class="absolute left-0 top-0"
+            [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'"
+            style="transform-origin: 0 0"
+          >
+            @for (d of api.state()?.devices ?? []; track d.id) {
+              <div
+                data-dev
+                class="absolute w-24 cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
+                [ngClass]="
+                  kindColor(d.kind) +
+                  (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') +
+                  (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '')
+                "
+                [style.left.px]="d.x"
+                [style.top.px]="d.y"
+                (pointerdown)="startDrag($event, d)"
+              >
+                <div class="text-[10px] uppercase text-zinc-400">{{ d.kind }}</div>
+                <div class="truncate text-xs font-semibold">{{ d.name }}</div>
+                <div class="flex flex-wrap justify-center gap-0.5 pt-1">
+                  @for (i of d.ifaces; track i.name) {
+                    @if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
+                      <button
+                        class="rounded px-0.5 font-mono text-[9px]"
+                        [ngClass]="i.operUp ? 'bg-emerald-700/70' : 'bg-zinc-800 text-zinc-500'"
+                        (click)="clickPort($event, d, i.name)"
+                        [title]="i.name"
+                      >
+                        {{ i.name }}
+                      </button>
+                    }
+                  }
+                </div>
               </div>
             }
-            @if (d.associatedSsid) { <div>SSID {{ d.associatedSsid }}</div> }
           </div>
-        } @else {
-          <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
-        }
-        <button class="m-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300" (click)="confirmDel.set(d)">Delete…</button>
-      } @else {
-        <p class="px-3 py-4 text-xs text-zinc-500">Select a device.</p>
-      }
-    </aside>
+        </div>
+      </div>
+    }
 
-    @if (eveOpen()) {
-      <aside class="flex w-80 shrink-0 flex-col border-l border-zinc-800 bg-zinc-950">
+    @if (showInspect()) {
+      <aside
+        class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/80 md:w-72 md:flex-none md:border-l"
+      >
+        <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium">Inspector</div>
+        @if (selected(); as d) {
+          <div class="px-3 py-2 text-sm font-semibold">
+            {{ d.hostname }} <span class="text-zinc-500">{{ d.kind }}</span>
+          </div>
+          <div class="flex gap-1 px-2">
+            <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'ifaces'" (click)="inspectorTab.set('ifaces')">
+              Ifaces
+            </button>
+            <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'run'" (click)="inspectorTab.set('run')">
+              Running-config
+            </button>
+          </div>
+          @if (inspectorTab() === 'ifaces') {
+            <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+              @for (i of d.ifaces; track i.name) {
+                <div class="mb-2 border-b border-zinc-800/80 pb-1">
+                  <div class="font-mono">{{ i.name }} {{ i.adminUp ? 'UP' : 'DOWN' }} {{ i.operUp ? 'UP' : 'NO-CARRIER' }}</div>
+                  @if (i.ipv4) {
+                    <div>inet {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div>
+                  }
+                  @for (v of i.ipv6; track v.ip) {
+                    <div class="truncate">inet6 {{ v.ip }}/{{ v.prefix }}</div>
+                  }
+                  <div class="text-zinc-500">{{ i.mode }} vlan {{ i.accessVlan }} {{ i.isRadio ? 'radio' : '' }}</div>
+                </div>
+              }
+              @if (d.associatedSsid) {
+                <div>SSID {{ d.associatedSsid }}</div>
+              }
+            </div>
+          } @else {
+            <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
+          }
+          <button class="m-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300" (click)="confirmDel.set(d)">
+            Delete…
+          </button>
+        } @else {
+          <p class="px-3 py-4 text-xs text-zinc-500">Select a device on the canvas, then open Inspect.</p>
+        }
+      </aside>
+    }
+
+    @if (showEve()) {
+      <aside class="flex min-h-0 w-full flex-1 flex-col border-zinc-800 bg-zinc-950 md:w-80 md:flex-none md:border-l">
         <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium text-cyan-300">Eve — lab instructor</div>
         <div class="flex gap-1 px-2 py-1">
           <button class="rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="explain()">Explain selection</button>
@@ -130,7 +224,7 @@
         </div>
         <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
           @for (m of eve.msgs(); track $index) {
-            <div class="mb-2" [class.text-cyan-200]="m.role==='eve'" [class.text-zinc-400]="m.role==='user'">
+            <div class="mb-2" [class.text-cyan-200]="m.role === 'eve'" [class.text-zinc-400]="m.role === 'user'">
               <span class="text-[10px] uppercase text-zinc-600">{{ m.role }}</span>
               <div class="whitespace-pre-wrap">{{ m.text }}</div>
             </div>
@@ -170,66 +264,101 @@
             </div>
           </div>
         }
-        <textarea class="mx-2 h-16 rounded border border-zinc-800 bg-zinc-900 p-1 text-xs" [(ngModel)]="buildPrompt" placeholder="Build from prompt…"></textarea>
+        <textarea
+          class="mx-2 h-16 rounded border border-zinc-800 bg-zinc-900 p-1 text-xs"
+          [(ngModel)]="buildPrompt"
+          placeholder="Build from prompt…"
+        ></textarea>
         <button class="mx-2 mb-1 rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="buildFromPrompt()">Build from prompt</button>
         <form class="flex gap-1 border-t border-zinc-800 p-2" (submit)="$event.preventDefault(); sendEve()">
-          <input class="flex-1 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs" [(ngModel)]="eveInput" name="eve" placeholder="Ask Eve…" />
+          <input
+            class="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs"
+            [(ngModel)]="eveInput"
+            name="eve"
+            placeholder="Ask Eve…"
+          />
           <button class="rounded bg-cyan-800 px-2 text-xs">Send</button>
         </form>
       </aside>
     }
   </div>
 
-  <div class="flex h-52 shrink-0 border-t border-zinc-800">
-    <div class="flex min-w-0 flex-1 flex-col bg-black">
-      <div class="flex items-center gap-2 border-b border-zinc-800 px-2 py-1 text-[10px] text-zinc-500">
-        Terminal
-        <select class="bg-zinc-900 text-xs" name="termdev" [ngModel]="termDevice()" (ngModelChange)="termDevice.set($event)">
-          @for (d of api.state()?.devices ?? []; track d.id) {
-            <option [value]="d.id">{{ d.name }}</option>
+  @if (showTerm()) {
+    <div
+      class="flex min-h-0 shrink-0 flex-col border-t border-zinc-800 md:h-52 md:flex-row"
+      [class.flex-1]="isNarrow()"
+    >
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-black">
+        <div class="flex items-center gap-2 border-b border-zinc-800 px-2 py-1 text-[10px] text-zinc-500">
+          Terminal
+          <select class="bg-zinc-900 text-xs" name="termdev" [ngModel]="termDevice()" (ngModelChange)="termDevice.set($event)">
+            @for (d of api.state()?.devices ?? []; track d.id) {
+              <option [value]="d.id">{{ d.name }}</option>
+            }
+          </select>
+        </div>
+        <div class="term min-h-0 flex-1 overflow-auto px-2 py-1 text-[11px] leading-5 text-emerald-300/90">
+          @for (line of termLines(); track $index) {
+            <pre [class.text-rose-400]="line.err" class="whitespace-pre-wrap">{{ line.text }}</pre>
           }
-        </select>
+        </div>
+        <form class="flex border-t border-zinc-800" (submit)="$event.preventDefault(); runLine()">
+          <span class="term max-w-[45%] truncate px-2 py-1 text-[11px] text-emerald-500">{{ prompt() }}</span>
+          <input class="term min-w-0 flex-1 bg-black px-1 py-1 text-[11px] outline-none" [(ngModel)]="termInput" name="cli" />
+        </form>
       </div>
-      <div class="term min-h-0 flex-1 overflow-auto px-2 py-1 text-[11px] leading-5 text-emerald-300/90">
-        @for (line of termLines(); track $index) {
-          <pre [class.text-rose-400]="line.err" class="whitespace-pre-wrap">{{ line.text }}</pre>
+      <div class="max-h-40 overflow-auto border-t border-zinc-800 bg-zinc-950 p-2 md:max-h-none md:w-96 md:border-l md:border-t-0">
+        <div class="mb-1 text-[10px] uppercase text-zinc-500">Packets</div>
+        @for (p of (api.state()?.packets ?? []).slice(-12).reverse(); track p.id) {
+          <button class="mb-1 block w-full rounded px-1 py-0.5 text-left font-mono text-[10px] hover:bg-zinc-900" (click)="selectedPkt.set(p)">
+            <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.proto }}</span>
+            {{ p.srcIp || p.srcMac }} → {{ p.dstIp || p.dstMac }}
+            @if (p.simulated) {
+              <span class="rounded bg-zinc-800 px-1 text-[9px] text-amber-300">simulated</span>
+            }
+            <div class="truncate text-zinc-500">{{ p.reason }}</div>
+          </button>
+        }
+        @if (selectedPkt(); as p) {
+          <div class="mt-2 rounded border border-zinc-800 p-2 text-[10px] leading-4">
+            <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
+            <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }}</div>
+            <div>IP {{ p.srcIp ?? '—' }} → {{ p.dstIp ?? '—' }} {{ p.proto }} TTL/hlim {{ p.ttl ?? '—' }}</div>
+            <div>{{ p.reason }}</div>
+          </div>
         }
       </div>
-      <form class="flex border-t border-zinc-800" (submit)="$event.preventDefault(); runLine()">
-        <span class="term px-2 py-1 text-[11px] text-emerald-500">{{ prompt() }}</span>
-        <input class="term flex-1 bg-black px-1 py-1 text-[11px] outline-none" [(ngModel)]="termInput" name="cli" autofocus />
-      </form>
     </div>
-    <div class="w-96 overflow-auto border-l border-zinc-800 bg-zinc-950 p-2">
-      <div class="mb-1 text-[10px] uppercase text-zinc-500">Packets</div>
-      @for (p of (api.state()?.packets ?? []).slice(-12).reverse(); track p.id) {
-        <button class="mb-1 block w-full rounded px-1 py-0.5 text-left font-mono text-[10px] hover:bg-zinc-900" (click)="selectedPkt.set(p)">
-          <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.proto }}</span>
-          {{ p.srcIp || p.srcMac }} → {{ p.dstIp || p.dstMac }}
-          @if (p.simulated) { <span class="rounded bg-zinc-800 px-1 text-[9px] text-amber-300">simulated</span> }
-          <div class="truncate text-zinc-500">{{ p.reason }}</div>
-        </button>
-      }
-      @if (selectedPkt(); as p) {
-        <div class="mt-2 rounded border border-zinc-800 p-2 text-[10px] leading-4">
-          <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
-          <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }}</div>
-          <div>IP {{ p.srcIp ?? '—' }} → {{ p.dstIp ?? '—' }} {{ p.proto }} TTL/hlim {{ p.ttl ?? '—' }}</div>
-          <div>{{ p.reason }}</div>
-        </div>
-      }
-    </div>
-  </div>
+  }
 
-  <footer class="shrink-0 border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-500">
-    {{ api.state()?.differsNote || 'How this lab differs from real gear: Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.' }}
+  <footer class="hidden shrink-0 border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-500 md:block">
+    {{
+      api.state()?.differsNote ||
+        'How this lab differs from real gear: Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.'
+    }}
     Goal: {{ api.state()?.goal }}
   </footer>
+
+  <nav
+    class="flex shrink-0 border-t border-zinc-800 bg-zinc-950 pb-[env(safe-area-inset-bottom)] md:hidden"
+    aria-label="Mobile workspace"
+  >
+    @for (t of mobileTabs; track t.id) {
+      <button
+        class="min-h-11 flex-1 py-2 text-[11px] font-medium"
+        [class.text-cyan-300]="mobileTab() === t.id"
+        [class.text-zinc-500]="mobileTab() !== t.id"
+        (click)="setTab(t.id)"
+      >
+        {{ t.label }}
+      </button>
+    }
+  </nav>
 </div>
 
 @if (confirmDel(); as d) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60">
-    <div class="w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm">
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
+    <div class="w-full max-w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm">
       <p>Delete {{ d.name }}?</p>
       <div class="mt-3 flex justify-end gap-2">
         <button class="rounded border border-zinc-600 px-3 py-1" (click)="confirmDel.set(null)">Cancel</button>
@@ -240,17 +369,20 @@
 }
 
 @if (showCheat()) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60" (click)="showCheat.set(false)">
-    <pre class="max-h-[80vh] w-[640px] overflow-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 font-mono text-xs" (click)="$event.stopPropagation()">{{ cheat() }}</pre>
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4" (click)="showCheat.set(false)">
+    <pre
+      class="max-h-[80dvh] w-full max-w-[640px] overflow-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 font-mono text-xs"
+      (click)="$event.stopPropagation()"
+    >{{ cheat() }}</pre>
   </div>
 }
 
 @if (authOpen()) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60">
-    <form class="w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm" (submit)="$event.preventDefault(); doLogin()">
+  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
+    <form class="w-full max-w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm" (submit)="$event.preventDefault(); doLogin()">
       <p class="mb-2 font-medium">Sign in / register</p>
-      <input class="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1" [(ngModel)]="email" name="email" placeholder="email" />
-      <input class="mb-3 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1" [(ngModel)]="password" name="pw" type="password" placeholder="password" />
+      <input class="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2" [(ngModel)]="email" name="email" placeholder="email" />
+      <input class="mb-3 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2" [(ngModel)]="password" name="pw" type="password" placeholder="password" />
       <div class="flex justify-end gap-2">
         <button type="button" class="rounded px-2" (click)="authOpen.set(false)">Close</button>
         <button class="rounded bg-cyan-700 px-3 py-1">Continue</button>

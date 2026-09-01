@@ -29,9 +29,21 @@ export class Workspace implements OnInit, OnDestroy {
   checkMsg = signal<string | null>(null);
   showCheat = signal(false);
   cheat = signal('');
-  eveOpen = signal(true);
+  eveOpen = signal(typeof window === 'undefined' || window.innerWidth >= 768);
+  isNarrow = signal(typeof window !== 'undefined' && window.innerWidth < 768);
+  mobileTab = signal<'canvas' | 'palette' | 'inspect' | 'term' | 'eve'>('canvas');
+  moreOpen = signal(false);
+  readonly mobileTabs = [
+    { id: 'canvas' as const, label: 'Canvas' },
+    { id: 'palette' as const, label: 'Palette' },
+    { id: 'inspect' as const, label: 'Inspect' },
+    { id: 'term' as const, label: 'Term' },
+    { id: 'eve' as const, label: 'Eve' },
+  ];
   eveInput = '';
   buildPrompt = '';
+  private mq: MediaQueryList | null = null;
+  private tapAt: { x: number; y: number } | null = null;
   pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[]; requestId?: string } | null>(null);
   private saveTimer: ReturnType<typeof setInterval> | null = null;
   authOpen = signal(false);
@@ -53,6 +65,9 @@ export class Workspace implements OnInit, OnDestroy {
       this.termLines.set([{ text: `Connected to ${first.hostname}. Type help.` }]);
     }
     this.bindEve();
+    this.mq = window.matchMedia('(max-width: 767px)');
+    this.onMq(this.mq);
+    this.mq.addEventListener('change', this.onMq);
     window.addEventListener('keydown', this.onKey);
     this.saveTimer = setInterval(() => {
       const st = this.api.state();
@@ -64,9 +79,53 @@ export class Workspace implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     window.removeEventListener('keydown', this.onKey);
+    this.mq?.removeEventListener('change', this.onMq);
     if (this.saveTimer) clearInterval(this.saveTimer);
     this.api.disconnectWs();
     this.eve.stop();
+  }
+
+  private onMq = (e: MediaQueryList | MediaQueryListEvent) => {
+    const narrow = e.matches;
+    const was = this.isNarrow();
+    this.isNarrow.set(narrow);
+    if (narrow) this.eveOpen.set(false);
+    else if (was) this.eveOpen.set(true);
+  };
+
+  setTab(tab: 'canvas' | 'palette' | 'inspect' | 'term' | 'eve') {
+    this.mobileTab.set(tab);
+    this.moreOpen.set(false);
+    if (tab === 'eve') this.eveOpen.set(true);
+  }
+
+  place(kind: string) {
+    this.placing.set(this.placing() === kind ? null : kind);
+    if (this.isNarrow()) this.mobileTab.set('canvas');
+  }
+
+  toggleEve() {
+    if (this.isNarrow()) {
+      this.setTab(this.mobileTab() === 'eve' ? 'canvas' : 'eve');
+    } else {
+      this.eveOpen.set(!this.eveOpen());
+    }
+  }
+
+  showPalette() {
+    return !this.isNarrow() || this.mobileTab() === 'palette';
+  }
+  showCanvas() {
+    return !this.isNarrow() || this.mobileTab() === 'canvas';
+  }
+  showInspect() {
+    return !this.isNarrow() || this.mobileTab() === 'inspect';
+  }
+  showEve() {
+    return this.isNarrow() ? this.mobileTab() === 'eve' : this.eveOpen();
+  }
+  showTerm() {
+    return !this.isNarrow() || this.mobileTab() === 'term';
   }
 
   private bindEve() {
@@ -127,7 +186,7 @@ export class Workspace implements OnInit, OnDestroy {
     this.bindEve();
   }
 
-  worldFromEvent(ev: MouseEvent, el: HTMLElement) {
+  worldFromEvent(ev: { clientX: number; clientY: number }, el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const p = this.pan();
     return { x: (ev.clientX - r.left - p.x) / p.s, y: (ev.clientY - r.top - p.y) / p.s };
@@ -146,8 +205,9 @@ export class Workspace implements OnInit, OnDestroy {
     this.pan.set({ x, y, s });
   }
 
-  canvasDown(ev: MouseEvent, el: HTMLElement) {
+  canvasDown(ev: PointerEvent, el: HTMLElement) {
     if ((ev.target as HTMLElement).closest('[data-dev]')) return;
+    el.setPointerCapture?.(ev.pointerId);
     if (this.placing()) {
       const w = this.worldFromEvent(ev, el);
       const gx = Math.round(w.x / 24) * 24;
@@ -161,7 +221,8 @@ export class Workspace implements OnInit, OnDestroy {
     this.panning = { x: this.pan().x, y: this.pan().y, px: ev.clientX, py: ev.clientY };
   }
 
-  canvasMove(ev: MouseEvent) {
+  canvasMove(ev: PointerEvent) {
+    if (this.panning || this.dragging) ev.preventDefault();
     if (this.panning) {
       this.pan.set({
         ...this.pan(),
@@ -183,20 +244,28 @@ export class Workspace implements OnInit, OnDestroy {
   canvasUp() {
     if (this.dragging) {
       const d = this.api.state()?.devices.find((x) => x.id === this.dragging!.id);
-      if (d) void this.api.edit(undefined, [{ id: d.id, x: d.x, y: d.y }]);
+      if (d) {
+        void this.api.edit(undefined, [{ id: d.id, x: d.x, y: d.y }]);
+        if (this.isNarrow() && this.tapAt && Math.hypot(d.x - this.tapAt.x, d.y - this.tapAt.y) < 12) {
+          this.mobileTab.set('inspect');
+        }
+      }
     }
     this.panning = null;
     this.dragging = null;
+    this.tapAt = null;
   }
 
-  startDrag(ev: MouseEvent, d: DeviceState) {
+  startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
+    (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId);
     this.selectedId.set(d.id);
     this.termDevice.set(d.id);
+    this.tapAt = { x: d.x, y: d.y };
     this.dragging = { id: d.id, ox: d.x - ev.clientX, oy: d.y - ev.clientY };
   }
 
-  clickPort(ev: MouseEvent, d: DeviceState, iface: string) {
+  clickPort(ev: Event, d: DeviceState, iface: string) {
     ev.stopPropagation();
     if (!this.cableFrom) {
       this.cableFrom = { id: d.id, iface };
@@ -406,5 +475,14 @@ export class Workspace implements OnInit, OnDestroy {
   @HostListener('window:mouseup')
   up() {
     this.canvasUp();
+  }
+
+  @HostListener('window:resize')
+  onResize() {
+    const narrow = window.innerWidth < 768;
+    const was = this.isNarrow();
+    this.isNarrow.set(narrow);
+    if (narrow) this.eveOpen.set(false);
+    else if (was) this.eveOpen.set(true);
   }
 }
