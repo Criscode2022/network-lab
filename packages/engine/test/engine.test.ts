@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Engine } from '../src/engine.ts';
 import { listCommands } from '../src/commands.ts';
 import { BUILTIN_LABS } from '../src/labs.ts';
-import { dualStackOfficeLab } from '../src/build.ts';
+import { dualStackOfficeLab, labFromSpec } from '../src/build.ts';
 import { validatePatch } from '../src/patch.ts';
 import type { LabJson } from '../src/types.ts';
 
@@ -333,6 +333,36 @@ describe('Eve eval scenarios (engine, no dummy LLM)', () => {
     const e = Engine.fromLab(dualStackOfficeLab());
     const chk = e.check();
     expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
+  it('labFromSpec emits the office template for the dual-stack office sentence', () => {
+    const lab = labFromSpec('Build a dual-stack office: SW, R, AP, server, 2 PCs');
+    expect(lab.id).toBe(dualStackOfficeLab().id);
+    expect(lab.devices.map((d) => d.name).sort()).toEqual(dualStackOfficeLab().devices.map((d) => d.name).sort());
+    const chk = Engine.fromLab(lab).check();
+    expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
+  it('labFromSpec two PCs and a switch is not the office lab and pings', () => {
+    const lab = labFromSpec('two PCs and a switch');
+    expect(lab.devices.some((d) => d.kind === 'ap')).toBe(false);
+    expect(lab.devices.filter((d) => d.kind === 'workstation')).toHaveLength(2);
+    expect(lab.devices.filter((d) => d.kind === 'switch')).toHaveLength(1);
+    const chk = Engine.fromLab(lab).check();
+    expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
+  it('labFromSpec OSPF sentence includes two routers, firewall sentence includes a firewall', () => {
+    const ospf = labFromSpec('two routers running OSPF area 0 with a PC on each side');
+    expect(ospf.devices.filter((d) => d.kind === 'router').length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(ospf).toLowerCase()).toContain('ospf');
+    const fw = labFromSpec('a firewall in front of a server and a workstation');
+    expect(fw.devices.some((d) => d.kind === 'firewall')).toBe(true);
+    expect(ospf.devices.map((d) => d.kind).sort().join(',')).not.toBe(fw.devices.map((d) => d.kind).sort().join(','));
+  });
+
+  it('labFromSpec refuses BGP', () => {
+    expect(() => labFromSpec('Please add BGP to this lab')).toThrow(/bgp|ospf/i);
   });
 
   it('eval6: BGP is not in the palette / command list', () => {
