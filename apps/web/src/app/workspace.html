@@ -255,10 +255,26 @@
                   <div class="text-[11px] text-zinc-500">{{ row.name }} · {{ row.status }}</div>
                 </div>
               } @empty {
-                <p class="text-xs leading-5 text-zinc-500">
-                  No IPv4 address yet. Open Term and run
-                  <span class="font-mono text-zinc-300">{{ emptyIpv4Hint(d) }}</span>.
-                </p>
+                <p class="text-xs leading-5 text-zinc-500">No IPv4 address yet.</p>
+                @if (canAddIpv4(d)) {
+                  <div class="mt-2 flex items-center gap-2">
+                    <input
+                      class="min-h-10 min-w-0 flex-1 rounded-md border border-zinc-600 bg-zinc-950 px-2 font-mono text-xs"
+                      [(ngModel)]="ipInput"
+                      name="inspectip"
+                      (focus)="prepareIpv4Form(d)"
+                      placeholder="10.0.0.30"
+                    />
+                    <span class="text-xs text-zinc-500">/{{ ipPrefix }}</span>
+                  </div>
+                  <button
+                    class="mt-2 min-h-10 w-full rounded-md bg-emerald-700 text-xs font-medium disabled:opacity-50"
+                    [disabled]="ipBusy()"
+                    (click)="applyIpv4(d)"
+                  >
+                    {{ ipBusy() ? 'Adding…' : 'Add IP' }}
+                  </button>
+                }
               }
               @if (d.associatedSsid) {
                 <div class="mt-3 text-xs">Wi-Fi network: {{ d.associatedSsid }}</div>
@@ -484,6 +500,25 @@
         <div class="text-xs text-zinc-500">{{ row.name }} · {{ row.status }}</div>
       } @empty {
         <p class="mt-1 text-sm text-zinc-500">No IPv4 yet</p>
+        @if (canAddIpv4(d)) {
+          <div class="mt-2 flex items-center gap-2">
+            <input
+              class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 bg-zinc-950 px-3 font-mono text-sm"
+              [(ngModel)]="ipInput"
+              name="newip"
+              inputmode="decimal"
+              placeholder="10.0.0.30"
+            />
+            <span class="shrink-0 text-sm text-zinc-500">/{{ ipPrefix }}</span>
+          </div>
+          <button
+            class="mt-2 min-h-12 w-full rounded-lg bg-emerald-700 text-sm font-medium disabled:opacity-50"
+            [disabled]="ipBusy()"
+            (click)="applyIpv4(d)"
+          >
+            {{ ipBusy() ? 'Adding…' : 'Add IP' }}
+          </button>
+        }
       }
       <button class="mt-4 min-h-12 w-full rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">Cable</button>
       <div class="mt-2 flex gap-2">

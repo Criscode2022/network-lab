@@ -36,6 +36,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   basic = signal(typeof localStorage === 'undefined' || localStorage.getItem('nb_basic') !== '0');
   basicSheet = signal(false);
   hint = signal<string | null>(null);
+  ipInput = '10.0.0.30';
+  ipPrefix = 24;
+  ipBusy = signal(false);
   private hintTimer: ReturnType<typeof setTimeout> | null = null;
   confirmDel = signal<DeviceState | null>(null);
   inspectorTab = signal<'ifaces' | 'run' | 'packets'>('ifaces');
@@ -216,12 +219,109 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   emptyIpv4Hint(d: DeviceState) {
-    const iface =
-      d.ifaces.find((i) => !i.isRadio && !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'))?.name ?? 'eth0';
+    const iface = this.ipIface(d);
     if (d.kind === 'workstation' || d.kind === 'server' || d.kind === 'firewall' || d.kind === 'cloud') {
       return `ip addr add 10.0.0.10/24 dev ${iface}`;
     }
     return `interface ${iface} → ip address 10.0.0.1 255.255.255.0 → no shutdown`;
+  }
+
+  canAddIpv4(d: DeviceState) {
+    return d.kind !== 'switch' && this.ipv4Rows(d).length === 0;
+  }
+
+  ipIface(d: DeviceState) {
+    return (
+      d.ifaces.find((i) => !i.isRadio && !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'))?.name ?? 'eth0'
+    );
+  }
+
+  prepareIpv4Form(d: DeviceState) {
+    if (!this.canAddIpv4(d)) return;
+    const s = this.suggestIpv4();
+    this.ipInput = s.ip;
+    this.ipPrefix = s.prefix;
+  }
+
+  private parseV4(ip: string): number | null {
+    const p = ip.split('.').map(Number);
+    if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
+  }
+
+  private fmtV4(n: number) {
+    return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+  }
+
+  private prefixMask(prefix: number) {
+    const mask = prefix <= 0 ? 0 : prefix >= 32 ? 0xffffffff : (0xffffffff << (32 - prefix)) >>> 0;
+    return this.fmtV4(mask);
+  }
+
+  suggestIpv4() {
+    const used = new Set<number>();
+    const nets = new Map<string, { network: number; prefix: number; count: number }>();
+    for (const d of this.api.state()?.devices ?? []) {
+      for (const i of d.ifaces) {
+        if (!i.ipv4?.ip) continue;
+        const n = this.parseV4(i.ipv4.ip);
+        if (n == null) continue;
+        used.add(n);
+        const p = i.ipv4.prefix || 24;
+        const mask = p <= 0 ? 0 : p >= 32 ? 0xffffffff : (0xffffffff << (32 - p)) >>> 0;
+        const network = (n & mask) >>> 0;
+        const key = `${network}/${p}`;
+        const rec = nets.get(key) ?? { network, prefix: p, count: 0 };
+        rec.count++;
+        nets.set(key, rec);
+      }
+    }
+    const best = [...nets.values()].sort((a, b) => b.count - a.count)[0] ?? {
+      network: this.parseV4('10.0.0.0')!,
+      prefix: 24,
+    };
+    const mask = best.prefix <= 0 ? 0 : best.prefix >= 32 ? 0xffffffff : (0xffffffff << (32 - best.prefix)) >>> 0;
+    const broadcast = (best.network | (~mask >>> 0)) >>> 0;
+    let maxHost = best.network;
+    for (const u of used) {
+      if (((u & mask) >>> 0) === best.network && u !== broadcast && u > maxHost) maxHost = u;
+    }
+    for (let h = (maxHost + 1) >>> 0; h < broadcast; h++) {
+      if (!used.has(h >>> 0)) return { ip: this.fmtV4(h >>> 0), prefix: best.prefix };
+    }
+    return { ip: '10.0.0.30', prefix: 24 };
+  }
+
+  async applyIpv4(d: DeviceState) {
+    const ip = this.ipInput.trim();
+    const n = this.parseV4(ip);
+    if (n == null) {
+      this.showHint('Enter an IPv4 address like 10.0.0.30');
+      return;
+    }
+    const prefix = this.ipPrefix || 24;
+    const iface = this.ipIface(d);
+    const linux = d.kind === 'workstation' || d.kind === 'server' || d.kind === 'firewall' || d.kind === 'cloud';
+    const cmds = linux
+      ? [`ip addr add ${ip}/${prefix} dev ${iface}`, `ip link set ${iface} up`]
+      : ['enable', 'conf t', `interface ${iface}`, `ip address ${ip} ${this.prefixMask(prefix)}`, 'no shutdown', 'end'];
+    this.ipBusy.set(true);
+    this.termDevice.set(d.id);
+    try {
+      for (const line of cmds) {
+        const r = await this.api.cli(d.id, line);
+        if (r.error) {
+          this.showHint(r.output || `Failed: ${line}`);
+          return;
+        }
+      }
+      await this.api.refresh();
+      this.showHint(`${d.name} IPv4 ${ip}/${prefix}`);
+    } catch (e) {
+      this.showHint(String(e));
+    } finally {
+      this.ipBusy.set(false);
+    }
   }
 
   linkStatus(i: IfaceState) {
@@ -559,8 +659,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       if (d) {
         void this.api.edit(undefined, [{ id: d.id, x: d.x, y: d.y }]);
         if (this.isNarrow() && this.tapAt && Math.hypot(d.x - this.tapAt.x, d.y - this.tapAt.y) < 12) {
-          if (this.basicMode()) this.basicSheet.set(true);
-          else this.mobileTab.set('inspect');
+          if (this.basicMode()) {
+            this.prepareIpv4Form(d);
+            this.basicSheet.set(true);
+          } else this.mobileTab.set('inspect');
         }
       }
     }
