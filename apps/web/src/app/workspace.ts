@@ -157,6 +157,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.placing.set(this.placing() === kind ? null : kind);
   }
 
+  closeInspect() {
+    if (this.isNarrow()) this.setTab('canvas');
+    else this.selectedId.set(null);
+  }
+
   toggleAdvanced() {
     const next = !this.advanced();
     this.advanced.set(next);

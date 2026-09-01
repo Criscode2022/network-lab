@@ -322,9 +322,20 @@
               <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
             }
           }
-          <button class="m-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300" (click)="confirmDel.set(d)">
-            Delete…
-          </button>
+          <div class="m-2 flex gap-2">
+            <button
+              class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 text-sm text-zinc-200 md:min-h-9 md:text-xs"
+              (click)="closeInspect()"
+            >
+              Close
+            </button>
+            <button
+              class="min-h-12 min-w-0 flex-1 rounded-lg border border-rose-800 text-sm text-rose-300 md:min-h-9 md:text-xs"
+              (click)="confirmDel.set(d)"
+            >
+              Delete
+            </button>
+          </div>
         } @else {
           <p class="px-3 py-4 text-xs text-zinc-500">Tap a device on the canvas, then open Inspect.</p>
         }
