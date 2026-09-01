@@ -201,6 +201,8 @@ export class Engine {
     const ib = findIface(db, eb.iface);
     if (!ia || !ib) throw new Error(`unknown iface on ${a} or ${b}`);
     if (ia.isRadio || ib.isRadio) throw new Error('copper cable cannot terminate on a radio port; associate Wi-Fi instead');
+    ia.adminUp = true;
+    ib.adminUp = true;
     const id = nid('L');
     const link: Link = {
       id,

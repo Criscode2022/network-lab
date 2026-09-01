@@ -346,7 +346,21 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   cardIfaces(d: DeviceState) {
     const phys = d.ifaces.filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'));
     if (this.advanced()) return phys;
-    return phys.filter((i) => !i.isRadio).slice(0, 2);
+    const used = new Set(this.cableRows(d).map((r) => r.mine));
+    const connected = phys.filter((i) => used.has(i.name));
+    return connected.length ? connected : phys.filter((i) => !i.isRadio).slice(0, 2);
+  }
+
+  cableRows(d: DeviceState) {
+    const rows: { mine: string; peer: string; peerIface: string }[] = [];
+    for (const l of this.api.state()?.links ?? []) {
+      if (l.a.deviceId === d.id) {
+        rows.push({ mine: l.a.iface, peer: this.devName(l.b.deviceId), peerIface: l.b.iface });
+      } else if (l.b.deviceId === d.id) {
+        rows.push({ mine: l.b.iface, peer: this.devName(l.a.deviceId), peerIface: l.a.iface });
+      }
+    }
+    return rows;
   }
 
   visiblePackets() {

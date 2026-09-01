@@ -248,14 +248,26 @@
           </div>
           @if (!advanced()) {
             <div class="min-h-0 flex-1 overflow-auto px-3 pb-2 text-sm">
-              <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
+              @if (cableRows(d).length) {
+                <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Cables</div>
+                @for (c of cableRows(d); track c.mine + c.peer) {
+                  <div class="mb-1 font-mono text-xs">
+                    {{ c.mine }}
+                    <span class="text-zinc-500">→</span>
+                    {{ c.peer }} {{ c.peerIface }}
+                  </div>
+                }
+              }
+              <div class="mb-1 mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
               @for (row of ipv4Rows(d); track row.name) {
                 <div class="mb-1.5">
                   <div class="font-mono text-xs text-emerald-300">{{ row.ip }}</div>
                   <div class="text-[11px] text-zinc-500">{{ row.name }} · {{ row.status }}</div>
                 </div>
               } @empty {
-                <p class="text-xs leading-5 text-zinc-500">No IPv4 address yet.</p>
+                <p class="text-xs leading-5 text-zinc-500">
+                  {{ d.kind === 'switch' ? 'No IPv4 on this switch (normal for L2).' : 'No IPv4 address yet.' }}
+                </p>
                 @if (canAddIpv4(d)) {
                   <div class="mt-2 flex items-center gap-2">
                     <input
@@ -505,6 +517,16 @@
     >
       <div class="text-lg font-semibold">{{ d.name }}</div>
       <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
+      @if (cableRows(d).length) {
+        <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">Cables</div>
+        @for (c of cableRows(d); track c.mine + c.peer) {
+          <div class="mt-1 font-mono text-sm">
+            {{ c.mine }}
+            <span class="text-zinc-500">→</span>
+            {{ c.peer }} {{ c.peerIface }}
+          </div>
+        }
+      }
       <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
       @for (row of ipv4Rows(d); track row.name) {
         <div class="mt-1 font-mono text-base text-emerald-300">{{ row.ip }}</div>
