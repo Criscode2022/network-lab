@@ -21,3 +21,9 @@ export async function nestGet<T>(path: string): Promise<T> {
   if (!r.ok) throw new Error(json.message || r.statusText);
   return json;
 }
+
+/** Mint a one-time Nest confirmToken after Eve HITL has already approved the tool. */
+export async function mintConfirm(labId: string, purpose: string): Promise<string> {
+  const r = await nest<{ confirmToken: string }>(`/sessions/${labId}/confirm`, { purpose });
+  return r.confirmToken;
+}

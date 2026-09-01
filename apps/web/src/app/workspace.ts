@@ -1,15 +1,17 @@
-import { Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
 import { Api, PALETTE, type DeviceState, type PacketEvent } from './api';
+import { EveClient } from './eve-client';
 
 @Component({
   selector: 'app-workspace',
   imports: [FormsModule, NgClass],
   templateUrl: './workspace.html',
 })
-export class Workspace implements OnInit {
+export class Workspace implements OnInit, OnDestroy {
   readonly api = inject(Api);
+  readonly eve = inject(EveClient);
   readonly PALETTE = PALETTE;
   labs = signal<{ id: string; name: string; goal: string }[]>([]);
   selectedId = signal<string | null>(null);
@@ -28,10 +30,10 @@ export class Workspace implements OnInit {
   showCheat = signal(false);
   cheat = signal('');
   eveOpen = signal(true);
-  eveMsgs = signal<{ role: 'user' | 'eve'; text: string }[]>([]);
   eveInput = '';
   buildPrompt = '';
-  pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[] } | null>(null);
+  pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[]; requestId?: string } | null>(null);
+  private saveTimer: ReturnType<typeof setInterval> | null = null;
   authOpen = signal(false);
   email = '';
   password = '';
@@ -40,6 +42,7 @@ export class Workspace implements OnInit {
   selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
 
   async ngOnInit() {
+    this.api.onPackets = (events) => this.animate(events);
     const b = await this.api.builtins();
     this.labs.set(b.labs);
     await this.api.open('lab-1-first-ipv4-ping');
@@ -49,13 +52,49 @@ export class Workspace implements OnInit {
       this.termDevice.set(first.id);
       this.termLines.set([{ text: `Connected to ${first.hostname}. Type help.` }]);
     }
+    this.bindEve();
     window.addEventListener('keydown', this.onKey);
-    setInterval(() => {
+    this.saveTimer = setInterval(() => {
       const st = this.api.state();
       if (!st) return;
       localStorage.setItem('nb_autosave', JSON.stringify({ id: st.id, sessionId: this.api.sessionId(), at: Date.now() }));
       void this.api.save().catch(() => undefined);
     }, 12000);
+  }
+
+  ngOnDestroy() {
+    window.removeEventListener('keydown', this.onKey);
+    if (this.saveTimer) clearInterval(this.saveTimer);
+    this.api.disconnectWs();
+    this.eve.stop();
+  }
+
+  private bindEve() {
+    const sid = this.api.sessionId();
+    if (!sid) return;
+    this.eve.bind({
+      nestSessionId: sid,
+      userId: this.api.userId(),
+      context: () => this.eveContext(),
+    });
+    this.eve.onLabMutated = () => {
+      void this.api.refresh();
+    };
+  }
+
+  private eveContext(): string {
+    const st = this.api.state();
+    const sel = this.selected();
+    const pkt = this.selectedPkt();
+    return [
+      '[NetBench context]',
+      `labSessionId=${this.api.sessionId()}`,
+      `labId=${this.api.sessionId()}`,
+      `labName=${st?.name ?? ''}`,
+      sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}` : 'selectedDevice=none',
+      pkt ? `selectedPacket=${pkt.proto} ${pkt.srcIp ?? ''} → ${pkt.dstIp ?? ''} reason=${pkt.reason}` : 'selectedPacket=none',
+      'Use labId=labSessionId on every tool. Eight devices only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
+    ].join('\n');
   }
 
   private onKey = (ev: KeyboardEvent) => {
@@ -85,6 +124,7 @@ export class Workspace implements OnInit {
     this.termDevice.set(first?.id ?? null);
     this.termLines.set([{ text: `Loaded ${this.api.state()?.name}. Type help.` }]);
     this.checkMsg.set(null);
+    this.bindEve();
   }
 
   worldFromEvent(ev: MouseEvent, el: HTMLElement) {
@@ -261,54 +301,28 @@ export class Workspace implements OnInit {
   async explain() {
     const sel = this.selected();
     const pkt = this.selectedPkt();
-    const sid = this.api.sessionId();
-    this.eveMsgs.update((m) => [...m, { role: 'user', text: pkt ? `Explain this packet` : `Explain ${sel?.name ?? 'the lab'}` }]);
-    try {
-      const state = await this.api.eveTool('get_lab_state', { labId: sid });
-      let extra = '';
-      if (sel) extra = JSON.stringify(await this.api.eveTool('get_device', { labId: sid, deviceId: sel.id }));
-      if (pkt) extra += `\npacket: ${pkt.reason}`;
-      const chk = (state as { lastCheck?: { results?: { reason: string; ok: boolean }[] } }).lastCheck;
-      const verdict = chk?.results?.find((r) => !r.ok)?.reason ?? 'No failing check. Inspect interfaces and the last packet reason.';
-      const text = `${verdict}\n\nPath/config cite: ${sel ? sel.name + ' ' + (sel.ifaces.map((i) => i.name + (i.ipv4 ? '=' + i.ipv4.ip : '')).join(', ')) : 'canvas'}${pkt ? `\nPacket: ${pkt.proto} ${pkt.srcIp ?? ''} → ${pkt.dstIp ?? ''} ttl ${pkt.ttl ?? '—'} ${pkt.simulated ? '[simulated]' : ''}\n${pkt.reason}` : ''}\n\nNext command: help`;
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: extra ? text : text }]);
-      if (sel) await this.api.highlight([sel.id]);
-    } catch (e) {
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: String(e) }]);
-    }
+    if (sel) await this.api.highlight([sel.id]).catch(() => undefined);
+    await this.eve.send(pkt ? 'Explain this packet using get_path and get_lab_state. Cite devices and interfaces.' : `Explain ${sel?.name ?? 'the lab'} using get_lab_state and get_device. Cite running-config.`);
   }
 
   async fixLab() {
-    const sid = this.api.sessionId();
-    this.eveMsgs.update((m) => [...m, { role: 'user', text: 'Fix my lab' }]);
-    const chk = await this.api.eveTool('run_check', { labId: sid }) as { ok: boolean; results: { reason: string; ok: boolean }[] };
-    if (chk.ok) {
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'Check already passes. No patch.' }]);
-      return;
-    }
-    const reason = chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ');
-    this.eveMsgs.update((m) => [
-      ...m,
-      { role: 'eve', text: `Failure: ${reason}\nI will not guess — use get_lab_state/run_check. Typical junior fixes: no shutdown, trunk vs access, gateway, OSPF network, nmcli wifi connect, ACL direction.` },
-    ]);
-    if (/down/i.test(reason)) {
-      this.pending.set({ title: 'Apply no shutdown on the down interface', commands: ['enable', 'conf t', 'int Gi0/2', 'no shutdown'], deviceId: 'sw1' });
-    }
+    await this.eve.send('Fix my lab. Call run_check and get_lab_state first. Apply the smallest junior-admin change with apply_device_config or apply_lab_patch.');
   }
 
   async buildFromPrompt() {
     const spec = this.buildPrompt.trim();
     if (!spec) return;
-    this.eveMsgs.update((m) => [...m, { role: 'user', text: `Build: ${spec}` }]);
-    if (/bgp|mpls|vxlan|802\.1x/i.test(spec)) {
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'NetBench does not implement BGP/MPLS/VXLAN/802.1X. Use OSPF area 0 and the eight device types instead.' }]);
-      return;
-    }
-    this.pending.set({ title: 'Replace canvas with dual-stack office lab', patch: { __build: spec } });
-    this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'Prepared a dual-stack office (SW, R, AP, server, 2 PCs). Confirm to replace the canvas.' }]);
+    await this.eve.send(`Build this lab with build_lab. Spec: ${spec}`);
   }
 
   async applyPending() {
+    const h = this.eve.hitl();
+    if (h) {
+      const approve = h.options?.find((o) => /approve|allow|yes/i.test(o.id) || /approve|allow|yes/i.test(o.label))?.id ?? 'approve';
+      await this.eve.respond(approve, h.requestId);
+      await this.api.refresh();
+      return;
+    }
     const p = this.pending();
     if (!p) return;
     try {
@@ -326,34 +340,35 @@ export class Workspace implements OnInit {
         const tok = await this.api.confirm('apply_lab_patch');
         await this.api.applyPatch(p.patch, tok.confirmToken);
       }
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'Applied. Re-running check…' }]);
       await this.doCheck();
     } catch (e) {
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: String(e) }]);
+      this.eve.msgs.update((m) => [...m, { role: 'eve', text: String(e) }]);
     }
     this.pending.set(null);
   }
 
   discardPending() {
+    const h = this.eve.hitl();
+    if (h) {
+      const cancel = h.options?.find((o) => /cancel|deny|reject|no/i.test(o.id) || /cancel|deny|no/i.test(o.label))?.id ?? 'cancel';
+      void this.eve.respond(cancel, h.requestId);
+      return;
+    }
     this.pending.set(null);
-    this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'Discarded pending change.' }]);
   }
 
   async sendEve() {
     const t = this.eveInput.trim();
     if (!t) return;
     this.eveInput = '';
-    this.eveMsgs.update((m) => [...m, { role: 'user', text: t }]);
-    if (/bgp|mpls|vxlan/i.test(t)) {
-      this.eveMsgs.update((m) => [...m, { role: 'eve', text: 'I only know this product. BGP/MPLS/VXLAN are out of scope — use OSPF area 0.' }]);
-      return;
-    }
-    if (/fix/i.test(t)) return this.fixLab();
-    if (/build/i.test(t)) {
-      this.buildPrompt = t;
-      return this.buildFromPrompt();
-    }
-    return this.explain();
+    if (/^build\b/i.test(t)) this.buildPrompt = t;
+    await this.eve.send(t);
+  }
+
+  answerEve(optionId: string) {
+    const h = this.eve.hitl();
+    if (!h) return;
+    void this.eve.respond(optionId, h.requestId);
   }
 
   async doLogin() {
