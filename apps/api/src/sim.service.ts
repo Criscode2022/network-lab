@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import {
   BUILTIN_LABS,
   dualStackOfficeLab,
@@ -54,7 +54,7 @@ export class SimService {
 
   get(id: string): Session {
     const s = this.sessions.get(id);
-    if (!s) throw Object.assign(new Error('session not found'), { status: 404 });
+    if (!s) throw new HttpException('session not found', HttpStatus.NOT_FOUND);
     return s;
   }
 
@@ -62,7 +62,7 @@ export class SimService {
     const now = Date.now();
     s.calls = s.calls.filter((t) => now - t < 60_000);
     if (s.calls.length >= 60) {
-      throw Object.assign(new Error('rate limit: 60 tool/CLI calls per minute'), { status: 429 });
+      throw new HttpException('rate limit: 60 tool/CLI calls per minute', HttpStatus.TOO_MANY_REQUESTS);
     }
     s.calls.push(now);
   }
@@ -74,11 +74,11 @@ export class SimService {
   }
 
   consumeConfirm(sessionId: string, purpose: string, token: string | undefined): void {
-    if (!token) throw Object.assign(new Error('confirmToken required'), { status: 403 });
+    if (!token) throw new HttpException('confirmToken required', HttpStatus.FORBIDDEN);
     const c = this.confirms.get(token);
     this.confirms.delete(token);
     if (!c || c.sessionId !== sessionId || c.purpose !== purpose || c.exp < Date.now()) {
-      throw Object.assign(new Error('invalid or expired confirmToken'), { status: 403 });
+      throw new HttpException('invalid or expired confirmToken', HttpStatus.FORBIDDEN);
     }
   }
 
@@ -92,9 +92,9 @@ export class SimService {
 
   applyPatch(s: Session, raw: unknown): ReturnType<Engine['applyPatch']> {
     const v = validatePatch(raw);
-    if (!v.ok) throw Object.assign(new Error(v.error), { status: 400 });
+    if (!v.ok) throw new HttpException(v.error, HttpStatus.BAD_REQUEST);
     const r = s.engine.applyPatch(v.patch);
-    if (!r.ok) throw Object.assign(new Error(r.error ?? 'patch failed'), { status: 400 });
+    if (!r.ok) throw new HttpException(r.error ?? 'patch failed', HttpStatus.BAD_REQUEST);
     return r;
   }
 

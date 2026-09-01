@@ -56,6 +56,16 @@ describe('sessions + engine path/check', () => {
     }
   });
 
+  it('POST cancel returns ^C and missing session is 404 not 500', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const r = await request(server).post(`/api/sessions/${sessionId}/cancel`).expect(201);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.output).toBe('^C');
+    const missing = await request(server).post('/api/sessions/not-a-session/cancel');
+    expect(missing.status).toBe(404);
+    expect(String(missing.body.message || '')).toMatch(/session not found/i);
+  });
+
   it('typical fault yields exact fail reason', async () => {
     const { sessionId } = await openLab('lab-1-first-ipv4-ping');
     await request(server).post(`/api/sessions/${sessionId}/cli`).send({ deviceId: 'sw1', line: 'enable' });

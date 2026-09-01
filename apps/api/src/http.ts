@@ -231,6 +231,13 @@ export class SessionsController {
     return s.engine.check();
   }
 
+  @Post(':id/cancel')
+  cancel(@Param('id') id: string) {
+    const s = this.sim.get(id);
+    s.engine.cancel();
+    return { ok: true, output: '^C' };
+  }
+
   @Post(':id/save')
   save(@Param('id') id: string, @Headers('authorization') auth?: string) {
     const s = this.sim.get(id);

@@ -1,9 +1,11 @@
 import { Injectable, signal } from '@angular/core';
 
-const API =
-  typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-    ? '/api'
-    : 'https://api-production-caeb.up.railway.app/api';
+const LOCAL =
+  typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+const API = LOCAL ? '/api' : 'https://api-production-caeb.up.railway.app/api';
+const WS = LOCAL
+  ? `${typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss' : 'ws'}://${typeof location !== 'undefined' ? location.host : '127.0.0.1:4200'}/ws`
+  : 'wss://api-production-caeb.up.railway.app/ws';
 
 export interface IfaceState {
   name: string;
@@ -161,9 +163,9 @@ export class Api {
   cancelPing(): void {
     const id = this.sessionId();
     if (!id) return;
+    void this.json(`/sessions/${id}/cancel`, { method: 'POST', body: '{}' }).catch(() => undefined);
     try {
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws?sessionId=${id}`);
+      const ws = new WebSocket(`${WS}?sessionId=${id}`);
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'cancel' }));
         ws.close();

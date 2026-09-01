@@ -226,8 +226,12 @@ export class Workspace implements OnInit {
   }
 
   async doCheck() {
-    const r = await this.api.check();
-    this.checkMsg.set(r.ok ? 'Check passed.' : r.results.filter((x) => !x.ok).map((x) => x.reason).join('\n'));
+    try {
+      const r = await this.api.check();
+      this.checkMsg.set(r.ok ? 'Check passed.' : r.results.filter((x) => !x.ok).map((x) => x.reason).join('\n'));
+    } catch (e) {
+      this.checkMsg.set(String(e));
+    }
   }
 
   saveJson() {
