@@ -2,5 +2,5 @@ import { defineAgent } from 'eve';
 
 export default defineAgent({
   description: 'Smallest change that makes the current goal / check pass. Typical junior faults: shutdown, access vs trunk, missing SVI, wrong gateway, missing OSPF network, wifi not associated, ACL direction, NAT, IPv6 RA off, overlapping subnets.',
-  model: 'anthropic/claude-sonnet-4.5',
+  model: 'openai/gpt-5.4-mini',
 });

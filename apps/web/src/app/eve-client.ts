@@ -239,12 +239,22 @@ export class EveClient {
     if (t === 'session.waiting' || t === 'turn.completed') {
       this.busy.set(false);
     }
-    if (t === 'turn.failed' || t === 'session.failed' || t === 'step.failed') {
+    if (t === 'step.failed' || t === 'turn.failed' || t === 'session.failed') {
       this.busy.set(false);
+      const rec = data as Record<string, unknown>;
       const err = data.error;
-      const msg = typeof err === 'string' ? err : err?.message ?? 'Eve turn failed';
+      const nested = typeof err === 'string' ? err : err?.message;
+      const raw = nested || (typeof rec['message'] === 'string' ? rec['message'] : '') || 'Eve turn failed';
+      const code = typeof rec['code'] === 'string' ? rec['code'] : '';
+      const msg = code && !raw.startsWith(code) ? `${code}: ${raw}` : raw;
       this.error.set(msg);
-      this.msgs.update((m) => [...m, { role: 'eve', text: msg }]);
+      if (t === 'turn.failed' || t === 'session.failed') {
+        this.msgs.update((m) => {
+          const last = m[m.length - 1];
+          if (last?.role === 'eve' && last.text === msg) return m;
+          return [...m, { role: 'eve', text: msg }];
+        });
+      }
     }
   }
 }
