@@ -17,6 +17,13 @@
     >
       Check
     </button>
+    <button
+      class="min-h-9 rounded-md px-3 py-1 text-xs font-medium md:hidden"
+      [ngClass]="basic() ? 'bg-cyan-800 text-white' : 'border border-zinc-700'"
+      (click)="toggleBasic()"
+    >
+      {{ basic() ? 'Basic on' : 'Basic' }}
+    </button>
     <div class="hidden items-center gap-1.5 md:flex">
       <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="saveJson()">Download JSON</button>
       <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs">
@@ -28,21 +35,23 @@
         {{ advanced() ? 'Simple view' : 'Advanced' }}
       </button>
     </div>
-    <button
-      class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:hidden"
-      (click)="moreOpen.set(!moreOpen())"
-    >
-      More
-    </button>
-    <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:py-1" (click)="authOpen.set(true)">
-      {{ api.guest() ? 'Sign in' : 'Account' }}
-    </button>
-    <button
-      class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300 md:py-1"
-      (click)="toggleEve()"
-    >
-      Eve
-    </button>
+    @if (!basicMode()) {
+      <button
+        class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:hidden"
+        (click)="moreOpen.set(!moreOpen())"
+      >
+        More
+      </button>
+      <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:py-1" (click)="authOpen.set(true)">
+        {{ api.guest() ? 'Sign in' : 'Account' }}
+      </button>
+      <button
+        class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300 md:py-1"
+        (click)="toggleEve()"
+      >
+        Eve
+      </button>
+    }
   </header>
 
   @if (moreOpen() && isNarrow()) {
@@ -63,7 +72,7 @@
     </div>
   }
 
-  @if (api.warning()) {
+  @if (api.warning() && !basicMode()) {
     <div class="line-clamp-2 border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200 md:line-clamp-none">{{ api.warning() }}</div>
   }
   @if (checkMsg()) {
@@ -78,7 +87,7 @@
 
   <div
     class="min-h-0 flex-col md:flex-row"
-    [ngClass]="isNarrow() && mobileTab() === 'term' ? 'hidden' : 'flex flex-1'"
+    [ngClass]="isNarrow() && !basicMode() && mobileTab() === 'term' ? 'hidden' : 'flex flex-1'"
   >
     @if (showPalette()) {
       <aside
@@ -192,7 +201,7 @@
                 @if (primaryIpv4(d); as ip) {
                   <div class="truncate font-mono text-[9px] text-emerald-300/90">{{ ip }}</div>
                 }
-                @if (!advanced()) {
+                @if (!advanced() && !basicMode()) {
                   <button
                     class="mt-1 rounded bg-zinc-950/50 px-1.5 py-0.5 text-[9px] text-zinc-200"
                     (pointerdown)="$event.stopPropagation()"
@@ -200,7 +209,7 @@
                   >
                     Cable
                   </button>
-                } @else {
+                } @else if (advanced() && !basicMode()) {
                   <div class="flex flex-wrap justify-center gap-0.5 pt-1">
                     @for (i of cardIfaces(d); track i.name) {
                       <button
@@ -441,6 +450,7 @@
     Goal: {{ api.state()?.goal }}
   </footer>
 
+  @if (!basicMode()) {
   <nav
     class="flex shrink-0 border-t border-zinc-800 bg-zinc-950 pb-[env(safe-area-inset-bottom)] md:hidden"
     aria-label="Mobile workspace"
@@ -456,7 +466,35 @@
       </button>
     }
   </nav>
+  }
+
 </div>
+
+@if (basicMode() && basicSheet() && selected(); as d) {
+  <div class="fixed inset-0 z-20 bg-black/50 md:hidden" (click)="basicSheet.set(false)">
+    <div
+      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="text-lg font-semibold">{{ d.name }}</div>
+      <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
+      <div class="mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
+      @for (row of ipv4Rows(d); track row.name) {
+        <div class="mt-1 font-mono text-base text-emerald-300">{{ row.ip }}</div>
+        <div class="text-xs text-zinc-500">{{ row.name }} · {{ row.status }}</div>
+      } @empty {
+        <p class="mt-1 text-sm text-zinc-500">No IPv4 yet</p>
+      }
+      <div class="mt-4 grid grid-cols-2 gap-2">
+        <button class="min-h-12 rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">Cable</button>
+        <button class="min-h-12 rounded-lg border border-rose-800 text-sm text-rose-300" (click)="basicSheet.set(false); confirmDel.set(d)">
+          Delete
+        </button>
+      </div>
+      <button class="mt-2 min-h-11 w-full text-sm text-zinc-400" (click)="basicSheet.set(false)">Close</button>
+    </div>
+  </div>
+}
 
 @if (addOpen()) {
   <div class="fixed inset-0 z-20 bg-black/60 md:hidden" (click)="addOpen.set(false)">
@@ -465,7 +503,9 @@
       (click)="$event.stopPropagation()"
     >
       <div class="text-sm font-medium">Add a device</div>
-      <p class="mb-3 text-[11px] text-zinc-400">It drops in the middle of the canvas. Drag it into place, then tap Cable to connect.</p>
+      <p class="mb-3 text-[11px] text-zinc-400">
+        {{ basicMode() ? 'It appears on the canvas. Drag it, tap it, then Cable.' : 'It drops in the middle of the canvas. Drag it into place, then tap Cable to connect.' }}
+      </p>
       <div class="grid grid-cols-2 gap-2">
         @for (p of PALETTE; track p.kind) {
           <button

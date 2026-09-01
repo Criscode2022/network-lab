@@ -33,6 +33,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   placing = signal<string | null>(null);
   addOpen = signal(false);
   advanced = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_advanced') === '1');
+  basic = signal(typeof localStorage === 'undefined' || localStorage.getItem('nb_basic') !== '0');
+  basicSheet = signal(false);
   hint = signal<string | null>(null);
   private hintTimer: ReturnType<typeof setTimeout> | null = null;
   confirmDel = signal<DeviceState | null>(null);
@@ -159,6 +161,30 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       localStorage.setItem('nb_advanced', next ? '1' : '0');
     } catch {
       /* ignore */
+    }
+  }
+
+  basicMode() {
+    return this.isNarrow() && this.basic();
+  }
+
+  toggleBasic() {
+    const next = !this.basic();
+    this.basic.set(next);
+    try {
+      localStorage.setItem('nb_basic', next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    this.moreOpen.set(false);
+    this.addOpen.set(false);
+    this.basicSheet.set(false);
+    this.cableFrom.set(null);
+    if (next) {
+      this.mobileTab.set('canvas');
+      this.eveOpen.set(false);
+      this.advanced.set(false);
+      requestAnimationFrame(() => this.fitIfNarrow());
     }
   }
 
@@ -290,7 +316,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.selectedId.set(d.id);
       this.termDevice.set(d.id);
     }
-    this.showHint(`${this.kindLabel(kind)} ${name} added. Drag to move. Tap Cable, then another device to connect.`);
+    this.showHint(
+      this.basicMode()
+        ? `${name} added. Drag it. Tap it, then Cable.`
+        : `${this.kindLabel(kind)} ${name} added. Drag to move. Tap Cable, then another device to connect.`,
+    );
+    if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
   }
 
   private freeCopper(d: DeviceState) {
@@ -324,6 +355,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     this.cableFrom.set({ id: d.id, iface: iface.name });
+    this.basicSheet.set(false);
     this.showHint(`Cable started on ${d.name}. Tap another device to connect.`);
   }
 
@@ -357,18 +389,23 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   showPalette() {
+    if (this.basicMode()) return false;
     return !this.isNarrow() || this.mobileTab() === 'palette';
   }
   showCanvas() {
+    if (this.basicMode()) return true;
     return !this.isNarrow() || this.mobileTab() === 'canvas';
   }
   showInspect() {
+    if (this.basicMode()) return false;
     return !this.isNarrow() || this.mobileTab() === 'inspect';
   }
   showEve() {
+    if (this.basicMode()) return false;
     return this.isNarrow() ? this.mobileTab() === 'eve' : this.eveOpen();
   }
   showTerm() {
+    if (this.basicMode()) return false;
     return !this.isNarrow() || this.mobileTab() === 'term';
   }
 
@@ -418,6 +455,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.placing.set(null);
       this.confirmDel.set(null);
       this.addOpen.set(false);
+      this.basicSheet.set(false);
     }
   };
 
@@ -521,7 +559,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       if (d) {
         void this.api.edit(undefined, [{ id: d.id, x: d.x, y: d.y }]);
         if (this.isNarrow() && this.tapAt && Math.hypot(d.x - this.tapAt.x, d.y - this.tapAt.y) < 12) {
-          this.mobileTab.set('inspect');
+          if (this.basicMode()) this.basicSheet.set(true);
+          else this.mobileTab.set('inspect');
         }
       }
     }
@@ -533,8 +572,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
     const from = this.cableFrom();
-    if (from && from.id !== d.id && !this.advanced()) {
+    if (from && from.id !== d.id && (this.basicMode() || !this.advanced())) {
       this.finishCable(d);
+      this.basicSheet.set(false);
       return;
     }
     const host = (ev.currentTarget as HTMLElement).closest('.grid-canvas') as HTMLElement | null;
@@ -748,6 +788,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   animate(events: PacketEvent[]) {
+    if (this.basicMode()) return;
     const st = this.api.state();
     if (!st) return;
     const pos = (name: string) => {
