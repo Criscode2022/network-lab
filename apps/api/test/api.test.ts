@@ -32,6 +32,19 @@ describe('health', () => {
   });
 });
 
+describe('eve reverse-proxy', () => {
+  it('GET /eve/v1/health is 200 from a live eve process or 502 if upstream is down', async () => {
+    const r = await request(server).get('/eve/v1/health');
+    if (r.status === 200) {
+      expect(r.body.ok).toBe(true);
+      expect(r.body.status).toBe('ready');
+    } else {
+      expect(r.status).toBe(502);
+      expect(r.body.ok).toBe(false);
+    }
+  });
+});
+
 describe('sessions + engine path/check', () => {
   it('get_path drop reason equals packet inspector reason', async () => {
     const { sessionId } = await openLab('lab-1-first-ipv4-ping');

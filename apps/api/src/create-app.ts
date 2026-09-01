@@ -3,12 +3,43 @@ import { AppModule } from './app.module.ts';
 import type { INestApplication } from '@nestjs/common';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { SimService } from './sim.service.ts';
+import http from 'node:http';
+
+const EVE_ORIGIN = process.env.EVE_ORIGIN || 'http://127.0.0.1:4010';
 
 export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix('api');
+  attachEveProxy(app);
   return app;
+}
+
+/** Reverse-proxy the eve Nitro server so GET /eve/v1/health is on the long-running API host. */
+function attachEveProxy(app: INestApplication): void {
+  const express = app.getHttpAdapter().getInstance() as {
+    use: (path: string, handler: (req: http.IncomingMessage & { url?: string; originalUrl?: string; method?: string; headers: http.IncomingHttpHeaders }, res: http.ServerResponse) => void) => void;
+  };
+  const forward = (prefix: string) => (req: http.IncomingMessage & { url?: string; method?: string; headers: http.IncomingHttpHeaders }, res: http.ServerResponse) => {
+    const rest = req.url && req.url !== '/' ? req.url : '';
+    const target = new URL(prefix + rest, EVE_ORIGIN);
+    const headers = { ...req.headers, host: target.host };
+    delete headers.connection;
+    const up = http.request(target, { method: req.method, headers }, (incoming) => {
+      res.writeHead(incoming.statusCode || 502, incoming.headers);
+      incoming.pipe(res);
+    });
+    up.on('error', () => {
+      if (!res.headersSent) {
+        res.statusCode = 502;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'eve upstream unavailable' }));
+      }
+    });
+    req.pipe(up);
+  };
+  express.use('/eve', forward('/eve'));
+  express.use('/.well-known/workflow', forward('/.well-known/workflow'));
 }
 
 export function attachWs(app: INestApplication): WebSocketServer {

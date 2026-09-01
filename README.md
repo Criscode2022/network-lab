@@ -80,4 +80,6 @@ npx eve deploy
 
 On Vercel: OIDC + AI Gateway (`anthropic/claude-sonnet-4.5` or `openai/gpt-5.4-mini`). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
 
-Health: `GET /api/health` (API), `GET /eve/v1/health` (eve). Public Angular fallback: `https://web-production-033453.up.railway.app/`.
+Health: `GET /api/health` (API). Eve Nitro is also started on the API host and reverse-proxied: `GET /eve/v1/health` on the same Railway origin. Vercel `eve deploy` remains preferred when a production-deploy login is available.
+
+Public Angular fallback: `https://web-production-033453.up.railway.app/`.
