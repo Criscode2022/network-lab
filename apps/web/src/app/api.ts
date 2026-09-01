@@ -116,11 +116,11 @@ type WsMsg = {
   state?: LabState;
 };
 
-@Injectable({ providedIn: 'root' })
 const GUEST_LAB_KEY = 'nb_guest_lab';
 
 type GuestSnap = { v: 1; at: number; lab: unknown };
 
+@Injectable({ providedIn: 'root' })
 export class Api {
   token = signal<string | null>(localStorage.getItem('nb_token'));
   guest = signal(true);
