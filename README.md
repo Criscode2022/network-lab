@@ -68,7 +68,8 @@ Lab JSON schema: `packages/engine/schema/lab.schema.json`.
 1. **Neon** — create a project, run `sql/schema.sql`, set `DATABASE_URL`.
 2. **API** — Railway / Fly / Render / any always-on Node. `apps/api/Dockerfile`. Env: `PORT`, `JWT_SECRET`, `DATABASE_URL`.
    Live: `https://api-production-caeb.up.railway.app/api/health`
-3. **Angular** — Vercel (preferred). `apps/web`. Off localhost the UI calls the Railway API. A Railway nginx image (`apps/web/Dockerfile`) is a public fallback if Vercel SSO is on.
+3. **Angular** — Vercel. Live: `https://netbench-www-criscode2022s-projects.vercel.app/`
+   Off localhost the UI calls the Railway API. Railway nginx (`https://web-production-033453.up.railway.app/`) is a public fallback.
 4. **Eve** — from `apps/eve-agent`. Preferred: Vercel (`eve link` / `eve deploy`, OIDC + AI Gateway). Self-host: `apps/eve-agent/Dockerfile` on a long-running Node host (`eve build && eve start`). Off localhost, tools call `https://api-production-caeb.up.railway.app`.
 
 ```bash
@@ -80,6 +81,7 @@ npx eve deploy
 
 On Vercel: OIDC + AI Gateway (`anthropic/claude-sonnet-4.5` or `openai/gpt-5.4-mini`). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
 
-Health: `GET /api/health` (API). Eve Nitro is also started on the API host and reverse-proxied: `GET /eve/v1/health` on the same Railway origin. Vercel `eve deploy` remains preferred when a production-deploy login is available.
-
-Public Angular fallback: `https://web-production-033453.up.railway.app/`.
+Health:
+- API `GET https://api-production-caeb.up.railway.app/api/health`
+- Eve `GET https://netbench-eve-criscode2022s-projects.vercel.app/eve/v1/health` (`{"ok":true,"status":"ready"}`)
+- Angular `https://netbench-www-criscode2022s-projects.vercel.app/`
