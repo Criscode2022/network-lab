@@ -100,38 +100,42 @@
     @if (showCanvas()) {
       <div class="relative min-h-0 min-w-0 flex-1">
         <div
+          #stage
           class="grid-canvas absolute inset-0 overflow-hidden touch-none"
           (wheel)="onWheel($event, $any($event.currentTarget))"
           (pointerdown)="canvasDown($event, $any($event.currentTarget))"
           (pointermove)="canvasMove($event)"
-          (pointerup)="canvasUp()"
-          (pointercancel)="canvasUp()"
+          (pointerup)="canvasUp($event)"
+          (pointercancel)="canvasUp($event)"
         >
-          <svg
-            class="absolute inset-0 h-full w-full"
-            [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'"
-            style="transform-origin: 0 0"
-          >
-            @for (l of api.state()?.links ?? []; track l.id) {
-              <path
-                [attr.d]="linkPath(l)"
-                fill="none"
-                [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'"
-                [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'"
-                stroke-width="2"
-              />
-            }
-            @for (p of animPkts(); track p.id) {
-              <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
-                <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
-              </circle>
-            }
-          </svg>
           <div
-            class="absolute left-0 top-0"
+            class="absolute left-0 top-0 origin-top-left will-change-transform"
             [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'"
-            style="transform-origin: 0 0"
           >
+            <svg
+              class="absolute left-0 top-0 overflow-visible"
+              [attr.width]="worldW()"
+              [attr.height]="worldH()"
+              [style.width.px]="worldW()"
+              [style.height.px]="worldH()"
+              overflow="visible"
+            >
+              @for (l of api.state()?.links ?? []; track l.id) {
+                <path
+                  [attr.d]="linkPath(l)"
+                  fill="none"
+                  [attr.stroke]="l.kind === 'radio' ? '#a78bfa' : '#64748b'"
+                  [attr.stroke-dasharray]="l.kind === 'radio' ? '6 4' : '0'"
+                  stroke-width="2"
+                />
+              }
+              @for (p of animPkts(); track p.id) {
+                <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
+                  <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
+                </circle>
+              }
+            </svg>
+            <div class="absolute left-0 top-0">
             @for (d of api.state()?.devices ?? []; track d.id) {
               <div
                 data-dev
@@ -163,6 +167,7 @@
                 </div>
               </div>
             }
+            </div>
           </div>
         </div>
       </div>

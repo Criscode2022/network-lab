@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
 import { Api, PALETTE, type DeviceState, type PacketEvent } from './api';
@@ -9,9 +9,10 @@ import { EveClient } from './eve-client';
   imports: [FormsModule, NgClass],
   templateUrl: './workspace.html',
 })
-export class Workspace implements OnInit, OnDestroy {
+export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly api = inject(Api);
   readonly eve = inject(EveClient);
+  private readonly cdr = inject(ChangeDetectorRef);
   readonly PALETTE = PALETTE;
   labs = signal<{ id: string; name: string; goal: string }[]>([]);
   selectedId = signal<string | null>(null);
@@ -19,8 +20,15 @@ export class Workspace implements OnInit, OnDestroy {
   termLines = signal<{ text: string; err?: boolean }[]>([]);
   termInput = '';
   pan = signal({ x: 40, y: 40, s: 1 });
+  @ViewChild('stage') stage?: ElementRef<HTMLElement>;
   dragging: { id: string; ox: number; oy: number } | null = null;
   panning: { x: number; y: number; px: number; py: number } | null = null;
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; s: number; x: number; y: number; mx: number; my: number } | null = null;
+  private gesture: { s: number; x: number; y: number; cx: number; cy: number } | null = null;
+  private stageEl: HTMLElement | null = null;
+  private pendingFit = false;
+  private guarded = new WeakSet<HTMLElement>();
   cableFrom: { id: string; iface: string } | null = null;
   placing = signal<string | null>(null);
   confirmDel = signal<DeviceState | null>(null);
@@ -52,6 +60,16 @@ export class Workspace implements OnInit, OnDestroy {
   animPkts = signal<{ id: string; x1: number; y1: number; x2: number; y2: number; drop?: boolean }[]>([]);
 
   selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
+  worldW = computed(() => {
+    let m = 4000;
+    for (const d of this.api.state()?.devices ?? []) m = Math.max(m, d.x + 400);
+    return m;
+  });
+  worldH = computed(() => {
+    let m = 3000;
+    for (const d of this.api.state()?.devices ?? []) m = Math.max(m, d.y + 300);
+    return m;
+  });
 
   async ngOnInit() {
     this.api.onPackets = (events) => this.animate(events);
@@ -68,6 +86,7 @@ export class Workspace implements OnInit, OnDestroy {
     this.mq = window.matchMedia('(max-width: 767px)');
     this.onMq(this.mq);
     this.mq.addEventListener('change', this.onMq);
+    requestAnimationFrame(() => this.fitIfNarrow());
     window.addEventListener('keydown', this.onKey);
     this.saveTimer = setInterval(() => {
       const st = this.api.state();
@@ -75,6 +94,12 @@ export class Workspace implements OnInit, OnDestroy {
       localStorage.setItem('nb_autosave', JSON.stringify({ id: st.id, sessionId: this.api.sessionId(), at: Date.now() }));
       void this.api.save().catch(() => undefined);
     }, 12000);
+  }
+
+  ngAfterViewInit() {
+    const el = this.stage?.nativeElement;
+    if (el) this.guardCanvas(el);
+    requestAnimationFrame(() => this.fitIfNarrow());
   }
 
   ngOnDestroy() {
@@ -89,14 +114,23 @@ export class Workspace implements OnInit, OnDestroy {
     const narrow = e.matches;
     const was = this.isNarrow();
     this.isNarrow.set(narrow);
-    if (narrow) this.eveOpen.set(false);
-    else if (was) this.eveOpen.set(true);
+    if (narrow) {
+      this.eveOpen.set(false);
+      requestAnimationFrame(() => this.fitIfNarrow());
+    } else if (was) this.eveOpen.set(true);
   };
 
   setTab(tab: 'canvas' | 'palette' | 'inspect' | 'term' | 'eve') {
     this.mobileTab.set(tab);
     this.moreOpen.set(false);
     if (tab === 'eve') this.eveOpen.set(true);
+    if (tab === 'canvas') {
+      requestAnimationFrame(() => {
+        const el = this.stage?.nativeElement;
+        if (el) this.guardCanvas(el);
+        if (this.pendingFit) this.fitIfNarrow();
+      });
+    }
   }
 
   place(kind: string) {
@@ -184,6 +218,7 @@ export class Workspace implements OnInit, OnDestroy {
     this.termLines.set([{ text: `Loaded ${this.api.state()?.name}. Type help.` }]);
     this.checkMsg.set(null);
     this.bindEve();
+    requestAnimationFrame(() => this.fitIfNarrow());
   }
 
   worldFromEvent(ev: { clientX: number; clientY: number }, el: HTMLElement) {
@@ -194,20 +229,20 @@ export class Workspace implements OnInit, OnDestroy {
 
   onWheel(ev: WheelEvent, el: HTMLElement) {
     ev.preventDefault();
-    const p = this.pan();
-    const factor = ev.deltaY > 0 ? 0.9 : 1.1;
-    const s = Math.min(2.4, Math.max(0.35, p.s * factor));
-    const r = el.getBoundingClientRect();
-    const cx = ev.clientX - r.left;
-    const cy = ev.clientY - r.top;
-    const x = cx - ((cx - p.x) * s) / p.s;
-    const y = cy - ((cy - p.y) * s) / p.s;
-    this.pan.set({ x, y, s });
+    this.stageEl = el;
+    this.zoomAt(ev.clientX, ev.clientY, ev.deltaY > 0 ? 0.9 : 1.1, el);
   }
 
   canvasDown(ev: PointerEvent, el: HTMLElement) {
+    this.stageEl = el;
+    this.guardCanvas(el);
+    this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if ((ev.target as HTMLElement).closest('[data-dev]')) return;
-    el.setPointerCapture?.(ev.pointerId);
+    try {
+      el.setPointerCapture?.(ev.pointerId);
+    } catch {
+      /* ignore inactive/synthetic pointers */
+    }
     if (this.placing()) {
       const w = this.worldFromEvent(ev, el);
       const gx = Math.round(w.x / 24) * 24;
@@ -216,12 +251,25 @@ export class Workspace implements OnInit, OnDestroy {
       const name = kind.slice(0, 2).toUpperCase() + Math.floor(Math.random() * 90 + 10);
       void this.api.edit({ addDevices: [{ type: kind, name, x: gx, y: gy }] });
       this.placing.set(null);
+      this.pointers.delete(ev.pointerId);
+      return;
+    }
+    if (this.pointers.size >= 2) {
+      this.dragging = null;
+      this.panning = null;
+      this.startPinch();
       return;
     }
     this.panning = { x: this.pan().x, y: this.pan().y, px: ev.clientX, py: ev.clientY };
   }
 
   canvasMove(ev: PointerEvent) {
+    if (this.pointers.has(ev.pointerId)) this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (this.pinch && this.pointers.size >= 2) {
+      ev.preventDefault();
+      this.movePinch();
+      return;
+    }
     if (this.panning || this.dragging) ev.preventDefault();
     if (this.panning) {
       this.pan.set({
@@ -241,7 +289,22 @@ export class Workspace implements OnInit, OnDestroy {
     }
   }
 
-  canvasUp() {
+  canvasUp(ev?: PointerEvent) {
+    if (ev) this.pointers.delete(ev.pointerId);
+    else if (this.pointers.size) return;
+    else this.pointers.clear();
+
+    if (this.pointers.size >= 2) {
+      this.startPinch();
+      return;
+    }
+    this.pinch = null;
+    if (this.pointers.size === 1) {
+      const pt = [...this.pointers.values()][0];
+      this.panning = { x: this.pan().x, y: this.pan().y, px: pt.x, py: pt.y };
+      this.dragging = null;
+      return;
+    }
     if (this.dragging) {
       const d = this.api.state()?.devices.find((x) => x.id === this.dragging!.id);
       if (d) {
@@ -258,11 +321,161 @@ export class Workspace implements OnInit, OnDestroy {
 
   startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
-    (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId);
+    const host = (ev.currentTarget as HTMLElement).closest('.grid-canvas') as HTMLElement | null;
+    if (host) {
+      this.stageEl = host;
+      this.guardCanvas(host);
+    }
+    this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    try {
+      (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId);
+    } catch {
+      /* ignore inactive/synthetic pointers */
+    }
+    if (this.pointers.size >= 2) {
+      this.dragging = null;
+      this.panning = null;
+      this.startPinch();
+      return;
+    }
     this.selectedId.set(d.id);
     this.termDevice.set(d.id);
     this.tapAt = { x: d.x, y: d.y };
     this.dragging = { id: d.id, ox: d.x - ev.clientX, oy: d.y - ev.clientY };
+  }
+
+  private beginGesture(cx: number, cy: number) {
+    if (this.pointers.size >= 2) return;
+    const p = this.pan();
+    this.gesture = { s: p.s, x: p.x, y: p.y, cx, cy };
+  }
+
+  private applyGestureScale(scale: number) {
+    if (this.pointers.size >= 2 || !this.gesture) return;
+    const s = Math.min(2.4, Math.max(0.35, this.gesture.s * scale));
+    const { cx, cy, x: px, y: py, s: ps } = this.gesture;
+    this.pan.set({ x: cx - ((cx - px) * s) / ps, y: cy - ((cy - py) * s) / ps, s });
+    this.cdr.detectChanges();
+  }
+
+  private onGestureEnd() {
+    this.gesture = null;
+  }
+
+  private zoomAt(clientX: number, clientY: number, factor: number, el: HTMLElement) {
+    const p = this.pan();
+    const s = Math.min(2.4, Math.max(0.35, p.s * factor));
+    const r = el.getBoundingClientRect();
+    const cx = clientX - r.left;
+    const cy = clientY - r.top;
+    this.pan.set({ x: cx - ((cx - p.x) * s) / p.s, y: cy - ((cy - p.y) * s) / p.s, s });
+  }
+
+  private startPinch() {
+    const pts = [...this.pointers.values()];
+    if (pts.length < 2) return;
+    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) || 1;
+    const p = this.pan();
+    this.pinch = { dist, s: p.s, x: p.x, y: p.y, mx: (pts[0].x + pts[1].x) / 2, my: (pts[0].y + pts[1].y) / 2 };
+  }
+
+  private movePinch() {
+    if (!this.pinch) return;
+    const el = this.stageEl ?? this.stage?.nativeElement;
+    if (!el) return;
+    const pts = [...this.pointers.values()];
+    if (pts.length < 2) return;
+    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) || 1;
+    const mx = (pts[0].x + pts[1].x) / 2;
+    const my = (pts[0].y + pts[1].y) / 2;
+    const s = Math.min(2.4, Math.max(0.35, this.pinch.s * (dist / this.pinch.dist)));
+    const r = el.getBoundingClientRect();
+    const cx = this.pinch.mx - r.left;
+    const cy = this.pinch.my - r.top;
+    this.pan.set({
+      x: cx - ((cx - this.pinch.x) * s) / this.pinch.s + (mx - this.pinch.mx),
+      y: cy - ((cy - this.pinch.y) * s) / this.pinch.s + (my - this.pinch.my),
+      s,
+    });
+  }
+
+  private guardCanvas(el: HTMLElement) {
+    if (this.guarded.has(el)) return;
+    this.guarded.add(el);
+    const stop = (e: Event) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    el.addEventListener('touchmove', stop, { passive: false });
+    el.addEventListener(
+      'gesturestart',
+      (e) => {
+        stop(e);
+        const ge = e as unknown as { clientX?: number; clientY?: number; scale?: number };
+        const r = el.getBoundingClientRect();
+        const cx = (ge.clientX ?? r.left + r.width / 2) - r.left;
+        const cy = (ge.clientY ?? r.top + r.height / 2) - r.top;
+        this.stageEl = el;
+        this.beginGesture(cx, cy);
+      },
+      { passive: false },
+    );
+    el.addEventListener(
+      'gesturechange',
+      (e) => {
+        stop(e);
+        const rec = e as unknown as Record<string, unknown>;
+        let scale = Number(rec['scale']);
+        if (!Number.isFinite(scale) || scale <= 0) {
+          const orig = rec['originalEvent'] ?? rec['srcEvent'];
+          if (orig && typeof orig === 'object') scale = Number((orig as { scale?: number }).scale);
+        }
+        this.applyGestureScale(Number.isFinite(scale) && scale > 0 ? scale : 1);
+      },
+      { passive: false },
+    );
+    el.addEventListener('gestureend', () => this.onGestureEnd(), { passive: false });
+  }
+
+  private fitIfNarrow() {
+    if (!this.isNarrow()) {
+      this.pendingFit = false;
+      return;
+    }
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    const devices = this.api.state()?.devices ?? [];
+    if (!el || el.getBoundingClientRect().width < 40 || !devices.length) {
+      this.pendingFit = true;
+      return;
+    }
+    this.pendingFit = false;
+    this.fitToView();
+  }
+
+  fitToView() {
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    const devices = this.api.state()?.devices ?? [];
+    if (!el || !devices.length) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const d of devices) {
+      minX = Math.min(minX, d.x);
+      minY = Math.min(minY, d.y);
+      maxX = Math.max(maxX, d.x + 96);
+      maxY = Math.max(maxY, d.y + 64);
+    }
+    const pad = 32;
+    const bw = Math.max(maxX - minX, 1);
+    const bh = Math.max(maxY - minY, 1);
+    const s = Math.min(2.4, Math.max(0.35, Math.min((r.width - pad * 2) / bw, (r.height - pad * 2) / bh)));
+    this.pan.set({
+      x: (r.width - bw * s) / 2 - minX * s,
+      y: (r.height - bh * s) / 2 - minY * s,
+      s,
+    });
   }
 
   clickPort(ev: Event, d: DeviceState, iface: string) {
@@ -474,6 +687,7 @@ export class Workspace implements OnInit, OnDestroy {
 
   @HostListener('window:mouseup')
   up() {
+    if (this.pointers.size) return;
     this.canvasUp();
   }
 
@@ -482,7 +696,9 @@ export class Workspace implements OnInit, OnDestroy {
     const narrow = window.innerWidth < 768;
     const was = this.isNarrow();
     this.isNarrow.set(narrow);
-    if (narrow) this.eveOpen.set(false);
-    else if (was) this.eveOpen.set(true);
+    if (narrow) {
+      this.eveOpen.set(false);
+      if (!was) requestAnimationFrame(() => this.fitIfNarrow());
+    } else if (was) this.eveOpen.set(true);
   }
 }

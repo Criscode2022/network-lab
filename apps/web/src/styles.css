@@ -24,6 +24,9 @@ app-root {
     linear-gradient(to right, rgb(39 39 42 / 0.55) 1px, transparent 1px),
     linear-gradient(to bottom, rgb(39 39 42 / 0.55) 1px, transparent 1px);
   background-size: 24px 24px;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 @keyframes pulse-ring {
