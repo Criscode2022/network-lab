@@ -119,6 +119,24 @@ function countPhrase(spec: string, nouns: string): number {
   return n;
 }
 
+/** Count "2 PCs" / "a workstation", or a bare "PC" / "workstation" with no number. */
+function countDevices(spec: string, nouns: string): number {
+  const n = countPhrase(spec, nouns);
+  if (n > 0) return n;
+  return new RegExp(`\\b(?:${nouns})\\b`, 'i').test(spec) ? 1 : 0;
+}
+
+/** VLAN id bound to a role ("wifi on VLAN 20", "VLAN 10 server"). */
+function roleVlan(spec: string, role: string): number | undefined {
+  const roleFirst = new RegExp(`(?:${role})[^.;]{0,48}?\\bvlan\\s+(\\d+)`, 'i');
+  const vlanFirst = new RegExp(`\\bvlan\\s+(\\d+)[^.;]{0,48}?(?:${role})`, 'i');
+  const a = spec.match(roleFirst);
+  if (a) return Number(a[1]);
+  const b = spec.match(vlanFirst);
+  if (b) return Number(b[1]);
+  return undefined;
+}
+
 function has(spec: string, re: RegExp): boolean {
   return re.test(spec);
 }
@@ -173,14 +191,21 @@ export function labFromSpec(spec: string): LabJson {
   const pskMatch = text.match(/\bpassword\s+([A-Za-z0-9_-]+)/i);
   const psk = pskMatch?.[1] ?? 'office';
   const vlanNums = [...text.matchAll(/\bvlan\s+(\d+)/gi)].map((m) => Number(m[1]));
-  const vlanData = vlanNums[0] ?? 10;
-  const vlanWifi = vlanNums[1] ?? 20;
+  let vlanWifi = roleVlan(text, 'wifi|wi-fi|ssid|wlan|\\bap\\b') ?? 20;
+  const vlanServer = roleVlan(text, 'server|\\bsrv\\b');
+  const vlanPc = roleVlan(text, '\\bpc\\b|workstation|\\bhost\\b');
+  let vlanData = vlanServer ?? vlanPc ?? (vlanNums.find((n) => n !== vlanWifi) ?? 10);
+  if (vlanData === vlanWifi) {
+    const other = vlanNums.find((n) => n !== vlanWifi);
+    if (other !== undefined) vlanData = other;
+    else vlanData = vlanWifi === 10 ? 20 : 10;
+  }
 
-  let nPc = countPhrase(text, 'pcs?|workstations?|hosts?|laptops?');
-  let nSrv = countPhrase(text, 'servers?');
+  let nPc = countDevices(text, 'pcs?|workstations?|hosts?|laptops?');
+  let nSrv = countDevices(text, 'servers?');
   let nSw = countPhrase(text, 'switches|switch|sw');
-  let nR = countPhrase(text, 'routers?');
-  let nFw = countPhrase(text, 'firewalls?');
+  let nR = countDevices(text, 'routers?');
+  let nFw = countDevices(text, 'firewalls?');
   let nAp = countPhrase(text, 'aps?|access points?');
   let nWlc = countPhrase(text, 'wlcs?|controllers?');
   let nCloud = countPhrase(text, 'clouds?|internets?');
@@ -194,7 +219,7 @@ export function labFromSpec(spec: string): LabJson {
   if (has(text, /\bserver/) && nSrv === 0) nSrv = 1;
   if (has(text, /\bwlc\b/) && nWlc === 0) nWlc = 1;
   if (has(text, /\bcloud\b|\binternet\b/) && nCloud === 0) nCloud = 1;
-  if (nPc === 0 && nSrv === 0) nPc = nAp ? 1 : 2;
+  if (nPc === 0 && (has(text, /\bping\b/) || nSrv === 0)) nPc = nAp ? 1 : 2;
   if (nSw === 0 && nPc + nSrv + nAp + nWlc > 1) nSw = 1;
   if (nR === 0 && (wantDhcp || wantV6 || nAp > 0)) nR = 1;
 
@@ -345,8 +370,9 @@ export function labFromSpec(spec: string): LabJson {
       const peer = rLinks.find((l) => l.a === `${r.name}:${iface}` || l.b === `${r.name}:${iface}`);
       const other = peer ? (peer.a.startsWith(r.name + ':') ? peer.b.split(':')[0] : peer.a.split(':')[0]) : '';
       const toSw = sws.some((s) => s.name === other);
+      const multiVlan = vlanData !== vlanWifi || vlanNums.length >= 2 || has(text, /two\s+vlans?/);
       lines.push(`int ${iface}`, 'no shut');
-      if (toSw && idx === 0 && (nAp || wantV6 || wantDhcp)) {
+      if (toSw && idx === 0 && (nAp || wantV6 || wantDhcp || multiVlan)) {
         lines.push(
           `int ${iface}.${vlanData}`,
           `encapsulation dot1Q ${vlanData}`,

@@ -365,6 +365,30 @@ describe('Eve eval scenarios (engine, no dummy LLM)', () => {
     expect(() => labFromSpec('Please add BGP to this lab')).toThrow(/bgp|ospf/i);
   });
 
+  it('labFromSpec builder sentence: two VLANs, wifi 20, server 10, PC pings via router', () => {
+    const spec =
+      'two VLANs, one router, wifi on VLAN 20, Linux server on VLAN 10, PC must ping the server via the router';
+    const lab = labFromSpec(spec);
+    const kinds = lab.devices.map((d) => d.kind);
+    expect(kinds.filter((k) => k === 'workstation').length, JSON.stringify(lab.devices.map((d) => d.name))).toBeGreaterThanOrEqual(1);
+    expect(kinds).toContain('server');
+    expect(kinds).toContain('router');
+    expect(kinds).toContain('ap');
+    const srv = lab.devices.find((d) => d.kind === 'server')!;
+    expect(srv.startup?.join('\n')).toMatch(/10\.0\.10\./);
+    expect(srv.startup?.join('\n')).not.toMatch(/10\.0\.20\./);
+    const ap = lab.devices.find((d) => d.kind === 'ap')!;
+    expect(ap.startup?.join('\n')).toMatch(/vlan 20/);
+    const r1 = lab.devices.find((d) => d.kind === 'router')!;
+    expect(r1.startup?.join('\n')).toMatch(/dot1Q 10/);
+    expect(r1.startup?.join('\n')).toMatch(/dot1Q 20/);
+    const pings = lab.checks.filter((c) => c.type === 'ping');
+    expect(pings.length, JSON.stringify(lab.checks)).toBeGreaterThanOrEqual(1);
+    expect(pings.some((c) => c.type === 'ping' && c.dst.includes('10.0.10.'))).toBe(true);
+    const chk = Engine.fromLab(lab).check();
+    expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
   it('eval6: BGP is not in the palette / command list', () => {
     const cmds = [
       ...listCommands('router'),

@@ -234,6 +234,27 @@ describe('Eve tool endpoints + six eval scenarios', () => {
     const chk = await request(server).post('/api/eve/tools/run_check').send({ labId: sessionId });
     expect(chk.body.ok, JSON.stringify(chk.body)).toBe(true);
   });
+
+  it('build_lab two VLANs wifi 20 server 10 PC pings via router', async () => {
+    const spec =
+      'two VLANs, one router, wifi on VLAN 20, Linux server on VLAN 10, PC must ping the server via the router';
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post(`/api/sessions/${sessionId}/confirm`).send({ purpose: 'build_lab' });
+    const built = await request(server)
+      .post('/api/eve/tools/build_lab')
+      .send({ labId: sessionId, spec, confirmToken: tok.body.confirmToken });
+    expect(built.status).toBeLessThan(400);
+    const devices = built.body.lab.devices as { kind: string; name: string; startup?: string[] }[];
+    expect(devices.some((d) => d.kind === 'workstation'), JSON.stringify(devices.map((d) => d.kind))).toBe(true);
+    expect(devices.some((d) => d.kind === 'server')).toBe(true);
+    expect(devices.some((d) => d.kind === 'router')).toBe(true);
+    const srv = devices.find((d) => d.kind === 'server')!;
+    expect(srv.startup?.join('\n')).toMatch(/10\.0\.10\./);
+    const checks = built.body.lab.checks as { type: string; dst?: string }[];
+    expect(checks.some((c) => c.type === 'ping')).toBe(true);
+    const chk = await request(server).post('/api/eve/tools/run_check').send({ labId: sessionId });
+    expect(chk.body.ok, JSON.stringify(chk.body)).toBe(true);
+  });
 });
 
 describe('Neon-backed login and labs after memory flush', () => {
