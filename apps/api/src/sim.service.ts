@@ -3,6 +3,7 @@ import {
   BUILTIN_LABS,
   dualStackOfficeLab,
   Engine,
+  labFromSpec,
   listCommands,
   validatePatch,
   type DeviceKind,
@@ -88,6 +89,10 @@ export class SimService {
 
   buildOffice(): LabJson {
     return dualStackOfficeLab();
+  }
+
+  buildFromSpec(spec: string): LabJson {
+    return labFromSpec(spec);
   }
 
   applyPatch(s: Session, raw: unknown): ReturnType<Engine['applyPatch']> {

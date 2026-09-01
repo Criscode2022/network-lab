@@ -2,11 +2,17 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
+import { AddressInfo } from 'node:net';
+import WebSocket from 'ws';
 import { BUILTIN_LABS } from '@netbench/engine';
-import { createApp } from '../src/create-app.ts';
+import { attachWs, createApp } from '../src/create-app.ts';
+import { getPool, setPool } from '../src/db.ts';
+import { resetMemory } from '../src/store.ts';
+import { MemoryPool } from './fake-pool.ts';
 
 let app: INestApplication;
 let server: ReturnType<INestApplication['getHttpServer']>;
+let wsPort: number;
 
 async function openLab(labId?: string, lab?: unknown) {
   const res = await request(server).post('/api/sessions').send({ labId, lab }).expect(201);
@@ -15,8 +21,10 @@ async function openLab(labId?: string, lab?: unknown) {
 
 beforeAll(async () => {
   app = await createApp();
-  await app.init();
+  attachWs(app);
+  await app.listen(0);
   server = app.getHttpServer();
+  wsPort = (server.address() as AddressInfo).port;
 });
 
 afterAll(async () => {
@@ -209,5 +217,109 @@ describe('Eve tool endpoints + six eval scenarios', () => {
       .send({ labId: sessionId, spec: 'Please add BGP to this lab', confirmToken: tok.body.confirmToken });
     expect(r.status).toBeGreaterThanOrEqual(400);
     expect(JSON.stringify(r.body).toLowerCase()).toMatch(/bgp|ospf/);
+  });
+
+  it('build_lab two PCs and a switch is not the office topology', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post(`/api/sessions/${sessionId}/confirm`).send({ purpose: 'build_lab' });
+    const built = await request(server)
+      .post('/api/eve/tools/build_lab')
+      .send({ labId: sessionId, spec: 'two PCs and a switch', confirmToken: tok.body.confirmToken });
+    expect(built.status).toBeLessThan(400);
+    const kinds = (built.body.lab.devices as { kind: string; name: string }[]).map((d) => d.kind);
+    expect(kinds).toContain('workstation');
+    expect(kinds).toContain('switch');
+    expect(kinds).not.toContain('ap');
+    expect(built.body.lab.id).not.toBe('build-dual-stack-office');
+    const chk = await request(server).post('/api/eve/tools/run_check').send({ labId: sessionId });
+    expect(chk.body.ok, JSON.stringify(chk.body)).toBe(true);
+  });
+});
+
+describe('Neon-backed login and labs after memory flush', () => {
+  it('login and GET /labs survive resetMemory when the pool has rows', async () => {
+    const prev = getPool();
+    const mem = new MemoryPool();
+    setPool(mem);
+    try {
+      const email = `neon-${Date.now()}@netbench.test`;
+      const reg = await request(server).post('/api/auth/register').send({ email, password: 'correct-horse' });
+      expect(reg.status).toBeLessThan(400);
+      const token = reg.body.token as string;
+      const saved = await request(server)
+        .post('/api/labs')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ schemaVersion: 1, id: 'persist-me', name: 'Persist me', devices: [], links: [], checks: [] });
+      expect(saved.status).toBeLessThan(400);
+      resetMemory();
+      const me = await request(server).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
+      expect(me.status).toBe(200);
+      expect(me.body.user.email).toBe(email);
+      const loginRes = await request(server).post('/api/auth/login').send({ email, password: 'correct-horse' });
+      expect(loginRes.status).toBeLessThan(400);
+      const list = await request(server).get('/api/labs').set('Authorization', `Bearer ${loginRes.body.token}`);
+      expect(list.status).toBe(200);
+      expect(list.body.labs.some((l: { id: string }) => l.id === 'persist-me')).toBe(true);
+    } finally {
+      resetMemory();
+      setPool(prev);
+    }
+  });
+});
+
+describe('live /ws session', () => {
+  function openWs(sessionId: string): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${wsPort}/ws?sessionId=${sessionId}`);
+      const t = setTimeout(() => reject(new Error('ws open timeout')), 4000);
+      ws.once('open', () => {
+        clearTimeout(t);
+        resolve(ws);
+      });
+      ws.once('error', (e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+  }
+
+  function nextMsg(ws: WebSocket, want?: string): Promise<{ type?: string; output?: string; events?: { proto: string }[]; packets?: unknown[]; state?: { id: string } }> {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`ws message timeout waiting for ${want ?? 'any'}`)), 5000);
+      const onMsg = (data: WebSocket.RawData) => {
+        const msg = JSON.parse(String(data)) as { type?: string };
+        if (want && msg.type !== want) return;
+        clearTimeout(t);
+        ws.off('message', onMsg);
+        resolve(msg as { type?: string; output?: string; events?: { proto: string }[]; packets?: unknown[]; state?: { id: string } });
+      };
+      ws.on('message', onMsg);
+    });
+  }
+
+  it('streams CLI output and packet events on a persistent socket', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const ws = await openWs(sessionId);
+    const hello = await nextMsg(ws, 'state');
+    expect(hello.state?.id).toBeTruthy();
+    const cliP = nextMsg(ws, 'cli');
+    ws.send(JSON.stringify({ type: 'cli', deviceId: 'pc1', line: 'ping -c 1 10.0.0.20' }));
+    const cli = await cliP;
+    expect(cli.output).toBeTruthy();
+    expect((cli.events ?? []).length + (cli.packets ?? []).length).toBeGreaterThan(0);
+    ws.send(JSON.stringify({ type: 'cancel' }));
+    const cancel = await nextMsg(ws, 'cli');
+    expect(cancel.output).toBe('^C');
+    ws.close();
+  });
+
+  it('closes unknown sessions with 4404', async () => {
+    const code = await new Promise<number>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${wsPort}/ws?sessionId=missing`);
+      ws.once('close', (c) => resolve(c));
+      ws.once('error', () => resolve(4404));
+      setTimeout(() => reject(new Error('no close')), 4000);
+    });
+    expect(code).toBe(4404);
   });
 });

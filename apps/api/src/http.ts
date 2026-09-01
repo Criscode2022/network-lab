@@ -13,8 +13,7 @@ import {
   Put,
   UnauthorizedException,
 } from '@nestjs/common';
-import { BUILTIN_LABS, Engine, labById, type LabJson } from '@netbench/engine';
-import type { Request } from 'express';
+import { BUILTIN_LABS, Engine, labById, labFromSpec, type LabJson } from '@netbench/engine';
 import jwt from 'jsonwebtoken';
 import {
   consumeMagic,
@@ -44,23 +43,24 @@ export class AuthService {
     return jwt.sign({ sub: u.id, email: u.email, guest: u.guest }, JWT_SECRET, { expiresIn: '7d' });
   }
 
-  fromHeader(hdr?: string): AuthUser {
+  async fromHeader(hdr?: string): Promise<AuthUser> {
     if (!hdr?.startsWith('Bearer ')) throw new UnauthorizedException('missing token');
     try {
       const p = jwt.verify(hdr.slice(7), JWT_SECRET) as { sub: string; email: string; guest?: boolean };
-      const user = findUser(p.sub);
-      if (!user) throw new UnauthorizedException('unknown user');
-      return { id: user.id, email: user.email, guest: user.guest };
+      const user = await findUser(p.sub);
+      if (user) return { id: user.id, email: user.email, guest: user.guest };
+      if (p.guest) return { id: p.sub, email: p.email, guest: true };
+      throw new UnauthorizedException('unknown user');
     } catch (e) {
       if (e instanceof UnauthorizedException) throw e;
       throw new UnauthorizedException('invalid token');
     }
   }
 
-  optional(hdr?: string): AuthUser | undefined {
+  async optional(hdr?: string): Promise<AuthUser | undefined> {
     if (!hdr?.startsWith('Bearer ')) return undefined;
     try {
-      return this.fromHeader(hdr);
+      return await this.fromHeader(hdr);
     } catch {
       return undefined;
     }
@@ -133,8 +133,8 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@Headers('authorization') auth?: string) {
-    return { user: this.auth.fromHeader(auth) };
+  async me(@Headers('authorization') auth?: string) {
+    return { user: await this.auth.fromHeader(auth) };
   }
 }
 
@@ -155,38 +155,38 @@ export class LabsController {
   }
 
   @Get()
-  list(@Headers('authorization') auth?: string) {
-    const u = this.auth.fromHeader(auth);
-    return { labs: listLabs(u.id) };
+  async list(@Headers('authorization') auth?: string) {
+    const u = await this.auth.fromHeader(auth);
+    return { labs: await listLabs(u.id) };
   }
 
   @Post()
-  create(@Headers('authorization') auth: string | undefined, @Body() body: LabJson) {
-    const u = this.auth.fromHeader(auth);
+  async create(@Headers('authorization') auth: string | undefined, @Body() body: LabJson) {
+    const u = await this.auth.fromHeader(auth);
     if (u.guest) throw new HttpException('sign in to save labs to an account', 401);
-    const row = saveLab(u.id, body);
-    return row;
+    return saveLab(u.id, body);
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    const row = getLab(id) ?? (labById(id) ? { id, userId: null, name: labById(id)!.name, json: labById(id)!, updatedAt: '' } : undefined);
+  async get(@Param('id') id: string) {
+    const saved = await getLab(id);
+    const builtin = labById(id);
+    const row = saved ?? (builtin ? { id, userId: null, name: builtin.name, json: builtin, updatedAt: '' } : undefined);
     if (!row) throw new HttpException('unknown lab', 404);
     return row;
   }
 
   @Put(':id')
-  put(@Param('id') id: string, @Headers('authorization') auth: string | undefined, @Body() body: LabJson) {
-    const u = this.auth.fromHeader(auth);
+  async put(@Param('id') id: string, @Headers('authorization') auth: string | undefined, @Body() body: LabJson) {
+    const u = await this.auth.fromHeader(auth);
     if (u.guest) throw new HttpException('sign in to save', 401);
-    const row = saveLab(u.id, { ...body, id });
-    return row;
+    return saveLab(u.id, { ...body, id });
   }
 
   @Delete(':id')
-  del(@Param('id') id: string, @Headers('authorization') auth?: string) {
-    const u = this.auth.fromHeader(auth);
-    if (!deleteLab(id, u.id)) throw new HttpException('not found', 404);
+  async del(@Param('id') id: string, @Headers('authorization') auth?: string) {
+    const u = await this.auth.fromHeader(auth);
+    if (!(await deleteLab(id, u.id))) throw new HttpException('not found', 404);
     return { ok: true };
   }
 }
@@ -198,14 +198,15 @@ export class SessionsController {
     @Inject(SimService) private readonly sim: SimService,
   ) {}
 
-  private user(auth?: string): AuthUser {
-    return this.auth.optional(auth) ?? { id: 'anon', email: 'anon@guest.local', guest: true };
+  private async user(auth?: string): Promise<AuthUser> {
+    return (await this.auth.optional(auth)) ?? { id: 'anon', email: 'anon@guest.local', guest: true };
   }
 
   @Post()
-  open(@Headers('authorization') auth: string | undefined, @Body() body: { labId?: string; lab?: LabJson }) {
-    const u = this.user(auth);
-    const lab = body.lab ?? (body.labId ? labById(body.labId) ?? getLab(body.labId)?.json : undefined) ?? BUILTIN_LABS[0];
+  async open(@Headers('authorization') auth: string | undefined, @Body() body: { labId?: string; lab?: LabJson }) {
+    const u = await this.user(auth);
+    const saved = body.labId ? await getLab(body.labId) : undefined;
+    const lab = body.lab ?? (body.labId ? labById(body.labId) ?? saved?.json : undefined) ?? BUILTIN_LABS[0];
     const s = this.sim.create(lab, u.id, u.guest);
     return { sessionId: s.id, guest: u.guest, state: s.engine.getState(), warning: u.guest ? 'Guest session — reload loses unsaved labs.' : undefined };
   }
@@ -239,9 +240,9 @@ export class SessionsController {
   }
 
   @Post(':id/save')
-  save(@Param('id') id: string, @Headers('authorization') auth?: string) {
+  async save(@Param('id') id: string, @Headers('authorization') auth?: string) {
     const s = this.sim.get(id);
-    const u = this.user(auth);
+    const u = await this.user(auth);
     const json = s.engine.toLab();
     for (const d of s.engine.devices.values()) d.startupLines = s.engine.runningConfig(d).split('\n');
     json.devices = json.devices.map((dev) => {
@@ -249,7 +250,7 @@ export class SessionsController {
       return { ...dev, startup: live?.startupLines ?? dev.startup };
     });
     if (u.guest) return { ok: true, guest: true, json, warning: 'Guest autosave is local until you sign in.' };
-    const row = saveLab(u.id, json);
+    const row = await saveLab(u.id, json);
     return { ok: true, lab: row };
   }
 
@@ -326,10 +327,10 @@ export class SessionsController {
     this.sim.rateLimit(s);
     try {
       this.sim.consumeConfirm(id, 'build_lab', body.confirmToken);
-      const lab = this.sim.buildOffice();
       if (body.spec && /bgp|mpls|vxlan|802\.1x/i.test(body.spec)) {
         throw new HttpException('NetBench does not implement BGP/MPLS/VXLAN/802.1X. Use OSPF area 0 and the eight device types.', 400);
       }
+      const lab = labFromSpec(body.spec ?? '');
       s.engine = Engine.fromLab(lab);
       return { labId: lab.id, lab, state: s.engine.getState() };
     } catch (e) {
@@ -436,7 +437,12 @@ export class EveToolsController {
         400,
       );
     }
-    const lab = this.sim.buildOffice();
+    let lab: LabJson;
+    try {
+      lab = labFromSpec(body.spec ?? '');
+    } catch (e) {
+      boom(e);
+    }
     if (body.labId) {
       const s = this.session(body.labId);
       try {
