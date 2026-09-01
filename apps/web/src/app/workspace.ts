@@ -1,7 +1,7 @@
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { Api, PALETTE, type DeviceState, type PacketEvent } from './api';
+import { Api, PALETTE, type DeviceState, type IfaceState, type PacketEvent } from './api';
 import { EveClient } from './eve-client';
 
 @Component({
@@ -29,8 +29,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private stageEl: HTMLElement | null = null;
   private pendingFit = false;
   private guarded = new WeakSet<HTMLElement>();
-  cableFrom: { id: string; iface: string } | null = null;
+  cableFrom = signal<{ id: string; iface: string } | null>(null);
   placing = signal<string | null>(null);
+  addOpen = signal(false);
+  advanced = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_advanced') === '1');
+  hint = signal<string | null>(null);
+  private hintTimer: ReturnType<typeof setTimeout> | null = null;
   confirmDel = signal<DeviceState | null>(null);
   inspectorTab = signal<'ifaces' | 'run' | 'packets'>('ifaces');
   selectedPkt = signal<PacketEvent | null>(null);
@@ -106,6 +110,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     window.removeEventListener('keydown', this.onKey);
     this.mq?.removeEventListener('change', this.onMq);
     if (this.saveTimer) clearInterval(this.saveTimer);
+    if (this.hintTimer) clearTimeout(this.hintTimer);
     this.api.disconnectWs();
     this.eve.stop();
   }
@@ -123,6 +128,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   setTab(tab: 'canvas' | 'palette' | 'inspect' | 'term' | 'eve') {
     this.mobileTab.set(tab);
     this.moreOpen.set(false);
+    this.addOpen.set(false);
     if (tab === 'eve') this.eveOpen.set(true);
     if (tab === 'canvas') {
       requestAnimationFrame(() => {
@@ -134,8 +140,212 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   place(kind: string) {
+    this.addOpen.set(false);
+    if (this.isNarrow()) {
+      this.placing.set(null);
+      this.mobileTab.set('canvas');
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => void this.addDevice(kind));
+      });
+      return;
+    }
     this.placing.set(this.placing() === kind ? null : kind);
-    if (this.isNarrow()) this.mobileTab.set('canvas');
+  }
+
+  toggleAdvanced() {
+    const next = !this.advanced();
+    this.advanced.set(next);
+    try {
+      localStorage.setItem('nb_advanced', next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  kindLabel(k: string) {
+    const m: Record<string, string> = {
+      workstation: 'PC',
+      server: 'Server',
+      switch: 'Switch',
+      router: 'Router',
+      firewall: 'Firewall',
+      ap: 'Wi-Fi AP',
+      wlc: 'WLC',
+      cloud: 'Internet',
+    };
+    return m[k] ?? k;
+  }
+
+  primaryIpv4(d: DeviceState): string | null {
+    for (const i of d.ifaces) {
+      if (i.ipv4?.ip) return `${i.ipv4.ip}/${i.ipv4.prefix}`;
+    }
+    return null;
+  }
+
+  ipv4Rows(d: DeviceState) {
+    return d.ifaces
+      .filter((i) => i.ipv4?.ip)
+      .map((i) => ({ name: i.name, ip: `${i.ipv4!.ip}/${i.ipv4!.prefix}`, status: this.linkStatus(i) }));
+  }
+
+  emptyIpv4Hint(d: DeviceState) {
+    const iface =
+      d.ifaces.find((i) => !i.isRadio && !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'))?.name ?? 'eth0';
+    if (d.kind === 'workstation' || d.kind === 'server' || d.kind === 'firewall' || d.kind === 'cloud') {
+      return `ip addr add 10.0.0.10/24 dev ${iface}`;
+    }
+    return `interface ${iface} → ip address 10.0.0.1 255.255.255.0 → no shutdown`;
+  }
+
+  linkStatus(i: IfaceState) {
+    if (!i.adminUp) return 'Disabled';
+    if (!i.operUp) return 'Unplugged';
+    return 'Up';
+  }
+
+  ipv6Rows(i: IfaceState) {
+    const rows = i.ipv6.map((v) => ({
+      ip: `${v.ip}/${v.prefix}`,
+      linkLocal: v.ip.toLowerCase().startsWith('fe80:'),
+    }));
+    return [...rows.filter((r) => !r.linkLocal), ...rows.filter((r) => r.linkLocal)];
+  }
+
+  cardIfaces(d: DeviceState) {
+    const phys = d.ifaces.filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'));
+    if (this.advanced()) return phys;
+    return phys.filter((i) => !i.isRadio).slice(0, 2);
+  }
+
+  visiblePackets() {
+    const last = [...(this.api.state()?.packets ?? [])].slice(-12).reverse();
+    if (this.advanced()) return last;
+    const v4 = last.filter((p) => p.srcIp && !p.srcIp.includes(':'));
+    return v4.length ? v4 : last.filter((p) => !p.srcIp?.includes(':'));
+  }
+
+  packetLine(p: PacketEvent) {
+    const src = p.srcIp || (this.advanced() ? p.srcMac : '');
+    const dst = p.dstIp || (this.advanced() ? p.dstMac : '');
+    const path = src && dst ? `${src} → ${dst}` : p.proto;
+    return `${p.proto} ${path}`;
+  }
+
+  private nameFor(kind: string) {
+    const prefix: Record<string, string> = {
+      workstation: 'PC',
+      server: 'SRV',
+      switch: 'SW',
+      router: 'R',
+      firewall: 'FW',
+      ap: 'AP',
+      wlc: 'WLC',
+      cloud: 'NET',
+    };
+    const p = prefix[kind] ?? kind.slice(0, 2).toUpperCase();
+    const taken = new Set((this.api.state()?.devices ?? []).map((d) => d.name));
+    for (let i = 1; i < 100; i++) {
+      const n = `${p}${i}`;
+      if (!taken.has(n)) return n;
+    }
+    return p + Math.floor(Math.random() * 90 + 10);
+  }
+
+  private dropPoint() {
+    const devices = this.api.state()?.devices ?? [];
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    let x = 240;
+    let y = 180;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 40 && r.height > 40) {
+        const w = this.worldFromEvent({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }, el);
+        x = Math.round(w.x / 24) * 24;
+        y = Math.round(w.y / 24) * 24;
+      }
+    }
+    const occupied = (px: number, py: number) => devices.some((d) => Math.abs(d.x - px) < 140 && Math.abs(d.y - py) < 110);
+    for (let n = 0; n < 20 && occupied(x, y); n++) {
+      x += 144;
+      if (n % 3 === 2) {
+        x -= 432;
+        y += 110;
+      }
+    }
+    return { x, y };
+  }
+
+  async addDevice(kind: string) {
+    const name = this.nameFor(kind);
+    const pos = this.dropPoint();
+    try {
+      await this.api.edit({ addDevices: [{ type: kind, name, x: pos.x, y: pos.y }] });
+    } catch (e) {
+      this.showHint(String(e));
+      return;
+    }
+    const d = this.api.state()?.devices.find((x) => x.name === name);
+    if (d) {
+      this.selectedId.set(d.id);
+      this.termDevice.set(d.id);
+    }
+    this.showHint(`${this.kindLabel(kind)} ${name} added. Drag to move. Tap Cable, then another device to connect.`);
+  }
+
+  private freeCopper(d: DeviceState) {
+    const used = new Set<string>();
+    for (const l of this.api.state()?.links ?? []) {
+      if (l.a.deviceId === d.id) used.add(l.a.iface);
+      if (l.b.deviceId === d.id) used.add(l.b.iface);
+    }
+    return (
+      d.ifaces.find(
+        (i) =>
+          !used.has(i.name) &&
+          !i.isRadio &&
+          !i.name.includes('.') &&
+          !i.name.toLowerCase().startsWith('vlan'),
+      ) ?? null
+    );
+  }
+
+  startCable(ev: Event, d: DeviceState) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    const from = this.cableFrom();
+    if (from && from.id !== d.id) {
+      this.finishCable(d);
+      return;
+    }
+    const iface = this.freeCopper(d);
+    if (!iface) {
+      this.showHint(`${d.name} has no free Ethernet port.`);
+      return;
+    }
+    this.cableFrom.set({ id: d.id, iface: iface.name });
+    this.showHint(`Cable started on ${d.name}. Tap another device to connect.`);
+  }
+
+  private finishCable(d: DeviceState) {
+    const from = this.cableFrom();
+    if (!from || from.id === d.id) return;
+    const iface = this.freeCopper(d);
+    if (!iface) {
+      this.showHint(`${d.name} has no free Ethernet port.`);
+      return;
+    }
+    const a = `${this.devName(from.id)}:${from.iface}`;
+    const b = `${d.name}:${iface.name}`;
+    void this.api.edit({ addLinks: [{ a, b }] });
+    this.cableFrom.set(null);
+    this.showHint(`Cabled ${this.devName(from.id)} ↔ ${d.name}.`);
+  }
+
+  showHint(msg: string) {
+    this.hint.set(msg);
+    if (this.hintTimer) clearTimeout(this.hintTimer);
+    this.hintTimer = setTimeout(() => this.hint.set(null), 5000);
   }
 
   toggleEve() {
@@ -204,9 +414,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.confirmDel.set(this.selected());
     }
     if (ev.key === 'Escape') {
-      this.cableFrom = null;
+      this.cableFrom.set(null);
       this.placing.set(null);
       this.confirmDel.set(null);
+      this.addOpen.set(false);
     }
   };
 
@@ -248,7 +459,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const gx = Math.round(w.x / 24) * 24;
       const gy = Math.round(w.y / 24) * 24;
       const kind = this.placing()!;
-      const name = kind.slice(0, 2).toUpperCase() + Math.floor(Math.random() * 90 + 10);
+      const name = this.nameFor(kind);
       void this.api.edit({ addDevices: [{ type: kind, name, x: gx, y: gy }] });
       this.placing.set(null);
       this.pointers.delete(ev.pointerId);
@@ -321,6 +532,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
+    const from = this.cableFrom();
+    if (from && from.id !== d.id && !this.advanced()) {
+      this.finishCable(d);
+      return;
+    }
     const host = (ev.currentTarget as HTMLElement).closest('.grid-canvas') as HTMLElement | null;
     if (host) {
       this.stageEl = host;
@@ -480,18 +696,21 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   clickPort(ev: Event, d: DeviceState, iface: string) {
     ev.stopPropagation();
-    if (!this.cableFrom) {
-      this.cableFrom = { id: d.id, iface };
+    const from = this.cableFrom();
+    if (!from) {
+      this.cableFrom.set({ id: d.id, iface });
+      this.showHint(`Cable started on ${d.name} ${iface}. Tap a port on another device.`);
       return;
     }
-    if (this.cableFrom.id === d.id) {
-      this.cableFrom = { id: d.id, iface };
+    if (from.id === d.id) {
+      this.cableFrom.set({ id: d.id, iface });
       return;
     }
-    const a = `${this.devName(this.cableFrom.id)}:${this.cableFrom.iface}`;
+    const a = `${this.devName(from.id)}:${from.iface}`;
     const b = `${d.name}:${iface}`;
     void this.api.edit({ addLinks: [{ a, b }] });
-    this.cableFrom = null;
+    this.cableFrom.set(null);
+    this.showHint(`Cabled ${this.devName(from.id)} ↔ ${d.name}.`);
   }
 
   devName(id: string) {

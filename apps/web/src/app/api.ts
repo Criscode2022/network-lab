@@ -75,14 +75,14 @@ export interface LabState {
 }
 
 export const PALETTE: { kind: string; label: string; hint: string }[] = [
-  { kind: 'workstation', label: 'Workstation', hint: 'eth0 + wlan0' },
-  { kind: 'server', label: 'Server', hint: 'Linux' },
-  { kind: 'switch', label: 'L2 Switch', hint: '8×Gi' },
-  { kind: 'router', label: 'Router', hint: '4-port edge' },
-  { kind: 'firewall', label: 'Firewall', hint: 'stateful' },
-  { kind: 'ap', label: 'Access Point', hint: 'uplink + radio' },
-  { kind: 'wlc', label: 'WLC', hint: 'capwap-lite' },
-  { kind: 'cloud', label: 'Internet', hint: 'cloud stub' },
+  { kind: 'workstation', label: 'PC', hint: 'A computer to ping from' },
+  { kind: 'server', label: 'Server', hint: 'Linux host with a service' },
+  { kind: 'switch', label: 'Switch', hint: 'Plug Ethernet cables here' },
+  { kind: 'router', label: 'Router', hint: 'IPv4 between networks' },
+  { kind: 'firewall', label: 'Firewall', hint: 'Allow or block traffic' },
+  { kind: 'ap', label: 'Wi-Fi AP', hint: 'Wireless access point' },
+  { kind: 'wlc', label: 'WLC', hint: 'Wireless controller' },
+  { kind: 'cloud', label: 'Internet', hint: 'Outside network stub' },
 ];
 
 type WsMsg = {

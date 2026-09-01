@@ -24,6 +24,9 @@
         <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
       </label>
       <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
+      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="toggleAdvanced()">
+        {{ advanced() ? 'Simple view' : 'Advanced' }}
+      </button>
     </div>
     <button
       class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:hidden"
@@ -54,6 +57,9 @@
       <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="openCheat(); moreOpen.set(false)">
         Cheat sheet
       </button>
+      <button class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300" (click)="toggleAdvanced(); moreOpen.set(false)">
+        {{ advanced() ? 'Simple view' : 'Advanced view' }}
+      </button>
     </div>
   }
 
@@ -78,11 +84,12 @@
       <aside
         class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/70 md:w-48 md:flex-none md:border-r"
       >
-        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Palette</div>
+        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Add device</div>
+        <p class="px-3 pb-2 text-[11px] leading-snug text-zinc-400 md:hidden">Tap a type. It appears on the canvas — then drag it.</p>
         <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0 md:pb-0">
           @for (p of PALETTE; track p.kind) {
             <button
-              class="rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:py-1.5"
+              class="min-h-12 rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:min-h-0 md:py-1.5"
               [ngClass]="placing() === p.kind ? 'border-cyan-500 bg-cyan-950' : 'border-zinc-800 md:border-transparent'"
               (click)="place(p.kind)"
             >
@@ -92,13 +99,43 @@
           }
         </div>
         <p class="mt-auto hidden px-3 py-2 text-[10px] leading-snug text-zinc-500 md:block">
-          Click a type, then the canvas. Click port → port to cable. Copper Ethernet only.
+          Click a type, then the canvas to place it. Click Cable on two devices (or port → port in Advanced).
         </p>
       </aside>
     }
 
     @if (showCanvas()) {
       <div class="relative min-h-0 min-w-0 flex-1">
+        @if (api.state()?.goal) {
+          <div
+            class="pointer-events-none absolute left-2 right-16 top-2 z-10 line-clamp-2 rounded-md bg-zinc-950/85 px-2 py-1 text-[10px] leading-snug text-zinc-300 md:right-2"
+          >
+            Goal: {{ api.state()?.goal }}
+          </div>
+        }
+        @if (hint() || placing() || cableFrom()) {
+          <div
+            class="absolute inset-x-2 z-10 rounded-md border border-cyan-800 bg-zinc-950/90 px-2 py-1.5 text-[11px] text-cyan-100"
+            [class.top-10]="!!api.state()?.goal"
+            [class.top-2]="!api.state()?.goal"
+          >
+            @if (placing(); as k) {
+              Click the grid to place a {{ kindLabel(k) }}.
+              <button class="ml-2 underline" (click)="placing.set(null)">Cancel</button>
+            } @else if (cableFrom(); as c) {
+              Tap another device to finish the cable from {{ devName(c.id) }}.
+              <button class="ml-2 underline" (click)="cableFrom.set(null)">Cancel</button>
+            } @else {
+              {{ hint() }}
+            }
+          </div>
+        }
+        <button
+          class="absolute bottom-3 right-3 z-10 min-h-11 rounded-full bg-cyan-700 px-4 text-sm font-medium text-white shadow-lg md:hidden"
+          (click)="addOpen.set(true)"
+        >
+          + Add
+        </button>
         <div
           #stage
           class="grid-canvas absolute inset-0 overflow-hidden touch-none"
@@ -143,17 +180,29 @@
                 [ngClass]="
                   kindColor(d.kind) +
                   (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') +
+                  (cableFrom()?.id === d.id ? ' ring-2 ring-amber-400' : '') +
                   (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '')
                 "
                 [style.left.px]="d.x"
                 [style.top.px]="d.y"
                 (pointerdown)="startDrag($event, d)"
               >
-                <div class="text-[10px] uppercase text-zinc-400">{{ d.kind }}</div>
+                <div class="text-[10px] uppercase text-zinc-400">{{ kindLabel(d.kind) }}</div>
                 <div class="truncate text-xs font-semibold">{{ d.name }}</div>
-                <div class="flex flex-wrap justify-center gap-0.5 pt-1">
-                  @for (i of d.ifaces; track i.name) {
-                    @if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
+                @if (primaryIpv4(d); as ip) {
+                  <div class="truncate font-mono text-[9px] text-emerald-300/90">{{ ip }}</div>
+                }
+                @if (!advanced()) {
+                  <button
+                    class="mt-1 rounded bg-zinc-950/50 px-1.5 py-0.5 text-[9px] text-zinc-200"
+                    (pointerdown)="$event.stopPropagation()"
+                    (click)="startCable($event, d)"
+                  >
+                    Cable
+                  </button>
+                } @else {
+                  <div class="flex flex-wrap justify-center gap-0.5 pt-1">
+                    @for (i of cardIfaces(d); track i.name) {
                       <button
                         class="rounded px-0.5 font-mono text-[9px]"
                         [ngClass]="i.operUp ? 'bg-emerald-700/70' : 'bg-zinc-800 text-zinc-500'"
@@ -163,8 +212,8 @@
                         {{ i.name }}
                       </button>
                     }
-                  }
-                </div>
+                  </div>
+                }
               </div>
             }
             </div>
@@ -177,45 +226,82 @@
       <aside
         class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/80 md:w-72 md:flex-none md:border-l"
       >
-        <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium">Inspector</div>
+        <div class="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
+          <div class="text-xs font-medium">Inspector</div>
+          <button class="text-[11px] text-cyan-400" (click)="toggleAdvanced()">
+            {{ advanced() ? 'Simple view' : 'Advanced' }}
+          </button>
+        </div>
         @if (selected(); as d) {
-          <div class="px-3 py-2 text-sm font-semibold">
-            {{ d.hostname }} <span class="text-zinc-500">{{ d.kind }}</span>
+          <div class="px-3 py-2">
+            <div class="text-sm font-semibold">{{ d.name }}</div>
+            <div class="text-xs text-zinc-500">{{ kindLabel(d.kind) }}</div>
           </div>
-          <div class="flex gap-1 px-2">
-            <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'ifaces'" (click)="inspectorTab.set('ifaces')">
-              Ifaces
-            </button>
-            <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'run'" (click)="inspectorTab.set('run')">
-              Running-config
-            </button>
-          </div>
-          @if (inspectorTab() === 'ifaces') {
-            <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
-              @for (i of d.ifaces; track i.name) {
-                <div class="mb-2 border-b border-zinc-800/80 pb-1">
-                  <div class="font-mono">{{ i.name }} {{ i.adminUp ? 'UP' : 'DOWN' }} {{ i.operUp ? 'UP' : 'NO-CARRIER' }}</div>
-                  @if (i.ipv4) {
-                    <div>inet {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div>
-                  }
-                  @for (v of i.ipv6; track v.ip) {
-                    <div class="truncate">inet6 {{ v.ip }}/{{ v.prefix }}</div>
-                  }
-                  <div class="text-zinc-500">{{ i.mode }} vlan {{ i.accessVlan }} {{ i.isRadio ? 'radio' : '' }}</div>
+          @if (!advanced()) {
+            <div class="min-h-0 flex-1 overflow-auto px-3 pb-2 text-sm">
+              <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
+              @for (row of ipv4Rows(d); track row.name) {
+                <div class="mb-1.5">
+                  <div class="font-mono text-xs text-emerald-300">{{ row.ip }}</div>
+                  <div class="text-[11px] text-zinc-500">{{ row.name }} · {{ row.status }}</div>
                 </div>
+              } @empty {
+                <p class="text-xs leading-5 text-zinc-500">
+                  No IPv4 address yet. Open Term and run
+                  <span class="font-mono text-zinc-300">{{ emptyIpv4Hint(d) }}</span>.
+                </p>
               }
               @if (d.associatedSsid) {
-                <div>SSID {{ d.associatedSsid }}</div>
+                <div class="mt-3 text-xs">Wi-Fi network: {{ d.associatedSsid }}</div>
               }
             </div>
           } @else {
-            <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
+            <div class="flex gap-1 px-2">
+              <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'ifaces'" (click)="inspectorTab.set('ifaces')">
+                Ports
+              </button>
+              <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'run'" (click)="inspectorTab.set('run')">
+                Running-config
+              </button>
+            </div>
+            @if (inspectorTab() === 'ifaces') {
+              <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+                @for (i of d.ifaces; track i.name) {
+                  <div class="mb-2 border-b border-zinc-800/80 pb-1">
+                    <div class="font-mono">{{ i.name }} · {{ linkStatus(i) }}</div>
+                    @if (i.ipv4) {
+                      <div>IPv4 {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div>
+                    }
+                    @for (v of ipv6Rows(i); track v.ip) {
+                      <div class="truncate" [class.text-zinc-500]="v.linkLocal">
+                        IPv6 {{ v.ip }}{{ v.linkLocal ? ' (link-local)' : '' }}
+                      </div>
+                    }
+                    <div class="text-zinc-500">
+                      {{ i.mode }}
+                      @if (i.accessVlan !== 1) {
+                        VLAN {{ i.accessVlan }}
+                      }
+                      @if (i.isRadio) {
+                        radio
+                      }
+                    </div>
+                    <div class="truncate text-zinc-600">MAC {{ i.mac }}</div>
+                  </div>
+                }
+                @if (d.associatedSsid) {
+                  <div>SSID {{ d.associatedSsid }}</div>
+                }
+              </div>
+            } @else {
+              <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
+            }
           }
           <button class="m-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300" (click)="confirmDel.set(d)">
             Delete…
           </button>
         } @else {
-          <p class="px-3 py-4 text-xs text-zinc-500">Select a device on the canvas, then open Inspect.</p>
+          <p class="px-3 py-4 text-xs text-zinc-500">Tap a device on the canvas, then open Inspect.</p>
         }
       </aside>
     }
@@ -313,11 +399,16 @@
         </form>
       </div>
       <div class="max-h-40 overflow-auto border-t border-zinc-800 bg-zinc-950 p-2 md:max-h-none md:w-96 md:border-l md:border-t-0">
-        <div class="mb-1 text-[10px] uppercase text-zinc-500">Packets</div>
-        @for (p of (api.state()?.packets ?? []).slice(-12).reverse(); track p.id) {
+        <div class="mb-1 flex items-center justify-between text-[10px] uppercase text-zinc-500">
+          <span>Packets</span>
+          @if (!advanced()) {
+            <span class="normal-case text-zinc-600">IPv4</span>
+          }
+        </div>
+        @for (p of visiblePackets(); track p.id) {
           <button class="mb-1 block w-full rounded px-1 py-0.5 text-left font-mono text-[10px] hover:bg-zinc-900" (click)="selectedPkt.set(p)">
-            <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.proto }}</span>
-            {{ p.srcIp || p.srcMac }} → {{ p.dstIp || p.dstMac }}
+            <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.drop ? 'drop' : 'ok' }}</span>
+            {{ packetLine(p) }}
             @if (p.simulated) {
               <span class="rounded bg-zinc-800 px-1 text-[9px] text-amber-300">simulated</span>
             }
@@ -326,10 +417,16 @@
         }
         @if (selectedPkt(); as p) {
           <div class="mt-2 rounded border border-zinc-800 p-2 text-[10px] leading-4">
-            <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
-            <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }}</div>
-            <div>IP {{ p.srcIp ?? '—' }} → {{ p.dstIp ?? '—' }} {{ p.proto }} TTL/hlim {{ p.ttl ?? '—' }}</div>
+            <div>IPv4 {{ p.srcIp && !p.srcIp.includes(':') ? p.srcIp : '—' }} → {{ p.dstIp && !p.dstIp.includes(':') ? p.dstIp : '—' }}</div>
+            <div>{{ p.proto }} {{ p.drop ? 'dropped' : 'forwarded' }}</div>
             <div>{{ p.reason }}</div>
+            @if (advanced()) {
+              <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
+              <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }} TTL {{ p.ttl ?? '—' }}</div>
+              @if (p.srcIp?.includes(':')) {
+                <div>IPv6 {{ p.srcIp }} → {{ p.dstIp }}</div>
+              }
+            }
           </div>
         }
       </div>
@@ -360,6 +457,29 @@
     }
   </nav>
 </div>
+
+@if (addOpen()) {
+  <div class="fixed inset-0 z-20 bg-black/60 md:hidden" (click)="addOpen.set(false)">
+    <div
+      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="text-sm font-medium">Add a device</div>
+      <p class="mb-3 text-[11px] text-zinc-400">It drops in the middle of the canvas. Drag it into place, then tap Cable to connect.</p>
+      <div class="grid grid-cols-2 gap-2">
+        @for (p of PALETTE; track p.kind) {
+          <button
+            class="min-h-14 rounded-lg border border-zinc-700 px-3 py-2 text-left text-xs hover:bg-zinc-800"
+            (click)="place(p.kind)"
+          >
+            <div class="font-medium">{{ p.label }}</div>
+            <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}
 
 @if (confirmDel(); as d) {
   <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
