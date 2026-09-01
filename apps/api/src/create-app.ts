@@ -54,24 +54,32 @@ export function attachWs(app: INestApplication): WebSocketServer {
       return;
     }
     const s = sim.get(sessionId);
-    const timer = setInterval(() => {
+    const sendState = () => {
       if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'state', state: s.engine.getState() }));
+        const state = s.engine.getState();
+        ws.send(JSON.stringify({ type: 'state', state, packets: state.packets }));
       }
-    }, 1000);
+    };
+    sendState();
+    const timer = setInterval(sendState, 1000);
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(String(data)) as { type?: string; deviceId?: string; line?: string };
         if (msg.type === 'cancel') {
           s.engine.cancel();
           const d = msg.deviceId ? s.engine.find(msg.deviceId) : [...s.engine.devices.values()][0];
-          ws.send(JSON.stringify({ type: 'cli', output: '^C', prompt: d ? s.engine.prompt(d) : '# ', events: [], state: s.engine.getState() }));
+          const state = s.engine.getState();
+          ws.send(JSON.stringify({ type: 'cli', output: '^C', prompt: d ? s.engine.prompt(d) : '# ', events: [], state }));
           return;
         }
         if (msg.type === 'cli' && msg.deviceId && msg.line !== undefined) {
           sim.rateLimit(s);
           const r = s.engine.exec(msg.deviceId, msg.line);
-          ws.send(JSON.stringify({ type: 'cli', ...r, state: s.engine.getState() }));
+          const state = s.engine.getState();
+          ws.send(JSON.stringify({ type: 'cli', ...r, state, packets: r.events }));
+          if (r.events.length) {
+            ws.send(JSON.stringify({ type: 'packets', packets: r.events, state }));
+          }
         }
       } catch (e) {
         ws.send(JSON.stringify({ type: 'error', error: e instanceof Error ? e.message : String(e) }));

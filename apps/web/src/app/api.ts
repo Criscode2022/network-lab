@@ -85,6 +85,16 @@ export const PALETTE: { kind: string; label: string; hint: string }[] = [
   { kind: 'cloud', label: 'Internet', hint: 'cloud stub' },
 ];
 
+type WsMsg = {
+  type?: string;
+  output?: string;
+  prompt?: string;
+  error?: boolean;
+  events?: PacketEvent[];
+  packets?: PacketEvent[];
+  state?: LabState;
+};
+
 @Injectable({ providedIn: 'root' })
 export class Api {
   token = signal<string | null>(localStorage.getItem('nb_token'));
@@ -92,10 +102,60 @@ export class Api {
   sessionId = signal<string | null>(null);
   state = signal<LabState | null>(null);
   warning = signal<string | null>(null);
+  onPackets: ((events: PacketEvent[]) => void) | null = null;
+
+  private ws: WebSocket | null = null;
+  private wsReady: Promise<void> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private cliWaiters: Array<(msg: WsMsg) => void> = [];
 
   private headers(): HeadersInit {
     const t = this.token();
     return { 'content-type': 'application/json', ...(t ? { authorization: `Bearer ${t}` } : {}) };
+  }
+
+  disconnectWs(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const socket = this.ws;
+    this.ws = null;
+    this.wsReady = null;
+    if (socket) {
+      socket.onclose = null;
+      socket.close();
+    }
+  }
+
+  connectWs(): void {
+    const id = this.sessionId();
+    if (!id || typeof WebSocket === 'undefined') return;
+    this.disconnectWs();
+    const socket = new WebSocket(`${WS}?sessionId=${id}`);
+    this.ws = socket;
+    this.wsReady = new Promise((resolve) => {
+      socket.onopen = () => resolve();
+    });
+    socket.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as WsMsg;
+        if (msg.state) this.state.set(msg.state);
+        const packets = msg.packets ?? (msg.type === 'cli' ? msg.events : undefined);
+        if (packets?.length) this.onPackets?.(packets);
+        if (msg.type === 'cli' || msg.type === 'error') {
+          const waiter = this.cliWaiters.shift();
+          waiter?.(msg);
+        }
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    socket.onclose = () => {
+      if (this.ws !== socket) return;
+      this.ws = null;
+      this.reconnectTimer = setTimeout(() => this.connectWs(), 1200);
+    };
   }
 
   async json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -103,6 +163,18 @@ export class Api {
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((body as { message?: string }).message || r.statusText);
     return body as T;
+  }
+
+  userId(): string {
+    const t = this.token();
+    if (!t) return 'anon';
+    try {
+      const mid = t.split('.')[1] ?? '';
+      const json = JSON.parse(atob(mid.replace(/-/g, '+').replace(/_/g, '/'))) as { sub?: string };
+      return json.sub || 'anon';
+    } catch {
+      return 'anon';
+    }
   }
 
   async startGuest(): Promise<void> {
@@ -142,6 +214,7 @@ export class Api {
     this.sessionId.set(r.sessionId);
     this.state.set(r.state);
     if (r.warning) this.warning.set(r.warning);
+    this.connectWs();
   }
 
   async refresh(): Promise<void> {
@@ -152,6 +225,27 @@ export class Api {
 
   async cli(deviceId: string, line: string) {
     const id = this.sessionId();
+    if (this.ws && this.ws.readyState !== WebSocket.OPEN && this.wsReady) {
+      await Promise.race([this.wsReady, new Promise((r) => setTimeout(r, 800))]);
+    }
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      const reply = await new Promise<WsMsg>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('CLI websocket timeout')), 15000);
+        this.cliWaiters.push((msg) => {
+          clearTimeout(t);
+          resolve(msg);
+        });
+        this.ws!.send(JSON.stringify({ type: 'cli', deviceId, line }));
+      });
+      if (reply.state) this.state.set(reply.state);
+      return {
+        output: reply.output ?? '',
+        prompt: reply.prompt ?? '',
+        error: reply.error,
+        events: reply.events ?? reply.packets ?? [],
+        state: reply.state ?? this.state()!,
+      };
+    }
     const r = await this.json<{ output: string; prompt: string; error?: boolean; events: PacketEvent[]; state: LabState }>(
       `/sessions/${id}/cli`,
       { method: 'POST', body: JSON.stringify({ deviceId, line }) },
@@ -163,16 +257,10 @@ export class Api {
   cancelPing(): void {
     const id = this.sessionId();
     if (!id) return;
-    void this.json(`/sessions/${id}/cancel`, { method: 'POST', body: '{}' }).catch(() => undefined);
-    try {
-      const ws = new WebSocket(`${WS}?sessionId=${id}`);
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'cancel' }));
-        ws.close();
-      };
-    } catch {
-      /* ignore */
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'cancel' }));
     }
+    void this.json(`/sessions/${id}/cancel`, { method: 'POST', body: '{}' }).catch(() => undefined);
   }
 
   async save() {
