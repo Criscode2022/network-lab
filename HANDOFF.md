@@ -19,6 +19,7 @@ It is **not** Packet Tracer and **not** a CCIE catalog.
 - The **engine is source of truth**. Angular never invents forwarding. Eve tools call Nest, which calls `Engine`.
 - Drops must keep an **honest reason** (packet inspector + `get_path`). Do not fake success.
 - Approximations (SSH crypto, RF, OSPF P2P) are marked **simulated**.
+- Eve mutations are always authorised by a host-minted `confirmToken`; the human Approve click is optional (auto-approve is the default since the Eve upgrade — `EVE_REQUIRE_APPROVAL=1` / the drawer switch bring it back).
 - The forwarding engine is a **long-running Node process**. Do not put it on a 10s serverless timeout.
 - Palette is junior-admin only. Wired cables: Ethernet (auto-MDIX), straight-through, crossover, fiber. Wi-Fi is a simplified BSS then IP. No console/serial.
 
@@ -65,7 +66,7 @@ npm workspaces. Node >= 20. Root `npm install`.
 ```
 Angular workspace  --REST+WS-->  Nest SimService  -->  Engine (one per session)
 Eve drawer (browser) --NDJSON-->  Vercel Eve host  --HTTP-->  Nest /api/eve/tools/*
-Mutating Eve tools: Eve HITL Approve  then  Nest confirmToken  then  apply
+Mutating Eve tools: (optional HITL Approve)  then  host mints Nest confirmToken  then  apply
 ```
 
 - Localhost Angular uses `/api` and `ws://host/ws` via `apps/web/proxy.conf.json` → `127.0.0.1:3001`.
@@ -298,6 +299,7 @@ Each PC has its **own** `eth0`. Three PCs on one switch: `PC1:eth0→SW1:Gi0/1`,
 | `nb_autosave` | `{ id, sessionId, at }` — `boot()` re-attaches to `sessionId` if < 12 h old |
 | `nb_guest_lab` | Guest lab JSON snapshot (`{ v:1, at, lab }`) restored on reload |
 | `nb_eve:{userId}:{nestSessionId}` | Eve session id |
+| `nb_eve_auto` | `'0'` = ask before applying Eve's tool calls (default auto-approve) |
 | `nb_focus` | `'1'` = desktop Focus mode |
 | `nb_eve_open` | `'1'`/`'0'` remembered Eve drawer state (default open only ≥ 1440px) |
 | `nb_passed` | JSON array of lab ids whose Check passed (badges + progress bar) |
@@ -318,15 +320,17 @@ Do **not** commit `netbench-*.png` (root `.gitignore`). Playwright MCP writes th
 
 eve **0.47.x**. `defineAgent({ model })` only — **no `name`**. Sandbox: just-bash locally; Vercel sandbox on Vercel.
 
-- Model: `minimax/minimax-m3` (main agent + explainer/fixer/builder). Gateway fallbacks: `openai/gpt-5.4-mini`, `google/gemini-2.5-flash`, `openai/gpt-4.1-mini`. **Do not** set `anthropic/claude-sonnet-4.5` — free-tier AI Gateway returns `MODEL_CALL_FAILED`.
+- Model config is shared in `agent/lib/model.ts` and spread into the root agent and every subagent (`...modelConfig`; keep the explicit `model:` literal next to it for eve's AST tooling). Primary `minimax/minimax-m3`; Gateway fallback chain `openai/gpt-5.4-mini` → `google/gemini-2.5-flash` → `google/gemini-2.5-flash-lite` → `openai/gpt-4.1-mini`. Env overrides without a redeploy: `EVE_MODEL`, `EVE_FALLBACK_MODELS` (comma list), `EVE_CONTEXT_TOKENS` (default 200000). `compaction.thresholdPercent 0.8`; session token limits disabled (`limits.maxInput/OutputTokensPerSession: false`). **Do not** set `anthropic/claude-sonnet-4.5` — free-tier AI Gateway returns `MODEL_CALL_FAILED`.
 - Channel `agent/channels/eve.ts`: `auth: [vercelOidc(), localDev(), none()]`, `cors: true` so browser guests work.
-- Tools under `agent/tools/*.ts`. Mutating tools: `approval: always()`, then `mintConfirm` via `POST /api/eve/tools/confirm` (never take `confirmToken` from the model).
-- Subagents: explainer / fixer / builder with skills in `agent/skills/`.
-- Evals: `apps/eve-agent/evals/*.eval.ts` (shutdown iface, ROAS, OSPF, wifi nmcli, refuse BGP, build office).
-- Local: `cd apps/eve-agent && npx eve start --host 127.0.0.1 --port 4010` (needs `AI_GATEWAY_API_KEY` in `.env`).
+- Tools under `agent/tools/*.ts` (subagent tool files re-export them). Mutating tools use `mutationApproval()` from `agent/lib/approval.ts`: **`never()` by default** (auto-run), `always()` when `EVE_REQUIRE_APPROVAL=1`. Every call still mints its own `confirmToken` via `POST /api/eve/tools/confirm` (never take one from the model).
+- `agent/lib/nest.ts` retries Nest calls twice (1.5 s, 4 s) on network errors, 429 and 5xx (`EVE_NEST_RETRIES` to change).
+- `build_lab` takes `spec` (sentence) **or** `lab` (full lab JSON, zod schema in `agent/lib/lab-schema.ts`, ≤ 40 devices / 80 cables). Nest validates with `validateLab`, replays startup lines and returns `startupErrors`, `check` and `summary`, so the builder can fix rejected lines and rebuild. The spec path itself now scales to 12 PCs by adding trunked switches.
+- Subagents: explainer / fixer / builder with skills in `agent/skills/`. Builder instructions carry per-kind startup templates, the port table and an addressing plan.
+- Evals: `apps/eve-agent/evals/*.eval.ts` (shutdown iface, ROAS, OSPF, wifi nmcli, refuse BGP, build office, build campus JSON).
+- Local: `cd apps/eve-agent && npx eve start --host 127.0.0.1 --port 4010` (needs `AI_GATEWAY_API_KEY` in `.env`). `npx eve build` is the compile check (`tsc` is red on pre-existing `.ts`-extension and `sandbox.ts` typing issues).
 - Drawer errors: read `data.message` / `data.error` / `code`, not only `data.error`.
 
-HITL in the Angular drawer: Approve / Cancel on `input.requested`. After apply, `api.refresh()`.
+Angular drawer (`eve-client.ts`): the context block prepended to every message now carries the whole topology (devices, addresses, gateways, port state), last Check, recent drops and last trace (capped at 40 devices). **Auto-approve** (`nb_eve_auto`, default on; switch in the Eve header) answers `input.requested` tool approvals itself and posts a “Auto-approved …” note; other HITL questions still show Approve/Cancel. **Auto-retry**: a failed turn/session is re-sent up to 2× (1.5 s, 4 s) with “Retrying n/2” notes; after that the error shows a manual Retry (a failed durable session is replaced by a new one). `turn.completed` resets the counters. After tool results, `api.refresh()`.
 
 ---
 
@@ -409,6 +413,7 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 | (uncommitted) | UI overhaul: design tokens + components, Focus mode, session recovery, Reach (ping/trace) with canvas hop replay, hints with one-click fixes, check panel + checklist + Next lab, undo delete/unplug, tidy-up, share links, saved labs + proper sign-in/out, terminal history/completion/quick commands, packets filter + log, keyboard shortcuts, welcome tour |
 | (uncommitted) | Learning tools: Troubleshoot assistant (layered reading of engine drop reasons), Watch monitor, checkpoints with config diff/restore, lab editor (name/goal/checks), command palette, subnet/VLAN overlays, packet capture per device, Markdown lab report |
 | (uncommitted) | Engine: `ip route del/replace`, `ip addr del/flush`, `no ip route`, `no ip address`, `no ip default-gateway`, AP/WLC `int` + per-port shutdown (fixes the `% Unknown command` lines behind labs 7/8); 9 new labs (17 total) with a curriculum test; UI change-gateway / change-address flows, wrong-mask and NAT diagnoses, expected policy drops shown as “denied” |
+| (uncommitted) | Eve: shared model config with a longer cheap fallback chain + env overrides, no session token caps, compaction at 0.8; mutating tools auto-run (`EVE_REQUIRE_APPROVAL=1` restores HITL); Nest calls retried 2×; `build_lab` accepts full lab JSON (`validateLab`, startup-line feedback, immediate check) and the spec builder scales to 12 PCs over trunked switches; drawer auto-approve switch, 2× auto-retry + manual Retry, full-topology context block |
 
 Verified for that work: `ng build` clean; engine 41 / API 26 tests green (untouched); Playwright captures at 1280×800 (desktop, Focus, check pass/fail, ping/trace, troubleshoot, checkpoint diff, monitor turning green, lab editor apply, palette, hints, menu, auth) and 390×844 (Basic, Basic sheet + ping, full-mobile Canvas/Inspect/Terminal).
 

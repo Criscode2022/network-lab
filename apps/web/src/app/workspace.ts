@@ -2509,19 +2509,45 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.eve.onLabMutated = () => void this.api.refresh();
   }
 
+  /**
+   * Context block prepended to every message. Engine facts only (addresses, gateways, port state, last check,
+   * recent drops) so the model rarely needs a get_lab_state round trip. Capped so a 40-device lab stays compact.
+   */
   private eveContext(): string {
     const st = this.api.state();
     const sel = this.selected();
     const pkt = this.selectedPkt();
-    return [
+    const lines = [
       '[NetBench context]',
       `labSessionId=${this.api.sessionId()}`,
       `labId=${this.api.sessionId()}`,
       `labName=${st?.name ?? ''}`,
+      st?.goal ? `goal=${st.goal}` : '',
       sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}` : 'selectedDevice=none',
       pkt ? `selectedPacket=${pkt.proto} ${pkt.srcIp ?? ''} → ${pkt.dstIp ?? ''} reason=${pkt.reason}` : 'selectedPacket=none',
-      'Use labId=labSessionId (UUID) on every tool. Never pass confirmToken. Never ask the user for a token — UI Approve mints it. Eight devices only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
-    ].join('\n');
+    ];
+    if (st) {
+      lines.push(`devices(${st.devices.length}):`);
+      for (const d of st.devices.slice(0, 40)) {
+        const ips = d.ifaces.filter((i) => i.ipv4?.ip).map((i) => `${i.name}=${i.ipv4!.ip}/${i.ipv4!.prefix}`).join(',');
+        const gw = this.gatewayOf(d);
+        const ports = this.usedPortRows(d)
+          .map((p) => `${p.name}→${p.peer?.device}${p.up ? '' : `(${p.status})`}`)
+          .join(',');
+        lines.push(`- ${d.name} ${d.kind} id=${d.id}${ips ? ` ip:${ips}` : ''}${gw ? ` gw:${gw}` : ''}${d.associatedSsid ? ` wifi:${d.associatedSsid}` : ''}${ports ? ` ports:${ports}` : ' ports:none'}`);
+      }
+      const last = this.checkResult() ?? st.lastCheck;
+      if (last) lines.push(`lastCheck=${last.ok ? 'PASS' : 'FAIL'} ${last.results.map((r) => `${r.ok ? 'ok' : 'FAIL'}:${this.checkLabel(r.check)}${r.ok ? '' : ` (${r.reason})`}`).join('; ')}`);
+      else lines.push('lastCheck=not run yet');
+      const drops = st.packets.filter((p) => p.drop).slice(-3);
+      if (drops.length) lines.push(`recentDrops=${drops.map((p) => `${p.proto} ${p.srcIp ?? p.srcMac}→${p.dstIp ?? p.dstMac} at ${p.from.device}:${p.from.iface} "${p.reason}"`).join(' | ')}`);
+      const t = this.trace();
+      if (t && !t.ok) lines.push(`lastTrace=${t.label}: dropped at ${t.dropDevice ?? '?'} "${t.reason}"`);
+    }
+    lines.push(
+      'Use labId=labSessionId (UUID) on every tool. Never pass confirmToken; the host mints it and mutating tools run immediately. Eight device kinds only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
+    );
+    return lines.filter(Boolean).join('\n');
   }
 
   async explain() {

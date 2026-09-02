@@ -817,8 +817,22 @@
           <span class="grid h-7 w-7 place-items-center rounded-lg bg-eve-500/15 text-eve-300 ring-1 ring-eve-500/30"><nb-icon name="sparkles" [size]="14" /></span>
           <div class="min-w-0 flex-1">
             <div class="text-xs font-semibold text-ink-50">Eve</div>
-            <div class="text-[10px] text-ink-500">Lab instructor · changes need your approval</div>
+            <div class="text-[10px] text-ink-500">Lab instructor · {{ eve.autoApprove() ? 'applies fixes directly' : 'asks before changing the lab' }}</div>
           </div>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors"
+            [ngClass]="eve.autoApprove() ? 'border-eve-500/40 bg-eve-500/10 text-eve-200' : 'border-ink-600 text-ink-400 hover:text-ink-200'"
+            role="switch"
+            [attr.aria-checked]="eve.autoApprove()"
+            (click)="eve.setAutoApprove(!eve.autoApprove())"
+            title="When on, Eve's changes run without an Approve click (each still needs a host-minted token)"
+          >
+            <span class="relative inline-block h-3 w-5 rounded-full transition-colors" [ngClass]="eve.autoApprove() ? 'bg-eve-500' : 'bg-ink-600'">
+              <span class="absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all" [ngClass]="eve.autoApprove() ? 'left-2.5' : 'left-0.5'"></span>
+            </span>
+            Auto-approve
+          </button>
           @if (eve.busy()) { <span class="spinner border-t-eve-400"></span> }
           @if (!isNarrow()) {
             <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Eve" (click)="eveOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
@@ -836,19 +850,32 @@
             </div>
           }
           @for (m of eve.msgs(); track $index) {
-            <div class="mb-2 flex" [ngClass]="m.role === 'user' ? 'justify-end' : 'justify-start'">
-              <div class="max-w-[92%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words" [ngClass]="m.role === 'user' ? 'rounded-br-md bg-brand-600/25 text-ink-50' : 'rounded-bl-md bg-ink-800 text-ink-100'">{{ m.text }}</div>
-            </div>
+            @if (m.role === 'sys') {
+              <div class="mb-2 flex justify-center">
+                <div class="max-w-[92%] rounded-full bg-ink-800/70 px-3 py-1 text-center text-[10.5px] text-ink-400">{{ m.text }}</div>
+              </div>
+            } @else {
+              <div class="mb-2 flex" [ngClass]="m.role === 'user' ? 'justify-end' : 'justify-start'">
+                <div class="max-w-[92%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words" [ngClass]="m.role === 'user' ? 'rounded-br-md bg-brand-600/25 text-ink-50' : 'rounded-bl-md bg-ink-800 text-ink-100'">{{ m.text }}</div>
+              </div>
+            }
           }
-          @if (eve.busy()) {
+          @if (eve.busy() || eve.retrying()) {
             <div class="mb-2 flex items-center gap-1 px-3 py-2 text-ink-500">
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
+              @if (eve.retrying()) { <span class="ml-1 text-[10.5px]">retry {{ eve.retrying() }}/2</span> }
             </div>
           }
-          @if (eve.error(); as err) {
-            <div class="mb-2 flex items-start gap-2 rounded-lg border border-danger-500/40 bg-danger-500/10 px-2.5 py-2 text-[11px] text-danger-200"><nb-icon name="alert" [size]="12" class="mt-0.5 shrink-0" /> {{ err }}</div>
+          @if (eve.error() && !eve.retrying()) {
+            <div class="mb-2 flex items-start gap-2 rounded-lg border border-danger-500/40 bg-danger-500/10 px-2.5 py-2 text-[11px] text-danger-200">
+              <nb-icon name="alert" [size]="12" class="mt-0.5 shrink-0" />
+              <span class="min-w-0 flex-1">{{ eve.error() }}</span>
+              @if (eve.lastSent()) {
+                <button type="button" class="btn btn-sm btn-secondary shrink-0" (click)="eve.retryLast()"><nb-icon name="refresh" [size]="11" /> Retry</button>
+              }
+            </div>
           }
         </div>
         @if (eve.hitl(); as h) {

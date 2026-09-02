@@ -266,6 +266,40 @@ describe('Eve tool endpoints + six eval scenarios', () => {
     expect(JSON.stringify(r.body).toLowerCase()).toMatch(/bgp|ospf/);
   });
 
+  it('build_lab accepts full lab JSON, reports rejected startup lines and refuses bad ports', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post(`/api/sessions/${sessionId}/confirm`).send({ purpose: 'build_lab' });
+    const lab = {
+      name: 'Campus core',
+      goal: 'PC1 pings PC2 across two switches',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 200, startup: ['ip addr add 10.0.0.10/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'workstation', name: 'PC2', x: 400, y: 200, startup: ['ip addr add 10.0.0.20/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'switch', name: 'SW1', x: 100, y: 40, startup: ['enable', 'conf t', 'int Gi0/1', 'no shut', 'int Gi0/8', 'no shut', 'frobnicate', 'end'] },
+        { kind: 'switch', name: 'SW2', x: 300, y: 40, startup: ['enable', 'conf t', 'int Gi0/1', 'no shut', 'int Gi0/8', 'no shut', 'end'] },
+      ],
+      links: [
+        { a: 'PC1:eth0', b: 'SW1:Gi0/1' },
+        { a: 'PC2:eth0', b: 'SW2:Gi0/1' },
+        { a: 'SW1:Gi0/8', b: 'SW2:Gi0/8' },
+      ],
+      checks: [{ type: 'ping', src: 'PC1', dst: '10.0.0.20' }],
+    };
+    const built = await request(server).post('/api/eve/tools/build_lab').send({ labId: sessionId, lab, confirmToken: tok.body.confirmToken });
+    expect(built.status, JSON.stringify(built.body)).toBeLessThan(400);
+    expect(built.body.lab.devices).toHaveLength(4);
+    expect(built.body.check.ok).toBe(true);
+    expect(built.body.startupErrors).toEqual([{ device: 'SW1', line: 'frobnicate', error: expect.stringMatching(/Unknown command/) }]);
+    expect(built.body.summary).toMatch(/4 devices, 3 cables/);
+
+    const tok2 = await request(server).post(`/api/sessions/${sessionId}/confirm`).send({ purpose: 'build_lab' });
+    const bad = await request(server)
+      .post('/api/eve/tools/build_lab')
+      .send({ labId: sessionId, lab: { ...lab, links: [{ a: 'PC1:eth9', b: 'SW1:Gi0/1' }] }, confirmToken: tok2.body.confirmToken });
+    expect(bad.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(bad.body)).toMatch(/no port eth9/);
+  });
+
   it('build_lab two PCs and a switch is not the office topology', async () => {
     const { sessionId } = await openLab('lab-1-first-ipv4-ping');
     const tok = await request(server).post(`/api/sessions/${sessionId}/confirm`).send({ purpose: 'build_lab' });

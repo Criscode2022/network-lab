@@ -1,16 +1,18 @@
 import { defineTool } from 'eve/tools';
-import { always } from 'eve/tools/approval';
 import { z } from 'zod';
+import { mutationApproval } from '../lib/approval.ts';
 import { mintConfirm, nest } from '../lib/nest.ts';
 
 export default defineTool({
   description:
-    'Add/remove devices or cables, set iface mode/SSID. labId is the labSessionId UUID from context. Do not pass a confirmToken — UI Approve already happened before this runs.',
-  approval: always(),
+    'Add/remove devices or cables and run config lines on devices (configs run after links are added). Cables are "Name:port" pairs, e.g. "PC3:eth0" ↔ "SW1:Gi0/3". labId is the labSessionId UUID from context. Do not pass a confirmToken. Runs immediately; report what changed.',
+  approval: mutationApproval(),
   inputSchema: z.object({
     labId: z.string(),
     patch: z.object({
-      addDevices: z.array(z.object({ type: z.string(), name: z.string(), x: z.number().optional(), y: z.number().optional() })).optional(),
+      addDevices: z
+        .array(z.object({ type: z.enum(['workstation', 'server', 'switch', 'router', 'firewall', 'ap', 'wlc', 'cloud']), name: z.string(), x: z.number().optional(), y: z.number().optional() }))
+        .optional(),
       removeDeviceIds: z.array(z.string()).optional(),
       addLinks: z
         .array(

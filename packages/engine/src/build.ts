@@ -223,14 +223,17 @@ export function labFromSpec(spec: string): LabJson {
   if (nSw === 0 && nPc + nSrv + nAp + nWlc > 1) nSw = 1;
   if (nR === 0 && (wantDhcp || wantV6 || nAp > 0)) nR = 1;
 
-  nPc = Math.min(nPc, 6);
-  nSrv = Math.min(nSrv, 3);
-  nSw = Math.min(nSw, 4);
+  nPc = Math.min(nPc, 12);
+  nSrv = Math.min(nSrv, 4);
   nR = Math.min(nR, 4);
   nFw = Math.min(nFw, 2);
-  nAp = Math.min(nAp, 2);
+  nAp = Math.min(nAp, 3);
   nWlc = Math.min(nWlc, 1);
   nCloud = Math.min(nCloud, 1);
+  // A switch has 8 ports; keep 2 for uplinks (router / neighbour switch) and add switches as the access count grows.
+  const attachments = nPc + nSrv + nAp + nWlc + Math.min(nR, 1);
+  if (nSw > 0 || attachments > 1) nSw = Math.max(nSw, Math.ceil(attachments / 6));
+  nSw = Math.min(nSw, 6);
 
   const devices: LabJson['devices'] = [];
   const links: { a: string; b: string }[] = [];
@@ -267,7 +270,8 @@ export function labFromSpec(spec: string): LabJson {
   const l2 = sws.map((s) => s.name);
   const core = l2[0];
   const attach = (name: string, kind: DeviceKind, prefer?: string) => {
-    const target = prefer && byName[prefer] ? prefer : core;
+    // Fill switches left to right, six access ports each, so the chain links still have a free port on both ends.
+    const target = prefer && byName[prefer] ? prefer : (l2.find((s) => (used[s] ?? 0) < 6) ?? core);
     if (target) {
       const tp = nextPort(used, target, byName[target].kind);
       const sp = nextPort(used, name, kind);
@@ -348,7 +352,11 @@ export function labFromSpec(spec: string): LabJson {
     const lines = ['enable', 'conf t', `vlan ${vlanData}`, ...(nAp || vlanNums.length ? [`vlan ${vlanWifi}`] : [])];
     for (const p of [...new Set(ports)]) {
       const wifiUplink = nAp && links.some((l) => (l.a.startsWith(sw.name + ':' + p) || l.b.startsWith(sw.name + ':' + p)) && aps.some((a) => l.a.startsWith(a.name) || l.b.startsWith(a.name)));
-      const trunk = rs.some((r) => links.some((l) => (l.a === `${sw.name}:${p}` || l.b === `${sw.name}:${p}`) && (l.a.startsWith(r.name) || l.b.startsWith(r.name))));
+      const portLinks = links.filter((l) => l.a === `${sw.name}:${p}` || l.b === `${sw.name}:${p}`);
+      const toRouter = rs.some((r) => portLinks.some((l) => l.a.startsWith(r.name + ':') || l.b.startsWith(r.name + ':')));
+      // Switch-to-switch links carry every VLAN, otherwise the Wi-Fi VLAN would stop at the first switch.
+      const toSwitch = sws.some((s2) => s2.name !== sw.name && portLinks.some((l) => l.a.startsWith(s2.name + ':') || l.b.startsWith(s2.name + ':')));
+      const trunk = toRouter || toSwitch;
       lines.push(`int ${p}`);
       if (trunk) {
         lines.push('switchport mode trunk', `switchport trunk allowed vlan ${vlanData},${vlanWifi}`, 'no shut');

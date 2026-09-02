@@ -13,7 +13,7 @@ import {
   Put,
   UnauthorizedException,
 } from '@nestjs/common';
-import { BUILTIN_LABS, Engine, labById, labFromSpec, type LabJson } from '@netbench/engine';
+import { BUILTIN_LABS, Engine, labById, labFromSpec, labStartupErrors, validateLab, type LabJson } from '@netbench/engine';
 import jwt from 'jsonwebtoken';
 import {
   consumeMagic,
@@ -72,6 +72,24 @@ function boom(e: unknown): never {
   const msg = e instanceof Error ? e.message : String(e);
   const status = (e as { status?: number }).status ?? HttpStatus.BAD_REQUEST;
   throw new HttpException(msg, status);
+}
+
+const OUT_OF_SCOPE = /bgp|mpls|vxlan|802\.1x/i;
+
+/**
+ * A build request is either a sentence (`spec`, parsed by `labFromSpec`) or a full lab JSON (`lab`,
+ * validated structurally). Startup lines the device CLIs reject are reported, not silently dropped.
+ */
+function labFromBuildBody(body: { spec?: string; lab?: unknown }): { lab: LabJson; startupErrors: { device: string; line: string; error: string }[] } {
+  if (body.lab !== undefined && body.lab !== null) {
+    const v = validateLab(body.lab);
+    if (!v.ok) throw new HttpException(`invalid lab: ${v.error}`, 400);
+    return { lab: v.lab, startupErrors: labStartupErrors(v.lab) };
+  }
+  if (body.spec && OUT_OF_SCOPE.test(body.spec)) {
+    throw new HttpException('NetBench does not implement BGP/MPLS/VXLAN/802.1X. Use OSPF area 0 and the eight device types.', 400);
+  }
+  return { lab: labFromSpec(body.spec ?? ''), startupErrors: [] };
 }
 
 @Controller()
@@ -335,17 +353,14 @@ export class SessionsController {
   }
 
   @Post(':id/build')
-  build(@Param('id') id: string, @Body() body: { spec?: string; confirmToken?: string }) {
+  build(@Param('id') id: string, @Body() body: { spec?: string; lab?: unknown; confirmToken?: string }) {
     const s = this.sim.get(id);
     this.sim.rateLimit(s);
     try {
       this.sim.consumeConfirm(id, 'build_lab', body.confirmToken);
-      if (body.spec && /bgp|mpls|vxlan|802\.1x/i.test(body.spec)) {
-        throw new HttpException('NetBench does not implement BGP/MPLS/VXLAN/802.1X. Use OSPF area 0 and the eight device types.', 400);
-      }
-      const lab = labFromSpec(body.spec ?? '');
+      const { lab, startupErrors } = labFromBuildBody(body);
       s.engine = Engine.fromLab(lab);
-      return { labId: lab.id, lab, state: s.engine.getState() };
+      return { labId: lab.id, lab, startupErrors, check: s.engine.check(), state: s.engine.getState() };
     } catch (e) {
       boom(e);
     }
@@ -451,16 +466,16 @@ export class EveToolsController {
   }
 
   @Post('build_lab')
-  build(@Body() body: { spec?: string; confirmToken?: string; labId?: string }) {
-    if (body.spec && /bgp|mpls|vxlan|802\.1x/i.test(body.spec)) {
+  build(@Body() body: { spec?: string; lab?: unknown; confirmToken?: string; labId?: string }) {
+    if (body.spec && OUT_OF_SCOPE.test(body.spec)) {
       throw new HttpException(
         'Eve refuses BGP/MPLS/VXLAN/802.1X. NetBench is a junior-admin lab: use OSPF area 0 and the eight device types.',
         400,
       );
     }
-    let lab: LabJson;
+    let built: ReturnType<typeof labFromBuildBody>;
     try {
-      lab = labFromSpec(body.spec ?? '');
+      built = labFromBuildBody(body);
     } catch (e) {
       boom(e);
     }
@@ -471,8 +486,16 @@ export class EveToolsController {
       } catch (e) {
         boom(e);
       }
-      s.engine = Engine.fromLab(lab);
-      return { labId: s.id, lab, state: s.engine.getState() };
+      s.engine = Engine.fromLab(built.lab);
+      const check = s.engine.check();
+      return {
+        labId: s.id,
+        lab: built.lab,
+        startupErrors: built.startupErrors,
+        check,
+        summary: `${built.lab.devices.length} devices, ${built.lab.links.length} cables, ${built.lab.checks.length} checks; check ${check.ok ? 'passes' : 'fails: ' + check.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}${built.startupErrors.length ? `; ${built.startupErrors.length} startup line(s) rejected` : ''}`,
+        state: s.engine.getState(),
+      };
     }
     throw new HttpException('labId and confirmToken required', 400);
   }

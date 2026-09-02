@@ -2,6 +2,7 @@ export { Engine } from './engine.ts';
 export { createDevice, findIface, ensureSubif, ensureSvi } from './devices.ts';
 export { listCommands, helpText, COMMANDS } from './commands.ts';
 export { validatePatch } from './patch.ts';
+export { validateLab, labStartupErrors, MAX_LAB_DEVICES, MAX_LAB_LINKS } from './validate.ts';
 export { BUILTIN_LABS, labById } from './labs.ts';
 export { dualStackOfficeLab, labFromSpec } from './build.ts';
 export {

@@ -4,6 +4,7 @@ import { listCommands } from '../src/commands.ts';
 import { BUILTIN_LABS } from '../src/labs.ts';
 import { dualStackOfficeLab, labFromSpec } from '../src/build.ts';
 import { validatePatch } from '../src/patch.ts';
+import { labStartupErrors, validateLab } from '../src/validate.ts';
 import type { LabJson } from '../src/types.ts';
 
 function twoPcSwitch(extra?: Partial<LabJson>): LabJson {
@@ -406,11 +407,63 @@ describe('Eve eval scenarios (engine, no dummy LLM)', () => {
     expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
   });
 
-  it('labFromSpec caps a 50-worker office to a junior-sized topology', () => {
+  it('labFromSpec caps a 50-worker office to a canvas-sized topology that still boots and pings', () => {
     const lab = labFromSpec('create a complex office of 50 workers and several departments');
     const pcs = lab.devices.filter((d) => d.kind === 'workstation');
     expect(pcs.length).toBeGreaterThanOrEqual(1);
-    expect(pcs.length).toBeLessThanOrEqual(6);
+    expect(pcs.length).toBeLessThanOrEqual(12);
+    expect(lab.devices.length).toBeLessThanOrEqual(40);
+    const e = Engine.fromLab(lab);
+    const chk = e.check();
+    expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
+  it('labFromSpec spreads a big office over several trunked switches', () => {
+    const lab = labFromSpec('an office with 12 PCs, 2 servers, a router, wifi on VLAN 20 and a server on VLAN 10');
+    const sws = lab.devices.filter((d) => d.kind === 'switch');
+    expect(sws.length).toBeGreaterThanOrEqual(2);
+    // Every switch-to-switch link is a trunk on both ends.
+    for (const l of lab.links) {
+      const [an, ai] = l.a.split(':');
+      const [bn, bi] = l.b.split(':');
+      if (sws.some((s) => s.name === an) && sws.some((s) => s.name === bn)) {
+        for (const [n, i] of [[an, ai], [bn, bi]]) {
+          const startup = lab.devices.find((d) => d.name === n)!.startup!.join('\n');
+          expect(startup, `${n} ${i}`).toMatch(new RegExp(`int ${i.replace('/', '\\/')}\\nswitchport mode trunk`));
+        }
+      }
+    }
+    const e = Engine.fromLab(lab);
+    const chk = e.check();
+    expect(chk.ok, chk.results.map((r) => r.reason).join('; ')).toBe(true);
+  });
+
+  it('validateLab accepts a well-formed lab and rejects bad ports, duplicates and out-of-scope config', () => {
+    const good = validateLab({
+      name: 'Campus',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip addr add 10.0.0.10/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'switch', name: 'SW1', x: 100, y: 0 },
+      ],
+      links: [{ a: 'PC1:eth0', b: 'SW1:Gi0/1' }],
+      checks: [{ type: 'ping', src: 'PC1', dst: '10.0.0.10' }],
+    });
+    expect(good.ok).toBe(true);
+    if (good.ok) {
+      expect(good.lab.id).toMatch(/^nb-campus-/);
+      expect(labStartupErrors(good.lab)).toEqual([]);
+    }
+    expect(validateLab({ devices: [{ kind: 'switch', name: 'SW1', x: 0, y: 0 }], links: [{ a: 'SW1:Gi0/9', b: 'SW1:Gi0/1' }] }).ok).toBe(false);
+    expect(validateLab({ devices: [{ kind: 'router', name: 'R1', x: 0, y: 0, startup: ['router bgp 65000'] }], links: [] }).ok).toBe(false);
+    expect(validateLab({ devices: [{ kind: 'pc', name: 'X', x: 0, y: 0 }], links: [] }).ok).toBe(false);
+    const dup = validateLab({ devices: [{ kind: 'switch', name: 'SW1', x: 0, y: 0 }, { kind: 'switch', name: 'sw1', x: 0, y: 0 }], links: [] });
+    expect(dup.ok).toBe(false);
+    const bad = validateLab({
+      devices: [{ kind: 'router', name: 'R1', x: 0, y: 0, startup: ['enable', 'conf t', 'frobnicate', 'end'] }],
+      links: [],
+    });
+    expect(bad.ok).toBe(true);
+    if (bad.ok) expect(labStartupErrors(bad.lab)).toEqual([{ device: 'R1', line: 'frobnicate', error: expect.stringMatching(/Unknown command/) }]);
   });
 
   it('labFromSpec two PCs and a switch is not the office lab and pings', () => {
