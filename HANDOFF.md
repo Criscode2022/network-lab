@@ -2,7 +2,7 @@
 
 Read this file before changing code. It is the continuation brief for another coding agent: product rules, architecture, how to run and deploy, UI modes, Eve, tests, recent work, and what not to break.
 
-Last updated: 2026-09-01. Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`.
+Last updated: 2026-09-01 (UI overhaul + Focus mode). Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`.
 
 ---
 
@@ -85,13 +85,23 @@ Pure TypeScript. Import in tests: `@netbench/engine`.
 | `src/devices.ts` | `createDevice`, iface defaults (`adminUp` false on Cisco until no-shut) |
 | `src/types.ts` | `DeviceKind`, `KIND_PORTS`, `CableMedia`, `LabJson`, `LabPatch`, checks |
 | `src/cables.ts` | Cable types, like/unlike pairing, fiber SFP check |
-| `src/labs.ts` | Eight builtin labs |
+| `src/labs.ts` | Seventeen builtin labs (fault labs start broken; see the curriculum test) |
 | `src/build.ts` | `labFromSpec(spec)` for Eve Builder |
 | `src/patch.ts` | Validate/apply `LabPatch` |
 | `src/ip.ts` | IPv4/IPv6 helpers |
 | `src/commands.ts` | Per-kind `help` text |
 | `schema/lab.schema.json` | Lab JSON schema |
-| `test/engine.test.ts` | ~32 tests; run twice before calling engine “done” |
+| `test/engine.test.ts` | ~48 tests; run twice before calling engine “done” |
+
+### Builtin curriculum (17)
+
+Order = difficulty. **Fault labs** (`lab-0a-plug-the-cable`, `lab-0b-first-address`, `lab-0c-port-shutdown`, `lab-2b-wrong-mask`, `lab-9-static-routes`, `lab-10-ospf-three-routers`, `lab-11-nat-internet`, `lab-12-wlc-capwap`) ship with a failing Check and a goal that names the repair; the test `fault labs fail as shipped and pass after the documented fix` holds the fix commands — update it when you add a fault lab. Study labs (`lab-1` … `lab-8`, `lab-13-dual-stack-office`) pass as shipped. `LAB_CAPSTONE` reuses `dualStackOfficeLab()` from `build.ts` (labs.ts imports build.ts; build.ts must not import labs.ts). Device coordinates assume ~112×110 px cards: keep ≥ 140 px between rows.
+
+### CLI additions (route / address removal)
+
+- Linux: `ip route del default [via GW]`, `ip route del CIDR`, `ip route replace|change default via GW`, `ip addr del CIDR dev IF`, `ip addr flush dev IF`. `ip route add default` now fails with `RTNETLINK answers: File exists` when a static default exists (Linux behaviour) — use `replace`. Deleting an IPv4 prunes static routes whose next hop left every connected subnet (`pruneUnreachableRoutes`) and clears `defaultGw4`.
+- Cisco: `no ip route NET MASK [NH]` (`0.0.0.0 0.0.0.0` = default), `no ip address` / `no ipv6 address` in interface mode, `no ip default-gateway`; `shut` alias.
+- AP / WLC: `int` abbreviation and per-interface `shutdown` / `no shutdown` (labs 7/8/12 use `int Gi0/1`, `int wlan0`). A bare `no shutdown` on an AP still enables radio + uplink together. The engine test replays every builtin startup line and fails on any `% Unknown command`.
 
 ### Ports
 
@@ -182,16 +192,31 @@ Angular **22** standalone + signals + Tailwind **v4**. **No zone.js** (zoneless)
 
 | File | Role |
 | --- | --- |
-| `src/app/workspace.ts` | Canvas, pan/zoom, Basic/Simple/Advanced, CLI, Eve bind |
-| `src/app/workspace.html` | Template |
-| `src/app/api.ts` | HTTP/WS client, `PALETTE`, types |
+| `src/app/workspace.ts` | Canvas, pan/zoom, modes (Basic/Simple/Advanced/Focus), boot + session recovery, check panel, Reach (ping/trace), hints, undo, tidy-up, share links, auth, Eve bind |
+| `src/app/workspace.html` | Template. Shared `ng-template`s: `#devicePanel` (Simple inspector + Basic sheet), `#reachPanel` |
+| `src/app/api.ts` | HTTP/WS client, `PALETTE`, types, `online`/`wsConnected`, `attach()`, `snapshot()`, saved labs |
 | `src/app/eve-client.ts` | Eve session + NDJSON stream + HITL |
-| `src/styles.css` | `.grid-canvas`, `touch-action: none` |
-| `src/index.html` | `viewport-fit=cover` |
+| `src/app/terminal.ts` | `<nb-terminal>`: per-device tabs, history (↑/↓), Tab completion from the cheat sheet, quick commands (`QUICK_COMMANDS`) |
+| `src/app/packets.ts` | `<nb-packets>`: packet list with filter/drops-only, detail card, activity Log tab |
+| `src/app/lab-picker.ts` | `<nb-lab-picker>`: curriculum with pass badges + signed-in “My labs” |
+| `src/app/cheat-sheet.ts` | `<nb-cheat-sheet>`: searchable command reference; click inserts into the terminal |
+| `src/app/toasts.ts` | `<nb-toasts>`: info/success/warn/error with optional action (Undo) |
+| `src/app/icons.ts` | `<nb-icon>` inline SVG set; `KIND_ICON` maps device kind → icon |
+| `src/styles.css` | Tailwind v4 `@theme` tokens (`ink-*`, `brand-*`, `ok/warn/danger/eve`), component classes (`.btn*`, `.chip*`, `.field`, `.seg`, `.led*`, `.card`), `.grid-canvas` dot grid |
+| `src/index.html` | `viewport-fit=cover`, Inter + JetBrains Mono, `favicon.svg` (in `public/`) |
 | `proxy.conf.json` | `/api` `/ws` → :3001, `/eve` → :4010 |
 | `vercel.json` | `outputDirectory: dist/web/browser`; SPA rewrite |
 
-Route: `''` → `Workspace`. Landing copy lives in `app.html` but the app boots the lab.
+Route: `''` → `Workspace`. `App` is an inline `<router-outlet />` (the Angular starter `app.html` was removed).
+
+### Boot order (`Workspace.boot()`)
+
+1. `GET /labs/builtin`.
+2. `#lab=<base64url JSON>` in the URL → open that lab (share link), then strip the hash.
+3. Else `localStorage.nb_autosave.sessionId` (< 12 h) → `api.attach()` re-uses the still-running engine session (keeps ARP tables, hostnames, terminal state across reloads). 404 → fall through.
+4. Else guest snapshot (`nb_guest_lab`) or `lab-1-first-ipv4-ping`.
+
+Every UI action that changes a device (Add IP, Set gateway, enable/disable port, DHCP, Wi-Fi join, start SSH) runs real CLI lines through `runCommands()` and echoes them into that device’s terminal buffer, so the learner sees the command.
 
 Local: `cd apps/web && npx ng serve --host 127.0.0.1 --port 4200 --proxy-config proxy.conf.json`
 
@@ -202,14 +227,37 @@ Local: `cd apps/web && npx ng serve --host 127.0.0.1 --port 4200 --proxy-config 
 | **Desktop** (`innerWidth >= 768`) | md+ | Palette + canvas + inspector + terminal + packets. Eve header toggle. |
 | **Full mobile** | narrow && `basic()` false | Tabs: Canvas / Palette / Inspect / Term / Eve. |
 | **Basic mobile** | narrow && `basic()` true (**default** `localStorage.nb_basic !== '0'`) | Canvas only. Header: Check + **Basic on**. FAB **+ Add**. Tap device → bottom sheet. |
-| **Simple vs Advanced** | `localStorage.nb_advanced === '1'` | **Simple:** device-to-device Ethernet (auto-MDIX), used ports + peer only, IPv4, hide IPv6/MAC/running-config. **Advanced:** cable types, port grid on cards, all ifaces, IPv6, MAC, running-config. Basic forces Advanced off. |
+| **Simple vs Advanced** | `localStorage.nb_advanced === '1'` | **Simple:** device-to-device Ethernet (auto-MDIX), used ports + peer only, IPv4, hide IPv6/MAC/running-config. **Advanced:** cable types, port grid on cards, cable-end port labels, all ifaces, IPv6, MAC, inspector tabs Ports / Network / Config. Basic forces Advanced off. |
+| **Focus** (desktop) | `localStorage.nb_focus === '1'`, header ⤢ button or `Shift+F` | Canvas only: thin header (lab picker, Check, connection dot, Exit focus), floating toolbar (Add ▾ / Cable / Terminal / Eve), zoom toolbar, compact chip for the selected device (first hint, Term / Reach / Cable / Details / Delete). Palette, inspector, Eve and footer hidden; the dock appears only via the Terminal toggle (`focusTerm`). `Details` leaves focus mode. |
 
-`basicMode()` = `isNarrow() && basic()`. Desktop ignores Basic even if the flag is on. Desktop Simple vs Advanced is the main mode split. Cards/cables use `advUi()` = `advanced() && !basicMode()` so a phone in Basic never shows the port grid even if Advanced was on at desktop width.
+`basicMode()` = `isNarrow() && basic()`; `focusMode()` = `focus() && !isNarrow()`. Desktop ignores Basic even if the flag is on. Desktop Simple vs Advanced is the main mode split. Cards/cables use `advUi()` = `advanced() && !basicMode()` so a phone in Basic never shows the port grid even if Advanced was on at desktop width. Eve starts open only at `innerWidth >= 1440` unless `nb_eve_open` says otherwise (at 1280 the four columns squeeze the canvas to ~440px).
+
+### Desktop chrome
+
+- **Header:** logo · `<nb-lab-picker>` (progress bar, pass badges, My labs) · Check (dot = last result) · Simple/Advanced · Focus · ⋯ menu (Save a copy, Reset lab, Tidy up, Copy share link, Copy/Download/Upload JSON, Command reference, Shortcuts, Help topics, Welcome tour, About) · Guest/Account · Eve.
+- **Check panel** under the header: per-check pass/fail with the engine reason, “Next lab” on success, “Ask Eve why” on failure. Passing marks the lab in `nb_passed`. Fresh packets from the check are replayed hop by hop and lit as a trace.
+- **Canvas overlays:** goal card with live checklist (top-left, collapsible), mode pill (placing/cabling), trace card (bottom-left; hops + honest reason; Esc or click empty canvas clears), link card, zoom toolbar (−/%/+/fit/tidy).
+- **Inspector (Simple):** device header with LED, quick actions (Terminal / Reach / Cable / Explain / Delete), **Hints** (engine-state diagnostics with one-click fixes: enable port, enable the peer’s port, replace wrong cable, Add IP or DHCP, set/change gateway when missing, off-subnet or unowned, join Wi-Fi, start SSH), Connections, IPv4 (+ Add IP, DHCP, pencil = change address/mask via `ip addr del` + `add`, Cisco overwrite), Default gateway (Set / Change via `ip route replace` or `no ip route` + `ip route` / Remove), Wi-Fi (join from SSIDs parsed out of AP/WLC running-config), Reach (Ping via CLI or Trace via `POST /path`; result + hop chain; Watch).
+- **Dock:** resizable (`nb_dock_h`) — `<nb-terminal>` left, `<nb-packets>` right (Packets | Log). Packet detail has “Show on canvas” (replay) and “Ask Eve why”.
+- **Toasts** replace the old hint bar. Delete and Unplug toasts carry **Undo** (delete undo re-adds the device, its links and replays `startup`/`post` from the pre-delete `snapshot()`).
+
+### Learning tools (all engine-driven)
+
+- **Troubleshoot** (check panel, checklist “Why?”, Reach “Explain the drop”): runs `POST /path` for the failing ping/ssh check, takes the last `drop` event and passes its `reason` + `from.device` to `diagnose()`. That function is a regex table over the engine’s drop strings (`Interface X is administratively down`, `No cable on`, `Interface X is down`, `VLAN mismatch`, `No subinterface for VLAN`, `RSTP-lite blocking`, `ARP/NDP timeout for NH at DEV`, `No route to DST on DEV`, `No outgoing interface`, `DEV is not a router`, `TTL expired`, `ACL drop:`, `not associated`). It cross-checks device state (e.g. “no route” while the covering interface is down → L1, not gateway) and returns layer, plain-language detail, “look at”, verify commands and an optional one-click fix. Wi-Fi/DHCP/OSPF checks are read from the check reason (`diagnoseCheck`). Add a branch when the engine gains a new drop string; never infer forwarding the engine did not report.
+- **Watch** (Reach panel): `startMonitor()` re-runs `POST /path` every 5 s (`MONITOR_MS`), updates the trace and stops with a toast when the path works. Each tick is one rate-limited call and adds packets to the engine log.
+- **Checkpoints** (`nb_ckpt`, max 12): `snapshot()` stored per lab id. Diff compares engine-generated `startup`/`post` lines per device plus cable keys; Restore re-opens the lab (new session).
+- **Lab editor** (⋯ → Edit name, goal & checks): edits `name/goal/description/checks` on a `snapshot()` and re-opens it. Builtin ids are replaced by `nb-<slug>-<rand>` so the curriculum entry stays pristine; the result appears in the picker as “(this browser)” with a pencil badge and can be shared via link.
+- **Command palette** (`Ctrl+K`): actions, add-device, devices (select/terminal), labs. `buildPalette()` is the single list; keyboard ↑/↓/Enter.
+- **View options** (`nb_view`): colour IPs by subnet (`subnetColors`, first-appearance order), VLAN role on Advanced cable labels (`Gi0/1 v10`, `Gi0/8 T`), packet animation on/off.
+- **Packets “capture on device”**: `<nb-packets [focusDevice]>` toggle filters to packets whose `from`/`to` is the selected device.
+- **Lab report**: `buildReport()` → Markdown (devices, addresses, gateways, cables, checks with last result, recent drops); copy or download.
 
 ### Canvas mechanics
 
 - World layer: CSS `translate(pan.x, pan.y) scale(pan.s)`. SVG is **4000×3000+** so paths are not clipped on a ~390px phone. Do **not** size the SVG `inset-0 h-full w-full` (that was the missing-cable bug).
-- Cables: SVG `<path>` from `linkPath` (`device.x+48, y+28`). Click a cable to inspect/unplug. Radio = dashed purple; fiber orange; crossover teal dashed; wrong-cable dimmed. Rubber-band while cabling.
+- Cables: SVG `<path>` from `linkPath`, anchored at `anchor(d)` = `(x + cardW()/2, y + 34)` where `cardW()` is 112 (Simple) / 132 (Advanced). Click a cable to inspect/unplug. Radio = dashed purple; fiber orange; crossover teal dashed; wrong-cable dimmed; trace-lit cables cyan (red if the trace dropped). Rubber-band while cabling. Packet dots animate one hop at a time (`animate()` dedupes event ids for 3 s because WS pushes and CLI replies both deliver them).
+- The dot grid follows pan/zoom (`gridPos`/`gridSize` bound to `background-position/size`).
+- `fitToView()` keeps the topology clear of the goal card and bottom toolbars and runs on load on desktop too.
 - Pan: one pointer. Pinch: two pointers. Wheel zoom 0.35–2.4 around cursor. Safari `gesturestart/change/end` on the canvas (non-passive, `NgZone` not enough — use `cdr.detectChanges()`).
 - `touch-action: none` on `.grid-canvas`. `setPointerCapture` wrapped in try/catch (synthetic events throw).
 - Narrow: `fitToView()` after lab load / becoming narrow / add in Basic.
@@ -238,7 +286,7 @@ Each PC has its **own** `eth0`. Three PCs on one switch: `PC1:eth0→SW1:Gi0/1`,
 - Simple + Basic: **Used ports** (`usedPortRows`: name, Up/Wrong cable/Disabled, peer, Unplug). Free ports hidden behind “Show N free ports”. Then IPv4.
 - Advanced inspector: every iface with peer, cable type, MAC, IPv6, running-config.
 - Simple cards: `Gi0/1 → PC1` (used only). Advanced cards: port grid (filled = used, outline = free). Used ports on switch/router come from engine `iface.peer` (fallback: links).
-- Close + Delete half-width flex row on inspector and Basic sheet. Mobile Close → Canvas tab.
+- Basic sheet footer: Cable | Close | Delete (icon). Full-mobile inspector: “Back to canvas”. The sheet and the Simple inspector render the same `#devicePanel` template (`big` context flag switches to touch-size controls).
 
 ### localStorage keys
 
@@ -246,10 +294,19 @@ Each PC has its **own** `eth0`. Three PCs on one switch: `PC1:eth0→SW1:Gi0/1`,
 | --- | --- |
 | `nb_basic` | `'0'` = full mobile UI; anything else / missing = Basic **on** for phones |
 | `nb_advanced` | `'1'` = Advanced inspector/cards |
-| `nb_token` | JWT |
-| `nb_autosave` | last session id |
+| `nb_token` | JWT (dropped at boot if `exp` passed; `Api.guest` is computed from the token’s `guest` claim) |
+| `nb_autosave` | `{ id, sessionId, at }` — `boot()` re-attaches to `sessionId` if < 12 h old |
 | `nb_guest_lab` | Guest lab JSON snapshot (`{ v:1, at, lab }`) restored on reload |
 | `nb_eve:{userId}:{nestSessionId}` | Eve session id |
+| `nb_focus` | `'1'` = desktop Focus mode |
+| `nb_eve_open` | `'1'`/`'0'` remembered Eve drawer state (default open only ≥ 1440px) |
+| `nb_passed` | JSON array of lab ids whose Check passed (badges + progress bar) |
+| `nb_welcome` | `'1'` = welcome tour dismissed |
+| `nb_dock_h` | dock height in px |
+| `nb_ckpt` | Checkpoints `[{ id, name, at, labId, lab }]` (max 12) |
+| `nb_view` | `{ subnet, vlan, anim }` view options |
+
+Share links: `#lab=<base64url(UTF-8 JSON)>` of `snapshot()`; opened labs are copied into the guest snapshot. “Save a copy” (`POST /labs`) mints a fresh `nb-…` id so it never collides with a builtin id.
 
 ### Screenshots
 
@@ -296,9 +353,11 @@ If API is down, the UI still loads but labs/CLI fail (`ECONNREFUSED 3001`). macO
 ## 10. Tests and verification
 
 ```bash
-npm test -w @netbench/engine   # ~32
-npm test -w @netbench/api      # ~24
+npm test -w @netbench/engine   # 48
+npm test -w @netbench/api      # 26
 ```
+
+`npm run build -w @netbench/engine` (`tsc --noEmit`) is red for reasons that predate the UI work: `.ts` import extensions without `allowImportingTsExtensions`, plus `dport` missing from `PacketEvent` and a `DhcpPool.network` nullability at `engine.ts`. Tests, the API (`tsx`) and the web build do not depend on it.
 
 Live API (after deploy): builtin labs Check true; `labFromSpec` OBJECTIVE sentence; HITL 403 without token / 201 with token; BGP spec 400.
 
@@ -345,7 +404,13 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 | `a6d4324` | Inspector Close \| Delete |
 | `a33a410` | `addLink` no-shuts both ends; list every cable |
 | `6d4de07` | Basic cards/sheet show ports without Advanced |
-| (this) | Simple vs Advanced split; Ethernet/straight/crossover/fiber; used-port display; occupied-port reject |
+| `1f95015` | Simple vs Advanced split; Ethernet/straight/crossover/fiber; used-port display; occupied-port reject |
+| `3d8b0b5` | Help dialogs in Basic; click to toggle ports |
+| (uncommitted) | UI overhaul: design tokens + components, Focus mode, session recovery, Reach (ping/trace) with canvas hop replay, hints with one-click fixes, check panel + checklist + Next lab, undo delete/unplug, tidy-up, share links, saved labs + proper sign-in/out, terminal history/completion/quick commands, packets filter + log, keyboard shortcuts, welcome tour |
+| (uncommitted) | Learning tools: Troubleshoot assistant (layered reading of engine drop reasons), Watch monitor, checkpoints with config diff/restore, lab editor (name/goal/checks), command palette, subnet/VLAN overlays, packet capture per device, Markdown lab report |
+| (uncommitted) | Engine: `ip route del/replace`, `ip addr del/flush`, `no ip route`, `no ip address`, `no ip default-gateway`, AP/WLC `int` + per-port shutdown (fixes the `% Unknown command` lines behind labs 7/8); 9 new labs (17 total) with a curriculum test; UI change-gateway / change-address flows, wrong-mask and NAT diagnoses, expected policy drops shown as “denied” |
+
+Verified for that work: `ng build` clean; engine 41 / API 26 tests green (untouched); Playwright captures at 1280×800 (desktop, Focus, check pass/fail, ping/trace, troubleshoot, checkpoint diff, monitor turning green, lab editor apply, palette, hints, menu, auth) and 390×844 (Basic, Basic sheet + ping, full-mobile Canvas/Inspect/Terminal).
 
 ### Known pitfalls
 
@@ -358,6 +423,10 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 7. **Tailwind `flex` vs `[class.hidden]`** — use `[ngClass]` to choose `hidden` **or** `flex`, not both.
 8. **Guest labs** persist in `localStorage.nb_guest_lab` and restore on reload. Neon SELECT still required for signed-in lab lists.
 9. **Builder spec** — bare “PC” must count; VLAN per role; emit ping Check.
+10. **Header stacking** — the header has `backdrop-blur` (a stacking context); it must keep `relative z-30` or its popovers (lab picker, ⋯ menu) render under the canvas.
+11. **No regex literals / arrow functions in templates** — Angular rejects them; use component methods (`isApproveOption`, `reachHasTarget`).
+12. **Terminal input** binds `[value]`/`(input)` to a signal on purpose: `ngModel` writes programmatic changes asynchronously, which breaks Tab completion and ↑/↓ history.
+13. **Hints are state, not simulation** — `hintsFor()` only reads engine facts (adminUp, status, peers, running-config, checks). Never add a hint that predicts forwarding.
 
 ---
 
@@ -366,9 +435,8 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 These are ideas, not commitments:
 
 - Recable/no-shut existing Gi0/3 on old sessions without asking the user to delete the cable.
-- Default route / gateway helper next to Add IP.
-- Ping button on the Basic sheet (PC → other PC / server).
-- Persist Basic/Advanced per user account, not only localStorage.
+- Persist Basic/Advanced/Focus per user account, not only localStorage.
+- Dedicated `POST /sessions/:id/state` (or `/labs` on builtin id) that does not let a signed-in autosave overwrite a row keyed by a builtin lab id.
 - Railway API auto-deploy confirmation after engine-only commits (`addLink` / cable types live in the engine image).
 - Desktop Basic is unused; only phones. Desktop uses Simple vs Advanced.
 - Console cable (out-of-band CLI) — not in the palette.
@@ -384,7 +452,10 @@ These are ideas, not commitments:
 | New device kind (discouraged) | `types.ts` KIND_PORTS + `devices.ts` + UI palette |
 | Builder English → topology | `packages/engine/src/build.ts` |
 | REST/WS | `apps/api/src/http.ts`, `create-app.ts`, `sim.service.ts` |
-| Canvas / Basic / inspector | `apps/web/src/app/workspace.ts` + `workspace.html` |
+| Canvas / Basic / inspector / Focus | `apps/web/src/app/workspace.ts` + `workspace.html` |
+| Terminal behaviour, quick commands | `apps/web/src/app/terminal.ts` |
+| Packet list / activity log | `apps/web/src/app/packets.ts` |
+| Icons, colours, button styles | `apps/web/src/app/icons.ts`, `apps/web/src/styles.css` |
 | API origin / palette labels | `apps/web/src/app/api.ts` |
 | Eve stream / HITL | `apps/web/src/app/eve-client.ts` |
 | Eve model / tools | `apps/eve-agent/agent/agent.ts`, `agent/tools/` |

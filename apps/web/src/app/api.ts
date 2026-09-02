@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 
 const LOCAL =
   typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
@@ -41,9 +41,11 @@ export interface DeviceState {
   x: number;
   y: number;
   associatedSsid?: string;
+  associatedAp?: string;
+  sshListen?: boolean;
   ifaces: IfaceState[];
   runningConfig: string;
-  ospfNeighbors?: { routerId: string; state: string }[];
+  ospfNeighbors?: { routerId: string; state: string; iface?: string; peerIp?: string }[];
 }
 
 export interface LinkState {
@@ -73,6 +75,24 @@ export interface PacketEvent {
   simulated?: boolean;
 }
 
+export type LabCheck =
+  | { type: 'ping'; src: string; dst: string; family?: 'v4' | 'v6' }
+  | { type: 'ssh'; src: string; dst: string; expect: 'allow' | 'deny' }
+  | { type: 'wifi-associated'; client: string }
+  | { type: 'dhcp-bound'; device: string }
+  | { type: 'ospf-full'; a: string; b: string };
+
+export interface CheckItemResult {
+  check: LabCheck;
+  ok: boolean;
+  reason: string;
+}
+
+export interface CheckResult {
+  ok: boolean;
+  results: CheckItemResult[];
+}
+
 export interface LabState {
   id: string;
   name: string;
@@ -83,9 +103,46 @@ export interface LabState {
   devices: DeviceState[];
   links: LinkState[];
   packets: PacketEvent[];
-  checks: unknown[];
-  lastCheck: { ok: boolean; results: { reason: string; ok: boolean }[] } | null;
+  activity?: { t: string; msg: string }[];
+  checks: LabCheck[];
+  lastCheck: CheckResult | null;
   highlightIds: string[];
+}
+
+export interface LabJson {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description?: string;
+  goal?: string;
+  differsNote?: string;
+  devices: { id?: string; kind: string; name: string; x: number; y: number; hostname?: string; startup?: string[]; post?: string[] }[];
+  links: { a: string; b: string; cable?: CableMedia }[];
+  checks: LabCheck[];
+}
+
+export interface SavedLab {
+  id: string;
+  userId: string | null;
+  name: string;
+  json: LabJson;
+  updatedAt: string;
+}
+
+export interface PathResult {
+  ok: boolean;
+  reason: string;
+  events: PacketEvent[];
+  hops: { device: string; iface: string; reason: string }[];
+}
+
+export interface LabSummary {
+  id: string;
+  name: string;
+  goal: string;
+  description?: string;
+  /** Not part of the builtin curriculum (guest snapshot, edited or shared lab). */
+  custom?: boolean;
 }
 
 export const PALETTE: { kind: string; label: string; hint: string }[] = [
@@ -120,13 +177,45 @@ const GUEST_LAB_KEY = 'nb_guest_lab';
 
 type GuestSnap = { v: 1; at: number; lab: unknown };
 
+interface TokenPayload {
+  sub?: string;
+  email?: string;
+  guest?: boolean;
+  exp?: number;
+}
+
+function decodeToken(t: string | null): TokenPayload | null {
+  if (!t) return null;
+  try {
+    const mid = t.split('.')[1] ?? '';
+    return JSON.parse(atob(mid.replace(/-/g, '+').replace(/_/g, '/'))) as TokenPayload;
+  } catch {
+    return null;
+  }
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class Api {
-  token = signal<string | null>(localStorage.getItem('nb_token'));
-  guest = signal(true);
+  token = signal<string | null>(null);
+  private payload = computed(() => decodeToken(this.token()));
+  /** True until a real (non-guest) account token is present. */
+  guest = computed(() => this.payload()?.guest !== false);
+  email = computed(() => (this.guest() ? null : (this.payload()?.email ?? null)));
   sessionId = signal<string | null>(null);
   state = signal<LabState | null>(null);
   warning = signal<string | null>(null);
+  /** False after a network-level failure; true again after any successful request. */
+  online = signal(true);
+  wsConnected = signal(false);
   onPackets: ((events: PacketEvent[]) => void) | null = null;
 
   private ws: WebSocket | null = null;
@@ -134,6 +223,13 @@ export class Api {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private cliWaiters: Array<(msg: WsMsg) => void> = [];
+
+  constructor() {
+    const stored = localStorage.getItem('nb_token');
+    const p = decodeToken(stored);
+    if (stored && p && (!p.exp || p.exp * 1000 > Date.now())) this.token.set(stored);
+    else if (stored) localStorage.removeItem('nb_token');
+  }
 
   private headers(): HeadersInit {
     const t = this.token();
@@ -148,6 +244,7 @@ export class Api {
     const socket = this.ws;
     this.ws = null;
     this.wsReady = null;
+    this.wsConnected.set(false);
     if (socket) {
       socket.onclose = null;
       socket.close();
@@ -161,7 +258,10 @@ export class Api {
     const socket = new WebSocket(`${WS}?sessionId=${id}`);
     this.ws = socket;
     this.wsReady = new Promise((resolve) => {
-      socket.onopen = () => resolve();
+      socket.onopen = () => {
+        this.wsConnected.set(true);
+        resolve();
+      };
     });
     socket.onmessage = (ev) => {
       try {
@@ -180,63 +280,69 @@ export class Api {
     socket.onclose = () => {
       if (this.ws !== socket) return;
       this.ws = null;
+      this.wsConnected.set(false);
       this.reconnectTimer = setTimeout(() => this.connectWs(), 1200);
     };
   }
 
   async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const r = await fetch(`${API}${path}`, { ...init, headers: { ...this.headers(), ...(init?.headers ?? {}) } });
+    let r: Response;
+    try {
+      r = await fetch(`${API}${path}`, { ...init, headers: { ...this.headers(), ...(init?.headers ?? {}) } });
+    } catch {
+      this.online.set(false);
+      throw new ApiError('Cannot reach the lab API. Check your connection and try again.', 0);
+    }
+    this.online.set(true);
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((body as { message?: string }).message || r.statusText);
+    if (!r.ok) {
+      const msg = (body as { message?: string | string[] }).message;
+      throw new ApiError(Array.isArray(msg) ? msg.join(', ') : msg || r.statusText || `HTTP ${r.status}`, r.status);
+    }
     return body as T;
   }
 
   userId(): string {
-    const t = this.token();
-    if (!t) return 'anon';
-    try {
-      const mid = t.split('.')[1] ?? '';
-      const json = JSON.parse(atob(mid.replace(/-/g, '+').replace(/_/g, '/'))) as { sub?: string };
-      return json.sub || 'anon';
-    } catch {
-      return 'anon';
-    }
+    return this.payload()?.sub || 'anon';
+  }
+
+  private setToken(token: string): void {
+    this.token.set(token);
+    localStorage.setItem('nb_token', token);
   }
 
   async startGuest(): Promise<void> {
-    const r = await this.json<{ token: string; warning?: string; user: { guest: boolean } }>('/auth/guest', { method: 'POST', body: '{}' });
-    this.token.set(r.token);
-    localStorage.setItem('nb_token', r.token);
-    this.guest.set(true);
-    this.warning.set(
-      r.warning ?? 'Guest — this lab is saved in this browser. Sign in to keep it on your account and other devices.',
-    );
+    const r = await this.json<{ token: string; warning?: string }>('/auth/guest', { method: 'POST', body: '{}' });
+    this.setToken(r.token);
+    this.warning.set(r.warning ?? 'Guest — this lab is saved in this browser. Sign in to keep it on your account.');
   }
 
   async login(email: string, password: string): Promise<void> {
     const r = await this.json<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-    this.token.set(r.token);
-    localStorage.setItem('nb_token', r.token);
-    this.guest.set(false);
+    this.setToken(r.token);
     this.warning.set(null);
     await this.promoteGuestLab();
   }
 
   async register(email: string, password: string): Promise<void> {
     const r = await this.json<{ token: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) });
-    this.token.set(r.token);
-    localStorage.setItem('nb_token', r.token);
-    this.guest.set(false);
+    this.setToken(r.token);
     this.warning.set(null);
     await this.promoteGuestLab();
   }
 
-  readGuestLab(): unknown | null {
+  async logout(): Promise<void> {
+    this.token.set(null);
+    localStorage.removeItem('nb_token');
+    await this.startGuest();
+  }
+
+  readGuestLab(): LabJson | null {
     try {
       const raw = localStorage.getItem(GUEST_LAB_KEY);
       if (!raw) return null;
       const snap = JSON.parse(raw) as GuestSnap;
-      return snap?.lab ?? null;
+      return (snap?.lab as LabJson) ?? null;
     } catch {
       return null;
     }
@@ -270,13 +376,14 @@ export class Api {
   }
 
   builtins() {
-    return this.json<{ labs: { id: string; name: string; goal: string }[] }>('/labs/builtin');
+    return this.json<{ labs: LabSummary[] }>('/labs/builtin');
   }
 
-  async open(labId?: string, lab?: unknown): Promise<void> {
+  /** Opens a lab in a new engine session. `fresh` ignores the guest snapshot for builtin ids (Reset lab). */
+  async open(labId?: string, lab?: unknown, opts: { fresh?: boolean } = {}): Promise<void> {
     if (!this.token()) await this.startGuest();
-    if (!lab && labId) {
-      const guest = this.readGuestLab() as { id?: string } | null;
+    if (!lab && labId && !opts.fresh) {
+      const guest = this.readGuestLab();
       if (guest && guest.id === labId) lab = guest;
     }
     const r = await this.json<{ sessionId: string; state: LabState; warning?: string }>('/sessions', {
@@ -288,6 +395,22 @@ export class Api {
     if (r.warning) this.warning.set(r.warning);
     this.connectWs();
     this.persistSoon();
+  }
+
+  /** Re-attaches to a still-running engine session (reload without losing ARP tables, terminal state…). */
+  async attach(sessionId: string): Promise<boolean> {
+    if (!this.token()) await this.startGuest();
+    try {
+      const st = await this.json<LabState>(`/sessions/${sessionId}/state`);
+      if (!st?.devices) return false;
+      this.sessionId.set(sessionId);
+      this.state.set(st);
+      this.connectWs();
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) throw e;
+      return false;
+    }
   }
 
   async refresh(): Promise<void> {
@@ -344,7 +467,7 @@ export class Api {
   async save() {
     const id = this.sessionId();
     if (!id) return;
-    const r = await this.json<{ ok?: boolean; guest?: boolean; json?: unknown }>(`/sessions/${id}/save`, {
+    const r = await this.json<{ ok?: boolean; guest?: boolean; json?: LabJson; lab?: SavedLab }>(`/sessions/${id}/save`, {
       method: 'POST',
       body: '{}',
     });
@@ -352,9 +475,27 @@ export class Api {
     return r;
   }
 
+  /** Current lab as portable JSON (what Download / Share / Undo use). */
+  async snapshot(): Promise<LabJson | null> {
+    const r = await this.save();
+    return r?.json ?? r?.lab?.json ?? null;
+  }
+
+  listLabs() {
+    return this.json<{ labs: SavedLab[] }>('/labs');
+  }
+
+  saveLabAs(lab: LabJson) {
+    return this.json<SavedLab>('/labs', { method: 'POST', body: JSON.stringify(lab) });
+  }
+
+  deleteLab(id: string) {
+    return this.json<{ ok: boolean }>(`/labs/${id}`, { method: 'DELETE' });
+  }
+
   async check() {
     const id = this.sessionId();
-    const r = await this.json<{ ok: boolean; results: { reason: string; ok: boolean }[] }>(`/sessions/${id}/check`, { method: 'POST', body: '{}' });
+    const r = await this.json<CheckResult>(`/sessions/${id}/check`, { method: 'POST', body: '{}' });
     await this.refresh();
     return r;
   }
@@ -398,10 +539,10 @@ export class Api {
 
   async path(src: string, dst: string, proto = 'icmp', family = 'v4') {
     const id = this.sessionId();
-    return this.json<{ ok: boolean; reason: string; events: PacketEvent[]; hops: { device: string; iface: string; reason: string }[] }>(
-      `/sessions/${id}/path`,
-      { method: 'POST', body: JSON.stringify({ src, dst, proto, family }) },
-    );
+    return this.json<PathResult>(`/sessions/${id}/path`, {
+      method: 'POST',
+      body: JSON.stringify({ src, dst, proto, family }),
+    });
   }
 
   commands(kind: string) {

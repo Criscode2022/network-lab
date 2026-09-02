@@ -2169,6 +2169,35 @@ export class Engine {
       this.rebuildConnected(d);
       return out('');
     }
+    if (t[0] === 'addr' && (t[1] === 'del' || t[1] === 'delete' || t[1] === 'flush')) {
+      const devn = t[t.indexOf('dev') + 1];
+      const iface = findIface(d, devn);
+      if (!iface) return err('usage: ip addr del CIDR dev IF');
+      if (t[1] === 'flush') {
+        iface.ipv4 = undefined;
+        iface.ipv6 = iface.ipv6.filter((v) => v.ip.toLowerCase().startsWith('fe80'));
+      } else {
+        const cidr = t[2];
+        if (!cidr || cidr === 'dev') return err('usage: ip addr del CIDR dev IF');
+        if (cidr.includes(':')) {
+          const p = parseCidrV6(cidr);
+          if (!p) return err('bad IPv6 CIDR');
+          const ip = formatIPv6(p.ip);
+          const before = iface.ipv6.length;
+          iface.ipv6 = iface.ipv6.filter((v) => !(v.ip === ip && v.prefix === p.prefix));
+          if (before === iface.ipv6.length) return err('RTNETLINK answers: Cannot assign requested address');
+        } else {
+          const p = parseCidrV4(cidr);
+          if (!p) return err('bad IPv4 CIDR');
+          if (!iface.ipv4 || iface.ipv4.ip !== formatIPv4(p.ip)) return err('RTNETLINK answers: Cannot assign requested address');
+          iface.ipv4 = undefined;
+        }
+      }
+      d.arp = d.arp.filter((e) => e.iface !== iface.name);
+      this.rebuildConnected(d);
+      this.pruneUnreachableRoutes(d);
+      return out('');
+    }
     if (t[0] === 'addr' || (t[0] === 'addr' && t[1] === 'show') || t.length === 0 || t[0] === 'a') {
       return out(d.ifaces.map((i) => {
         const v4 = i.ipv4 ? `    inet ${i.ipv4.ip}/${i.ipv4.prefix}` : '';
@@ -2188,30 +2217,22 @@ export class Engine {
     if (t[0] === 'link') {
       return out(d.ifaces.map((i) => `${i.name}: ${i.adminUp ? 'UP' : 'DOWN'} ${this.operUp(d, i) ? 'LOWER_UP' : 'NO-CARRIER'} mac ${i.mac}`).join('\n'));
     }
-    if (t[0] === 'route' && t[1] === 'add') {
-      if (t[2] === 'default' && t[3] === 'via') {
-        if (t[4]?.includes(':')) {
-          d.defaultGw6 = t[4];
-          d.routesV6.push({ dest: '::', prefix: 0, nexthop: t[4], proto: 'static', ad: 1 });
-        } else {
-          d.defaultGw4 = t[4];
-          d.routesV4.push({ dest: '0.0.0.0', prefix: 0, nexthop: t[4], proto: 'static', ad: 1 });
-        }
+    if (t[0] === 'route' && (t[1] === 'add' || t[1] === 'del' || t[1] === 'delete' || t[1] === 'replace' || t[1] === 'change')) {
+      const mode = t[1];
+      const target = t[2];
+      const via = t.includes('via') ? t[t.indexOf('via') + 1] : undefined;
+      if (!target || target === 'via') return err('usage: ip route add|del|replace default via GW | ip route add|del CIDR via GW');
+      const v6 = target.includes(':') || (via?.includes(':') ?? false) || t.includes('-6');
+      if (mode === 'add') return this.addRoute(d, target, via, v6);
+      if (mode === 'del' || mode === 'delete') {
+        if (!this.removeRoute(d, target, via, v6)) return err('RTNETLINK answers: No such process');
+        this.logActivity(`${d.name} route del ${target}${via ? ' via ' + via : ''}`);
         return out('');
       }
-      const cidr = t[2];
-      const via = t[t.indexOf('via') + 1];
-      const p4 = parseCidrV4(cidr);
-      if (p4) {
-        d.routesV4.push({ dest: formatIPv4(networkAddr(p4.ip, p4.prefix)), prefix: p4.prefix, nexthop: via, proto: 'static', ad: 1 });
-        return out('');
-      }
-      const p6 = parseCidrV6(cidr);
-      if (p6) {
-        d.routesV6.push({ dest: formatIPv6(p6.ip), prefix: p6.prefix, nexthop: via, proto: 'static', ad: 1 });
-        return out('');
-      }
-      return err('usage: ip route add default via GW | ip route add CIDR via GW');
+      // replace/change: the existing route for this destination goes, whatever its old next hop was.
+      if (!via) return err(`usage: ip route ${mode} ${target} via GW`);
+      this.removeRoute(d, target, undefined, v6);
+      return this.addRoute(d, target, via, v6);
     }
     if (t[0] === 'route' || t[0] === '-6') {
       this.rebuildConnected(d);
@@ -2221,6 +2242,75 @@ export class Engine {
       return out(d.routesV4.map((r) => `${r.dest}/${r.prefix} ${r.nexthop ? 'via ' + r.nexthop : 'dev ' + (r.iface ?? '')} proto ${r.proto}`).join('\n'));
     }
     return err('ip: unknown subcommand');
+  }
+
+  /** `ip route add`: Linux refuses a second default route ("File exists"); use replace to change it. */
+  private addRoute(d: Device, target: string, via: string | undefined, v6: boolean): CliResult {
+    if (target === 'default') {
+      if (!via) return err('usage: ip route add default via GW');
+      if (v6) {
+        if (d.routesV6.some((r) => r.prefix === 0 && r.proto === 'static')) return err('RTNETLINK answers: File exists (use: ip route replace default via GW)');
+        d.defaultGw6 = via;
+        d.routesV6.push({ dest: '::', prefix: 0, nexthop: via, proto: 'static', ad: 1 });
+        return out('');
+      }
+      if (d.routesV4.some((r) => r.prefix === 0 && r.proto === 'static')) return err('RTNETLINK answers: File exists (use: ip route replace default via GW)');
+      d.defaultGw4 = via;
+      d.routesV4.push({ dest: '0.0.0.0', prefix: 0, nexthop: via, proto: 'static', ad: 1 });
+      return out('');
+    }
+    const p4 = parseCidrV4(target);
+    if (p4) {
+      const dest = formatIPv4(networkAddr(p4.ip, p4.prefix));
+      if (d.routesV4.some((r) => r.proto === 'static' && r.dest === dest && r.prefix === p4.prefix)) return err('RTNETLINK answers: File exists');
+      d.routesV4.push({ dest, prefix: p4.prefix, nexthop: via, proto: 'static', ad: 1 });
+      return out('');
+    }
+    const p6 = parseCidrV6(target);
+    if (p6) {
+      d.routesV6.push({ dest: formatIPv6(p6.ip), prefix: p6.prefix, nexthop: via, proto: 'static', ad: 1 });
+      return out('');
+    }
+    return err('usage: ip route add default via GW | ip route add CIDR via GW');
+  }
+
+  private removeRoute(d: Device, target: string, via: string | undefined, v6: boolean): boolean {
+    if (target === 'default') {
+      if (v6) {
+        const before = d.routesV6.length;
+        d.routesV6 = d.routesV6.filter((r) => !(r.prefix === 0 && r.proto !== 'connected' && (!via || r.nexthop === via)));
+        if (!via || d.defaultGw6 === via) d.defaultGw6 = undefined;
+        return d.routesV6.length !== before;
+      }
+      const before = d.routesV4.length;
+      d.routesV4 = d.routesV4.filter((r) => !(r.prefix === 0 && r.proto === 'static' && (!via || r.nexthop === via)));
+      if (!via || d.defaultGw4 === via) d.defaultGw4 = undefined;
+      return d.routesV4.length !== before;
+    }
+    const p4 = parseCidrV4(target);
+    if (p4) {
+      const dest = formatIPv4(networkAddr(p4.ip, p4.prefix));
+      const before = d.routesV4.length;
+      d.routesV4 = d.routesV4.filter((r) => !(r.proto === 'static' && r.dest === dest && r.prefix === p4.prefix && (!via || r.nexthop === via)));
+      return d.routesV4.length !== before;
+    }
+    const p6 = parseCidrV6(target);
+    if (p6) {
+      const dest = formatIPv6(p6.ip);
+      const before = d.routesV6.length;
+      d.routesV6 = d.routesV6.filter((r) => !(r.proto === 'static' && r.dest === dest && r.prefix === p6.prefix && (!via || r.nexthop === via)));
+      return d.routesV6.length !== before;
+    }
+    return false;
+  }
+
+  /** After an address is removed, static routes whose next hop is no longer on a connected subnet go too (kernel behaviour). */
+  private pruneUnreachableRoutes(d: Device): void {
+    const keep = d.routesV4.filter((r) => r.proto !== 'static' || !r.nexthop || !!this.ifaceForGw4(d, r.nexthop));
+    if (keep.length !== d.routesV4.length) {
+      if (!keep.some((r) => r.prefix === 0 && r.proto === 'static')) d.defaultGw4 = undefined;
+      d.routesV4 = keep;
+    }
   }
 
   detectConflict(d: Device, iface: Iface): void {
@@ -2290,8 +2380,20 @@ export class Engine {
         iface.adminUp = true;
         return out('');
       }
-      if (t[0] === 'shutdown') {
+      if (t[0] === 'shutdown' || t[0] === 'shut') {
         iface.adminUp = false;
+        return out('');
+      }
+      if (c === 'no ip address' || (t[0] === 'no' && t[1] === 'ip' && t[2] === 'address')) {
+        iface.ipv4 = undefined;
+        d.arp = d.arp.filter((e) => e.iface !== iface.name);
+        this.rebuildConnected(d);
+        return out('');
+      }
+      if (t[0] === 'no' && t[1] === 'ipv6' && t[2] === 'address') {
+        const p = t[3] ? parseCidrV6(t[3]) : null;
+        iface.ipv6 = iface.ipv6.filter((v) => v.ip.toLowerCase().startsWith('fe80') || (p ? !(v.ip === formatIPv6(p.ip) && v.prefix === p.prefix) : false));
+        this.rebuildConnected(d);
         return out('');
       }
       if (c === 'switchport mode access') {
@@ -2330,6 +2432,13 @@ export class Engine {
     }
     if (t[0] === 'ip' && t[1] === 'default-gateway') {
       d.defaultGw4 = t[2];
+      d.routesV4 = d.routesV4.filter((r) => !(r.prefix === 0 && r.proto === 'static'));
+      this.rebuildConnected(d);
+      return out('');
+    }
+    if (t[0] === 'no' && t[1] === 'ip' && t[2] === 'default-gateway') {
+      d.defaultGw4 = undefined;
+      d.routesV4 = d.routesV4.filter((r) => !(r.prefix === 0 && r.proto === 'static'));
       return out('');
     }
     if (t[0] === 'write' || c === 'copy run start' || c === 'write memory') {
@@ -2406,10 +2515,27 @@ export class Engine {
         return out('');
       }
     }
+    if (t[0] === 'no' && t[1] === 'ip' && t[2] === 'route') {
+      const dest = t[3];
+      const maskTok = t[4];
+      const nh = t[5];
+      if (!dest) return err('% Incomplete command');
+      const prefix = dest === '0.0.0.0' && (maskTok === '0.0.0.0' || !maskTok) ? 0 : parseMaskOrPrefix(maskTok ?? '');
+      const ipN = parseIPv4(dest);
+      if (prefix === null || ipN === null) return err('% Invalid route');
+      const network = prefix === 0 ? '0.0.0.0' : formatIPv4(networkAddr(ipN, prefix));
+      const before = d.routesV4.length;
+      d.routesV4 = d.routesV4.filter((r) => !(r.proto === 'static' && r.dest === network && r.prefix === prefix && (!nh || r.nexthop === nh)));
+      if (before === d.routesV4.length) return err('% No matching static route');
+      if (prefix === 0 && (!nh || d.defaultGw4 === nh)) d.defaultGw4 = undefined;
+      this.logActivity(`${d.name} removed static route ${network}/${prefix}${nh ? ' via ' + nh : ''}`);
+      return out('');
+    }
     if (t[0] === 'ip' && t[1] === 'route') {
       const dest = t[2];
       if (dest === '0.0.0.0') {
         const nh = t[4] === '0.0.0.0' ? t[5] : t[4];
+        if (!nh) return err('% Incomplete command');
         d.routesV4.push({ dest: '0.0.0.0', prefix: 0, nexthop: nh, proto: 'static', ad: 1 });
         return out('');
       }
@@ -2515,7 +2641,13 @@ export class Engine {
 
   apCli(d: Device, raw: string): CliResult {
     const t = tokenize(raw);
+    const c = t.join(' ');
     if (t[0] === 'enable' || t[0] === 'conf' || t[0] === 'configure' || t[0] === 'end' || t[0] === 'exit' || t[0] === 'write') {
+      return this.ciscoSwitch(d, raw);
+    }
+    if (t[0] === 'interface' || t[0] === 'int') return this.ciscoSwitch(d, raw);
+    // Inside "interface X", shut/no shut act on that port only (same as the switch CLI).
+    if (d.cli.level === 'if' && d.cli.iface && (c === 'no shutdown' || c === 'no shut' || t[0] === 'shutdown' || t[0] === 'shut')) {
       return this.ciscoSwitch(d, raw);
     }
     if (t[0] === 'ssid' && t[1]) {
@@ -2550,12 +2682,13 @@ export class Engine {
       this.syncWlc(d);
       return out(d.joinedWlc ? `Joined WLC ${d.joinedWlc} (capwap-lite, local-breakout datapath)` : `Controller ${t[2]} not reachable yet`);
     }
-    if (raw.includes('no shutdown') || raw === 'no shut') {
+    // Outside interface mode "no shutdown" brings radio and uplink up together (AP quick-start).
+    if (c === 'no shutdown' || c === 'no shut') {
       for (const i of d.ifaces) i.adminUp = true;
       return out('');
     }
-    if (t[0] === 'interface') return this.ciscoSwitch(d, raw);
-    if (t[0] === 'show') {
+    if (t[0] === 'shutdown' || t[0] === 'shut') return err('% Enter interface mode first: interface wlan0 (or Gi0/1)');
+    if (t[0] === 'show' || t[0] === 'sh') {
       if (t[1] === 'ssid') return out(d.wifi.map((w) => `${w.ssid} vlan ${w.vlan} ch ${w.channel} ${w.psk ? 'wpa2-psk' : 'open'}`).join('\n') || '(no ssid)');
       if (t[1] === 'interface' || t[1] === 'int') return this.showCmd(d, ['int']);
       if (t[1] === 'run') return out(this.runningConfig(d));
@@ -2565,8 +2698,12 @@ export class Engine {
 
   wlcCli(d: Device, raw: string): CliResult {
     const t = tokenize(raw);
-    if (t[0] === 'enable' || t[0] === 'configure' || t[0] === 'conf' || t[0] === 'end' || t[0] === 'write') return this.ciscoSwitch(d, raw);
-    if (t[0] === 'interface') return this.ciscoSwitch(d, raw);
+    const c = t.join(' ');
+    if (t[0] === 'enable' || t[0] === 'configure' || t[0] === 'conf' || t[0] === 'end' || t[0] === 'exit' || t[0] === 'write') return this.ciscoSwitch(d, raw);
+    if (t[0] === 'interface' || t[0] === 'int') return this.ciscoSwitch(d, raw);
+    if (d.cli.level === 'if' && d.cli.iface && (c === 'no shutdown' || c === 'no shut' || t[0] === 'shutdown' || t[0] === 'shut')) {
+      return this.ciscoSwitch(d, raw);
+    }
     if (t[0] === 'wlan' && t[1] === 'create') {
       const ssid = t[2];
       const vlan = t[3] === 'vlan' ? Number(t[4]) : Number(t[3]);

@@ -42,20 +42,31 @@ Guest mode works without an account; the lab is saved in this browser and restor
 
 ## Built-in labs
 
-1. First IPv4 ping  
-2. Missing gateway / wrong mask  
-3. VLANs + router-on-a-stick  
-4. DHCPv4  
-5. Dual-stack SLAAC + ping6  
-6. OSPF area 0  
-7. Wi-Fi associate + DHCP + ping wired server  
-8. Firewall: block SSH from wifi VLAN, allow from wired jump host  
+Fault labs (★) start broken and tell you what to repair; study labs work as shipped.
 
-Each has a **Check** with exact fail reasons.
+1. ★ Plug in the cable  
+2. ★ Give PC2 an address  
+3. ★ Turn the port on  
+4. First IPv4 ping  
+5. Missing gateway / wrong mask  
+6. ★ Find the fault: wrong subnet mask  
+7. VLANs + router-on-a-stick  
+8. DHCPv4  
+9. Dual-stack SLAAC + ping6  
+10. OSPF area 0  
+11. Wi-Fi associate + DHCP + ping wired server  
+12. Firewall: block SSH from wifi VLAN, allow from wired jump host  
+13. ★ Two routers, static routes  
+14. ★ OSPF across three routers  
+15. ★ Out to the Internet with NAT  
+16. ★ Wi-Fi with a controller (WLC)  
+17. Capstone: dual-stack office  
+
+Each has a **Check** with exact fail reasons, and **Troubleshoot** explains where and why a packet is dropped.
 
 ## Command cheat sheet
 
-Open **Cheat sheet** in the UI, or `help` in a node terminal. Linux: `ip`, `ping`/`ping6`, `traceroute`, `nmcli wifi connect`, `dhclient`, `ssh`, `dig`. Switch/router: tiny Cisco-like subset (`show run`, VLANs, trunks, OSPF area 0, NAT overload, DHCP pool). Unknown commands fail honestly.
+Open **Command reference** in the UI, or `help` in a node terminal. Linux: `ip addr add|del`, `ip route add|del|replace`, `ping`/`ping6`, `traceroute`, `nmcli wifi connect`, `dhclient`, `ssh`, `dig`. Switch/router: tiny Cisco-like subset (`show run`, VLANs, trunks, `ip route` / `no ip route`, OSPF area 0, NAT overload, DHCP pool). Unknown commands fail honestly.
 
 ## Simulator overview
 

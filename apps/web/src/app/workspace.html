@@ -1,928 +1,1238 @@
-<div class="flex h-dvh min-h-0 flex-col bg-zinc-950 text-zinc-200">
-  <header
-    class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5 md:h-12 md:flex-nowrap md:gap-3 md:px-3"
-  >
-    <div class="flex items-center gap-1">
-      <div class="text-sm font-semibold tracking-wide text-cyan-300">NetBench</div>
-      @if (basicMode()) {
-        <button
-          type="button"
-          class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: Basic mode"
-          (click)="openHelp('basics', $event)"
-        >
-          ?
-        </button>
-      }
-    </div>
-    <div
-      class="order-last flex w-full min-w-0 basis-full items-center gap-1 md:order-none md:w-auto md:flex-none md:basis-auto"
-    >
-      <select
-        class="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs md:w-auto md:max-w-56 md:flex-none md:py-1"
-        (change)="loadLab($any($event.target).value)"
-      >
-        @for (l of labs(); track l.id) {
-          <option [value]="l.id">{{ l.name }}</option>
-        }
-      </select>
-      @if (basicMode()) {
-        <button
-          type="button"
-          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: this lab"
-          (click)="openHelp('lab', $event)"
-        >
-          ?
-        </button>
-      }
-    </div>
-    <div class="flex items-center gap-1">
-      <button
-        class="min-h-9 rounded-md bg-cyan-700 px-3 py-1 text-xs font-medium hover:bg-cyan-600 md:min-h-0"
-        (click)="doCheck()"
-      >
-        Check
-      </button>
-      @if (basicMode()) {
-        <button
-          type="button"
-          class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: Check"
-          (click)="openHelp('check', $event)"
-        >
-          ?
-        </button>
-      }
-    </div>
-    <button
-      class="min-h-9 rounded-md px-3 py-1 text-xs font-medium md:hidden"
-      [ngClass]="basic() ? 'bg-cyan-800 text-white' : 'border border-zinc-700'"
-      (click)="toggleBasic()"
-    >
-      {{ basic() ? 'Basic on' : 'Basic' }}
-    </button>
-    <div class="hidden items-center gap-1.5 md:flex">
-      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="saveJson()">Download JSON</button>
-      <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1 text-xs">
-        Upload
-        <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
-      </label>
-      <button class="rounded-md border border-zinc-700 px-2 py-1 text-xs" (click)="openCheat()">Cheat sheet</button>
-      <div class="flex rounded-md border border-zinc-700 p-0.5">
-        <button
-          class="rounded px-2 py-0.5 text-xs"
-          [ngClass]="!advanced() ? 'bg-zinc-700 text-white' : 'text-zinc-400'"
-          (click)="setAdvanced(false)"
-        >
-          Simple
-        </button>
-        <button
-          class="rounded px-2 py-0.5 text-xs"
-          [ngClass]="advanced() ? 'bg-cyan-800 text-white' : 'text-zinc-400'"
-          (click)="setAdvanced(true)"
-        >
-          Advanced
-        </button>
-      </div>
-    </div>
-    @if (!basicMode()) {
-      <button
-        class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:hidden"
-        (click)="moreOpen.set(!moreOpen())"
-      >
-        More
-      </button>
-      <button class="ml-auto rounded-md border border-zinc-700 px-2 py-1.5 text-xs md:py-1" (click)="authOpen.set(true)">
-        {{ api.guest() ? 'Sign in' : 'Account' }}
-      </button>
-      <button
-        class="rounded-md border border-cyan-800 px-2 py-1.5 text-xs text-cyan-300 md:py-1"
-        (click)="toggleEve()"
-      >
-        Eve
+<div class="flex h-dvh min-h-0 flex-col bg-ink-950 text-ink-100">
+  <!-- ===================================================================== header -->
+  <header class="relative z-30 flex h-12 shrink-0 items-center gap-2 border-b border-ink-800 bg-ink-900/80 px-2 backdrop-blur md:gap-3 md:px-3">
+    <a class="flex shrink-0 items-center gap-2" href="/" aria-label="NetBench home" (click)="$event.preventDefault()">
+      <span class="grid h-7 w-7 place-items-center rounded-lg bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/30">
+        <nb-icon name="network" [size]="15" />
+      </span>
+      <span class="hidden text-sm font-semibold tracking-tight text-ink-50 sm:block">NetBench</span>
+    </a>
+
+    <nb-lab-picker
+      class="min-w-0 flex-1 md:flex-none"
+      [labs]="labs()"
+      [currentId]="api.state()?.id ?? null"
+      [currentName]="api.state()?.name ?? ''"
+      [passed]="passed()"
+      [mine]="myLabs()"
+      [signedIn]="!api.guest()"
+      [compact]="isNarrow()"
+      (pick)="loadLab($event)"
+      (pickMine)="openSaved($event)"
+      (deleteMine)="deleteSaved($event)"
+    />
+
+    @if (basicMode()) {
+      <button type="button" class="btn btn-ghost btn-icon shrink-0" aria-label="Help" (click)="openHelp('hub', $event)">
+        <nb-icon name="help" [size]="17" />
       </button>
     }
+
+    <div class="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+      <button type="button" class="btn btn-primary relative min-h-9 md:min-h-8" [disabled]="checkBusy() || loading()" (click)="doCheck()" title="Run this lab’s checks (Ctrl+Enter)">
+        @if (checkBusy()) {
+          <span class="spinner h-3.5 w-3.5 border-white/40 border-t-white"></span>
+        } @else {
+          <nb-icon name="circle-check" [size]="14" />
+        }
+        Check
+        @if (checkResult(); as cr) {
+          <span
+            class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full ring-2 ring-ink-900"
+            [ngClass]="cr.ok ? 'bg-ok-400' : 'bg-danger-400'"
+            [attr.aria-label]="cr.ok ? 'last check passed' : 'last check failed'"
+          ></span>
+        }
+      </button>
+
+      @if (focusMode()) {
+        <span class="hidden items-center gap-1.5 text-[11px] text-ink-400 lg:flex">
+          <span class="led" [ngClass]="api.online() ? (api.wsConnected() ? 'led-up' : 'led-warn') : 'led-down'"></span>
+          {{ api.online() ? (api.wsConnected() ? 'Connected' : 'Reconnecting…') : 'Offline' }}
+        </span>
+        <button type="button" class="btn btn-secondary" (click)="toggleFocus()" title="Exit focus mode (Shift+F)">
+          <nb-icon name="collapse" [size]="14" /> Exit focus
+        </button>
+      } @else if (!isNarrow()) {
+        <div class="seg" role="group" aria-label="Detail level">
+          <button type="button" class="seg-item" [ngClass]="{ 'seg-item-on': !advanced() }" (click)="setAdvanced(false)" title="Simple: devices, Ethernet, IPv4">Simple</button>
+          <button type="button" class="seg-item" [ngClass]="{ 'seg-item-on': advanced() }" (click)="setAdvanced(true)" title="Advanced: ports, cable types, IPv6, MAC, running-config">Advanced</button>
+        </div>
+
+        <button type="button" class="btn btn-secondary btn-icon" aria-label="Focus mode: canvas only" title="Focus mode — canvas only (Shift+F)" (click)="toggleFocus()">
+          <nb-icon name="expand" [size]="15" />
+        </button>
+
+        <div class="relative">
+          <button type="button" class="btn btn-secondary btn-icon" aria-label="More actions" aria-haspopup="menu" [attr.aria-expanded]="menuOpen()" (click)="menuOpen.set(!menuOpen())">
+            <nb-icon name="more" [size]="16" />
+          </button>
+          @if (menuOpen()) {
+            <div class="fixed inset-0 z-30" (click)="menuOpen.set(false)"></div>
+            <div class="card absolute right-0 z-40 mt-1.5 grid w-[34rem] grid-cols-2 gap-x-2 p-1.5 animate-pop" role="menu">
+              <div>
+                <div class="section-title px-2.5 pt-1 pb-1">Lab</div>
+                <button type="button" class="menu-item" role="menuitem" (click)="openPalette()"><nb-icon name="command" [size]="14" class="text-ink-400" /> Command palette <span class="kbd ml-auto">Ctrl K</span></button>
+                <button type="button" class="menu-item" role="menuitem" (click)="openLabEditor()"><nb-icon name="pencil" [size]="14" class="text-ink-400" /> Edit name, goal & checks…</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="saveCheckpoint()"><nb-icon name="bookmark" [size]="14" class="text-ink-400" /> Save checkpoint</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); checkpointsOpen.set(true)"><nb-icon name="clock" [size]="14" class="text-ink-400" /> Checkpoints: restore / diff… @if (labCheckpoints().length) { <span class="chip chip-muted ml-auto">{{ labCheckpoints().length }}</span> }</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="openSaveAs()"><nb-icon name="save" [size]="14" class="text-ink-400" /> Save a copy to my account…</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); confirmReset.set(true)"><nb-icon name="reset" [size]="14" class="text-ink-400" /> Reset lab to start</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="tidyUp()"><nb-icon name="tidy" [size]="14" class="text-ink-400" /> Tidy up layout</button>
+                <div class="section-title px-2.5 pt-2 pb-1">View</div>
+                <button type="button" class="menu-item" role="menuitemcheckbox" [attr.aria-checked]="view().subnet" (click)="toggleView('subnet')"><nb-icon [name]="view().subnet ? 'circle-check' : 'palette'" [size]="14" [ngClass]="view().subnet ? 'text-ok-400' : 'text-ink-400'" /> Colour IPs by subnet</button>
+                <button type="button" class="menu-item" role="menuitemcheckbox" [attr.aria-checked]="view().vlan" (click)="toggleView('vlan')"><nb-icon [name]="view().vlan ? 'circle-check' : 'layers'" [size]="14" [ngClass]="view().vlan ? 'text-ok-400' : 'text-ink-400'" /> VLAN labels on cables (Advanced)</button>
+                <button type="button" class="menu-item" role="menuitemcheckbox" [attr.aria-checked]="view().anim" (click)="toggleView('anim')"><nb-icon [name]="view().anim ? 'circle-check' : 'activity'" [size]="14" [ngClass]="view().anim ? 'text-ok-400' : 'text-ink-400'" /> Animate packets</button>
+              </div>
+              <div>
+                <div class="section-title px-2.5 pt-1 pb-1">Share & export</div>
+                <button type="button" class="menu-item" role="menuitem" (click)="copyShareLink()"><nb-icon name="link" [size]="14" class="text-ink-400" /> Copy share link</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="copyReport()"><nb-icon name="file" [size]="14" class="text-ink-400" /> Copy lab report (Markdown)</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="downloadReport()"><nb-icon name="download" [size]="14" class="text-ink-400" /> Download report (.md)</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="copyJson()"><nb-icon name="copy" [size]="14" class="text-ink-400" /> Copy lab JSON</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="saveJson()"><nb-icon name="download" [size]="14" class="text-ink-400" /> Download JSON</button>
+                <label class="menu-item cursor-pointer" role="menuitem">
+                  <nb-icon name="upload" [size]="14" class="text-ink-400" /> Upload JSON…
+                  <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
+                </label>
+              <div class="section-title px-2.5 pt-2 pb-1">Learn</div>
+              <button type="button" class="menu-item" role="menuitem" (click)="openCheat()"><nb-icon name="book" [size]="14" class="text-ink-400" /> Command reference</button>
+              <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); shortcutsOpen.set(true)"><nb-icon name="keyboard" [size]="14" class="text-ink-400" /> Keyboard shortcuts <span class="kbd ml-auto">?</span></button>
+              <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); helpOpen.set('hub')"><nb-icon name="help" [size]="14" class="text-ink-400" /> Help topics</button>
+              <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); welcomeOpen.set(true)"><nb-icon name="flag" [size]="14" class="text-ink-400" /> Welcome tour</button>
+              <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); aboutOpen.set(true)"><nb-icon name="info" [size]="14" class="text-ink-400" /> About this simulation</button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <button type="button" class="btn btn-secondary max-w-44" (click)="openAuth()" [title]="api.guest() ? 'Guest: lab saved in this browser. Sign in to keep it on your account.' : 'Account'">
+          <nb-icon [name]="api.guest() ? 'user' : 'circle-check'" [size]="14" [class.text-ok-400]="!api.guest()" />
+          <span class="truncate">{{ api.guest() ? 'Guest' : api.email() }}</span>
+        </button>
+
+        <button type="button" class="btn" [ngClass]="eveOpen() ? 'btn-eve ring-1 ring-eve-500/40' : 'btn-secondary'" [attr.aria-pressed]="eveOpen()" (click)="toggleEve()" title="Eve — lab instructor (E)">
+          <nb-icon name="sparkles" [size]="14" /> Eve
+        </button>
+      } @else if (basicMode()) {
+        <button type="button" class="btn min-h-9 bg-brand-800 text-white" (click)="toggleBasic()" title="Leave Basic mode for the full editor">
+          <nb-icon name="basic" [size]="14" /> Basic on
+        </button>
+      } @else {
+        <div class="relative">
+          <button type="button" class="btn btn-secondary btn-icon min-h-9 w-9" aria-label="More" (click)="moreOpen.set(!moreOpen())">
+            <nb-icon name="more" [size]="16" />
+          </button>
+          @if (moreOpen()) {
+            <div class="fixed inset-0 z-30" (click)="moreOpen.set(false)"></div>
+            <div class="card absolute right-0 z-40 mt-1.5 w-64 p-1.5 animate-pop" role="menu">
+              <button type="button" class="menu-item" (click)="toggleBasic()"><nb-icon name="basic" [size]="14" class="text-ink-400" /> Basic mode (canvas only)</button>
+              <button type="button" class="menu-item" (click)="toggleAdvanced(); moreOpen.set(false)">
+                <nb-icon name="inspect" [size]="14" class="text-ink-400" /> {{ advanced() ? 'Switch to Simple' : 'Switch to Advanced' }}
+              </button>
+              <div class="section-title px-2.5 pt-2 pb-1">Lab</div>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); openLabEditor()"><nb-icon name="pencil" [size]="14" class="text-ink-400" /> Edit name, goal & checks…</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); saveCheckpoint()"><nb-icon name="bookmark" [size]="14" class="text-ink-400" /> Save checkpoint</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); checkpointsOpen.set(true)"><nb-icon name="clock" [size]="14" class="text-ink-400" /> Checkpoints…</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); openSaveAs()"><nb-icon name="save" [size]="14" class="text-ink-400" /> Save a copy…</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); confirmReset.set(true)"><nb-icon name="reset" [size]="14" class="text-ink-400" /> Reset lab</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); copyReport()"><nb-icon name="file" [size]="14" class="text-ink-400" /> Copy lab report</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); tidyUp()"><nb-icon name="tidy" [size]="14" class="text-ink-400" /> Tidy up layout</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); copyShareLink()"><nb-icon name="link" [size]="14" class="text-ink-400" /> Copy share link</button>
+              <button type="button" class="menu-item" (click)="saveJson()"><nb-icon name="download" [size]="14" class="text-ink-400" /> Download JSON</button>
+              <label class="menu-item cursor-pointer">
+                <nb-icon name="upload" [size]="14" class="text-ink-400" /> Upload JSON…
+                <input type="file" accept="application/json" class="hidden" (change)="importJson($event)" />
+              </label>
+              <div class="section-title px-2.5 pt-2 pb-1">Learn</div>
+              <button type="button" class="menu-item" (click)="openCheat()"><nb-icon name="book" [size]="14" class="text-ink-400" /> Command reference</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); helpOpen.set('hub')"><nb-icon name="help" [size]="14" class="text-ink-400" /> Help topics</button>
+              <div class="section-title px-2.5 pt-2 pb-1">Account</div>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); openAuth()">
+                <nb-icon name="user" [size]="14" class="text-ink-400" /> {{ api.guest() ? 'Sign in' : api.email() }}
+              </button>
+            </div>
+          }
+        </div>
+      }
+    </div>
   </header>
 
-  @if (moreOpen() && isNarrow()) {
-    <div class="flex flex-wrap gap-1.5 border-b border-zinc-800 px-2 py-1.5 md:hidden">
-      <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="saveJson(); moreOpen.set(false)">
-        Download JSON
-      </button>
-      <label class="cursor-pointer rounded-md border border-zinc-700 px-2 py-1.5 text-xs">
-        Upload
-        <input type="file" accept="application/json" class="hidden" (change)="importJson($event); moreOpen.set(false)" />
-      </label>
-      <button class="rounded-md border border-zinc-700 px-2 py-1.5 text-xs" (click)="openCheat(); moreOpen.set(false)">
-        Cheat sheet
-      </button>
-      <button
-        class="rounded-md border px-2 py-1.5 text-xs"
-        [ngClass]="advanced() ? 'border-cyan-700 bg-cyan-900/50 text-cyan-200' : 'border-zinc-700'"
-        (click)="toggleAdvanced(); moreOpen.set(false)"
+  <!-- ===================================================================== status strips -->
+  @if (!api.online()) {
+    <div class="flex items-center gap-2 border-b border-danger-500/40 bg-danger-500/10 px-3 py-1.5 text-xs text-danger-200">
+      <nb-icon name="alert" [size]="14" />
+      <span class="min-w-0 flex-1">Cannot reach the lab API. Your topology is safe in this browser; commands will fail until the connection returns.</span>
+      <button type="button" class="btn btn-sm btn-secondary" (click)="retryBoot()"><nb-icon name="refresh" [size]="12" /> Retry</button>
+    </div>
+  }
+
+  @if (checkResult(); as cr) {
+    @if (checkOpen()) {
+      <div
+        class="flex items-start gap-3 border-b px-3 py-2 animate-slide-down"
+        [ngClass]="cr.ok ? 'border-ok-500/30 bg-ok-500/10' : 'border-danger-500/30 bg-danger-500/10'"
+        role="status"
       >
-        {{ advanced() ? 'Advanced on' : 'Advanced' }}
-      </button>
-    </div>
+        <nb-icon [name]="cr.ok ? 'circle-check' : 'circle-x'" [size]="18" class="mt-0.5 shrink-0" [ngClass]="cr.ok ? 'text-ok-400' : 'text-danger-400'" />
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-semibold" [ngClass]="cr.ok ? 'text-ok-200' : 'text-danger-200'">
+            {{ cr.ok ? 'All checks passed — ' + (api.state()?.name ?? 'lab') : failedChecks().length + ' of ' + cr.results.length + ' checks failed' }}
+          </div>
+          <ul class="mt-1 space-y-0.5">
+            @for (r of cr.results; track $index) {
+              <li class="flex items-start gap-1.5 text-[11px] leading-snug">
+                <nb-icon [name]="r.ok ? 'check' : 'x'" [size]="12" class="mt-0.5 shrink-0" [ngClass]="r.ok ? 'text-ok-400' : 'text-danger-400'" />
+                <span class="text-ink-100">{{ resultLabel(r) }}</span>
+                <span class="min-w-0 text-ink-300">— {{ r.reason }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+        <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          @if (cr.ok && nextLab(); as n) {
+            <button type="button" class="btn btn-ok btn-sm" (click)="goNextLab()">Next lab: {{ n.name }} <nb-icon name="arrow-right" [size]="12" /></button>
+          } @else if (!cr.ok) {
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="diagBusy()" (click)="troubleshoot()" title="Trace the failing check and explain where and why it drops">
+              @if (diagBusy()) { <span class="spinner h-3 w-3 border-white/40 border-t-white"></span> } @else { <nb-icon name="stethoscope" [size]="12" /> }
+              Troubleshoot
+            </button>
+            @if (!basicMode()) {
+              <button type="button" class="btn btn-eve btn-sm" (click)="explainCheck()"><nb-icon name="sparkles" [size]="12" /> Ask Eve why</button>
+            }
+          }
+          <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close" (click)="checkOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
+        </div>
+      </div>
+    }
   }
 
-  @if (api.warning() && !basicMode()) {
-    <div class="line-clamp-2 border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200 md:line-clamp-none">{{ api.warning() }}</div>
-  }
-  @if (checkMsg()) {
-    <div
-      class="border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 font-mono text-xs whitespace-pre-wrap"
-      [class.text-emerald-400]="checkMsg() === 'Check passed.'"
-      [class.text-rose-300]="checkMsg() !== 'Check passed.'"
-    >
-      {{ checkMsg() }}
-    </div>
-  }
-
-  <div
-    class="min-h-0 flex-col md:flex-row"
-    [ngClass]="isNarrow() && !basicMode() && mobileTab() === 'term' ? 'hidden' : 'flex flex-1'"
-  >
+  <!-- ===================================================================== main -->
+  <div class="min-h-0 flex-col md:flex-row" [ngClass]="isNarrow() && !basicMode() && mobileTab() === 'term' ? 'hidden' : 'flex flex-1'">
+    <!-- palette -->
     @if (showPalette()) {
-      <aside
-        class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/70 md:w-48 md:flex-none md:border-r"
-      >
-        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Cables</div>
-        <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0">
+      <aside class="scroll-thin flex min-h-0 w-full flex-1 flex-col overflow-auto border-ink-800 bg-ink-900/60 md:w-52 md:flex-none md:border-r">
+        <div class="section-title px-3 pt-3 pb-1.5">Cables</div>
+        <div class="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-1">
           @for (c of visibleCables(); track c.id) {
             <button
-              class="min-h-12 rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:min-h-0 md:py-1.5"
-              [ngClass]="cableArmed() && effectiveCable() === c.id ? 'border-amber-400 bg-amber-950/70' : 'border-zinc-800 md:border-transparent'"
+              type="button"
+              class="group flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
+              [ngClass]="cableArmed() && effectiveCable() === c.id ? 'border-warn-400/70 bg-warn-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
+              [attr.aria-pressed]="cableArmed() && effectiveCable() === c.id"
               (click)="armCable(c.id)"
             >
-              <div class="font-medium">{{ c.label }}</div>
-              <div class="text-[10px] text-zinc-500">{{ c.hint }}</div>
+              <svg width="28" height="10" class="shrink-0" aria-hidden="true">
+                <line x1="1" y1="5" x2="27" y2="5" stroke-width="2.5" stroke-linecap="round"
+                  [attr.stroke]="c.id === 'fiber' ? '#fb923c' : c.id === 'crossover' ? '#2dd4bf' : c.id === 'straight' ? '#94a3b8' : '#7c8aa5'"
+                  [attr.stroke-dasharray]="c.id === 'fiber' ? '2 3' : c.id === 'crossover' ? '6 3' : '0'" />
+              </svg>
+              <span class="min-w-0">
+                <span class="block text-xs font-medium text-ink-50">{{ c.label }}</span>
+                <span class="block truncate text-[10px] text-ink-400">{{ c.hint }}</span>
+              </span>
             </button>
           }
         </div>
-        <div class="px-3 py-2 text-[11px] uppercase tracking-wider text-zinc-500">Add device</div>
-        <p class="px-3 pb-2 text-[11px] leading-snug text-zinc-400 md:hidden">Tap a type. It appears on the canvas — then drag it.</p>
-        <div class="grid grid-cols-2 gap-1 px-2 pb-2 md:grid-cols-1 md:px-0 md:pb-0">
+        <div class="section-title px-3 pt-2 pb-1.5">Devices</div>
+        <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400 md:hidden">Tap a type — it lands in the middle of the canvas. Drag it, then Cable.</p>
+        <div class="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-1">
           @for (p of PALETTE; track p.kind) {
             <button
-              class="min-h-12 rounded-md border px-2 py-2 text-left text-xs hover:bg-zinc-800 md:mx-2 md:mb-1 md:min-h-0 md:py-1.5"
-              [ngClass]="placing() === p.kind ? 'border-cyan-500 bg-cyan-950' : 'border-zinc-800 md:border-transparent'"
+              type="button"
+              class="flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
+              [ngClass]="placing() === p.kind ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
+              [attr.aria-pressed]="placing() === p.kind"
               (click)="place(p.kind)"
             >
-              <div class="font-medium">{{ p.label }}</div>
-              <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
+              <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)">
+                <nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" />
+              </span>
+              <span class="min-w-0">
+                <span class="block text-xs font-medium text-ink-50">{{ p.label }}</span>
+                <span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span>
+              </span>
             </button>
           }
         </div>
-        <p class="mt-auto hidden px-3 py-2 text-[10px] leading-snug text-zinc-500 md:block">
-          {{
-            advUi()
-              ? 'Advanced: pick a cable, then click ports. Without a cable armed, click a port to enable or disable it.'
-              : 'Simple: pick Ethernet, then click two devices. Click a port status to enable or disable it.'
-          }}
+        <p class="mt-auto hidden px-3 py-3 text-[10.5px] leading-snug text-ink-500 md:block">
+          {{ advUi() ? 'Pick a cable, then click two ports. Without a cable armed, clicking a port toggles it.' : 'Pick a device to place it, or a cable and then two devices.' }}
+          <span class="mt-1 block">Press <span class="kbd">?</span> for shortcuts.</span>
         </p>
       </aside>
     }
 
+    <!-- canvas -->
     @if (showCanvas()) {
       <div class="relative min-h-0 min-w-0 flex-1">
-        @if (api.state()?.goal) {
-          <div
-            class="absolute left-2 right-16 top-2 z-10 flex items-start gap-1 rounded-md bg-zinc-950/85 px-2 py-1 text-[10px] leading-snug text-zinc-300 md:right-2"
-            [class.pointer-events-none]="!basicMode()"
-          >
-            <span class="line-clamp-2 min-w-0 flex-1">Goal: {{ api.state()?.goal }}</span>
-            @if (basicMode()) {
-              <button
-                type="button"
-                class="pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-                aria-label="Help: lab goal"
-                (click)="openHelp('goal', $event)"
-              >
-                ?
-              </button>
-            }
+        <!-- goal card -->
+        @if (api.state(); as st) {
+          <div class="absolute left-2 top-2 z-10 max-w-[min(100%-6rem,26rem)] md:left-3 md:top-3">
+            <div class="rounded-xl border border-ink-700/80 bg-ink-900/85 shadow-card backdrop-blur">
+              <div class="flex items-start gap-1 pr-1.5">
+                <button type="button" class="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2 text-left" (click)="goalOpen.set(!goalOpen())" [attr.aria-expanded]="goalOpen()">
+                  <nb-icon name="flag" [size]="14" class="mt-0.5 shrink-0 text-brand-300" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-[10px] font-semibold tracking-wide text-ink-400 uppercase">Goal</span>
+                    <span class="block text-[11.5px] leading-snug text-ink-100" [class.line-clamp-2]="!goalOpen()">{{ st.goal || st.name }}</span>
+                  </span>
+                  @if (!basicMode()) {
+                    <nb-icon name="chevron-down" [size]="14" class="mt-0.5 shrink-0 text-ink-500 transition-transform" [class.rotate-180]="goalOpen()" />
+                  }
+                </button>
+                @if (basicMode()) {
+                  <button type="button" class="btn btn-ghost btn-icon mt-1 h-7 w-7 shrink-0 text-ink-300" aria-label="Help: lab goal" (click)="openHelp('goal', $event)"><nb-icon name="help" [size]="14" /></button>
+                }
+              </div>
+              @if (goalOpen() && checklist().length) {
+                <ul class="border-t border-ink-800 px-2.5 py-2 space-y-1">
+                  @for (c of checklist(); track $index) {
+                    <li class="flex items-start gap-1.5 text-[11px] leading-snug">
+                      <nb-icon [name]="c.ok === true ? 'circle-check' : c.ok === false ? 'circle-x' : 'clock'" [size]="13" class="mt-px shrink-0"
+                        [ngClass]="c.ok === true ? 'text-ok-400' : c.ok === false ? 'text-danger-400' : 'text-ink-500'" />
+                      <span class="min-w-0 flex-1">
+                        <span class="text-ink-100">{{ c.label }}</span>
+                        @if (c.ok === false && c.reason) { <span class="block text-ink-400">{{ c.reason }}</span> }
+                      </span>
+                      @if (c.ok === false && c.result) {
+                        <button type="button" class="btn btn-sm btn-ghost shrink-0 text-brand-300" (click)="troubleshoot(c.result)" title="Explain where and why this fails">Why?</button>
+                      }
+                    </li>
+                  }
+                  @if (!checkResult()) {
+                    <li class="pt-0.5 text-[10.5px] text-ink-500">Press Check to test.</li>
+                  }
+                </ul>
+              }
+            </div>
           </div>
         }
-        @if (hint() || placing() || cableFrom() || cableArmed()) {
-          <div
-            class="absolute inset-x-2 z-10 rounded-md border border-cyan-800 bg-zinc-950/90 px-2 py-1.5 text-[11px] text-cyan-100"
-            [class.top-10]="!!api.state()?.goal"
-            [class.top-2]="!api.state()?.goal"
-          >
-            @if (placing(); as k) {
-              Click the grid to place a {{ kindLabel(k) }}.
-              <button class="ml-2 underline" (click)="placing.set(null)">Cancel</button>
-            } @else if (cableFrom(); as c) {
-              {{ cableLabel(effectiveCable()) }} from {{ devName(c.id) }}{{ advUi() ? ' ' + c.iface : '' }}. Tap the other end.
-              <button class="ml-2 underline" (click)="cancelCable()">Cancel</button>
-            } @else if (cableArmed()) {
-              {{ cableLabel(effectiveCable()) }} ready. {{ advUi() ? 'Click a free port or two devices.' : 'Tap two devices.' }}
-              <button class="ml-2 underline" (click)="cancelCable()">Cancel</button>
-            } @else {
-              {{ hint() }}
-            }
+
+        <!-- mode pill -->
+        @if (placing() || cableFrom() || cableArmed()) {
+          <div class="absolute inset-x-0 top-2 z-10 flex justify-center px-2 md:top-3">
+            <div class="flex max-w-full items-center gap-2 rounded-full border border-brand-500/40 bg-ink-900/95 px-3 py-1.5 text-[11.5px] text-brand-100 shadow-pop animate-pop">
+              @if (placing(); as k) {
+                <nb-icon [name]="kindIcon(k)" [size]="14" class="text-brand-300" />
+                <span class="truncate">Click the canvas to place a {{ kindLabel(k) }}</span>
+                <button type="button" class="btn btn-sm btn-ghost text-brand-200" (click)="placing.set(null)">Cancel</button>
+              } @else if (cableFrom(); as c) {
+                <nb-icon name="plug" [size]="14" class="text-warn-300" />
+                <span class="truncate">{{ cableLabel(effectiveCable()) }} from <b>{{ devName(c.id) }}</b>{{ advUi() ? ' ' + c.iface : '' }} — tap the other device</span>
+                <button type="button" class="btn btn-sm btn-ghost text-brand-200" (click)="cancelCable()">Cancel</button>
+              } @else {
+                <nb-icon name="plug" [size]="14" class="text-warn-300" />
+                <span class="truncate">{{ cableLabel(effectiveCable()) }} armed — {{ advUi() ? 'click a free port or two devices' : 'tap two devices' }}</span>
+                <button type="button" class="btn btn-sm btn-ghost text-brand-200" (click)="cancelCable()">Cancel</button>
+              }
+            </div>
           </div>
         }
+
+        <!-- live monitor pill -->
+        @if (monitor(); as mon) {
+          <div class="absolute inset-x-0 z-10 flex justify-center px-2" [ngClass]="placing() || cableFrom() || cableArmed() ? 'top-14 md:top-[3.75rem]' : 'top-2 md:top-3'">
+            <div class="flex max-w-full items-center gap-2 rounded-full border bg-ink-900/95 px-3 py-1.5 text-[11.5px] shadow-pop animate-pop" [ngClass]="mon.ok === true ? 'border-ok-500/50' : mon.ok === false ? 'border-danger-500/50' : 'border-ink-600'">
+              <span class="led" [ngClass]="mon.ok === true ? 'led-up' : mon.ok === false ? 'led-down' : 'led-off'"></span>
+              <span class="truncate text-ink-100">Watching <b>{{ mon.src }} → {{ mon.dst }}</b><span class="text-ink-500"> · every 5 s · {{ mon.ticks }}×</span></span>
+              <span class="hidden max-w-72 truncate text-ink-300 sm:inline">{{ mon.reason }}</span>
+              @if (mon.busy) { <span class="spinner h-3 w-3"></span> }
+              <button type="button" class="btn btn-sm btn-ghost text-ink-200" (click)="stopMonitor()">Stop</button>
+            </div>
+          </div>
+        }
+
+        <!-- trace card -->
+        @if (trace(); as t) {
+          <div class="absolute left-2 z-10 max-w-[min(100%-1rem,30rem)] md:left-3" [ngClass]="isNarrow() ? 'bottom-20' : 'bottom-3'">
+            <div class="rounded-xl border bg-ink-900/95 px-3 py-2 shadow-pop backdrop-blur animate-pop" [ngClass]="t.ok ? 'border-ok-500/40' : 'border-danger-500/40'">
+              <div class="flex items-center gap-2">
+                <nb-icon [name]="t.ok ? 'circle-check' : 'circle-x'" [size]="14" [ngClass]="t.ok ? 'text-ok-400' : 'text-danger-400'" />
+                <span class="text-[11.5px] font-medium text-ink-50">{{ t.label }}</span>
+                <span class="chip" [ngClass]="t.ok ? 'chip-ok' : 'chip-danger'">{{ t.ok ? 'reachable' : 'dropped' }}</span>
+                <button type="button" class="btn btn-ghost btn-icon ml-auto h-6 w-6 text-ink-400" aria-label="Clear trace" (click)="clearTrace()"><nb-icon name="x" [size]="12" /></button>
+              </div>
+              <div class="mt-1 flex flex-wrap items-center gap-1 font-mono text-[10.5px]">
+                @for (h of t.devices; track $index; let last = $last) {
+                  <span class="rounded px-1" [ngClass]="h === t.dropDevice ? 'bg-danger-500/20 text-danger-200' : 'bg-ink-800 text-ink-100'">{{ h }}</span>
+                  @if (!last) { <span class="text-ink-500">→</span> }
+                }
+              </div>
+              <div class="mt-1 text-[11px] leading-snug" [ngClass]="t.ok ? 'text-ink-300' : 'text-danger-200'">{{ t.reason }}</div>
+            </div>
+          </div>
+        }
+
+        <!-- link card -->
         @if (selectedLink(); as l) {
-          <div
-            class="absolute inset-x-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-800 bg-zinc-950/95 px-2 py-1.5 text-[11px] text-amber-100"
-            [class.bottom-16]="basicMode()"
-            [class.bottom-3]="!basicMode()"
-          >
-            <span class="font-medium">{{ cableLabel(l.kind === 'radio' ? 'radio' : l.cable) }}</span>
-            <span class="font-mono">{{ l.a.device }}:{{ l.a.iface }} — {{ l.b.device }}:{{ l.b.iface }}</span>
-            @if (linkIsDown(l)) {
-              <span class="rounded bg-amber-900 px-1 text-amber-200">no link</span>
-            }
-            @if (l.kind !== 'radio') {
-              <button class="rounded bg-rose-800 px-2 py-0.5 text-rose-100" (click)="unplug(l.id)">Unplug</button>
-            }
-            <button class="underline" (click)="selectedLinkId.set(null)">Close</button>
+          <div class="absolute inset-x-2 z-10 md:inset-x-auto md:right-3 md:w-80" [ngClass]="isNarrow() ? 'bottom-20' : 'bottom-3'">
+            <div class="flex flex-wrap items-center gap-2 rounded-xl border border-brand-500/40 bg-ink-900/95 px-3 py-2 text-[11.5px] shadow-pop backdrop-blur animate-pop">
+              <nb-icon [name]="l.kind === 'radio' ? 'wifi' : 'plug'" [size]="14" class="text-brand-300" />
+              <span class="font-medium text-ink-50">{{ cableLabel(l.kind === 'radio' ? 'radio' : l.cable) }}</span>
+              <span class="min-w-0 truncate font-mono text-ink-300">{{ l.a.device }}:{{ l.a.iface }} — {{ l.b.device }}:{{ l.b.iface }}</span>
+              @if (linkIsDown(l)) { <span class="chip chip-warn">no link</span> } @else { <span class="chip chip-ok">up</span> }
+              <span class="ml-auto flex items-center gap-1">
+                @if (l.kind !== 'radio') {
+                  <button type="button" class="btn btn-sm btn-danger" (click)="unplug(l.id)"><nb-icon name="unplug" [size]="12" /> Unplug</button>
+                }
+                <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Close" (click)="selectedLinkId.set(null)"><nb-icon name="x" [size]="12" /></button>
+              </span>
+            </div>
           </div>
         }
-        @if (basicMode()) {
-          <div class="absolute bottom-3 left-3 z-10 flex items-center gap-1">
-            <button
-              class="min-h-11 rounded-full px-4 text-sm font-medium shadow-lg"
-              [ngClass]="cableArmed() ? 'bg-amber-600 text-white' : 'bg-zinc-800 text-zinc-100'"
-              (click)="armCable('ethernet')"
-            >
-              Cable
-            </button>
-            <button
-              type="button"
-              class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-base font-semibold text-zinc-200 shadow-lg hover:border-cyan-500 hover:text-cyan-200"
-              aria-label="Help: cables"
-              (click)="openHelp('cable', $event)"
-            >
-              ?
-            </button>
+
+        <!-- focus mode: floating toolbar + selected device chip -->
+        @if (focusMode()) {
+          <div class="absolute inset-x-0 bottom-3 z-10 flex justify-center px-3 pointer-events-none">
+            <div class="pointer-events-auto relative flex items-center gap-0.5 rounded-xl border border-ink-700 bg-ink-900/90 p-1 shadow-pop backdrop-blur">
+              @if (focusAddOpen()) {
+                <div class="fixed inset-0 z-30" (click)="focusAddOpen.set(false)"></div>
+                <div class="card absolute bottom-full left-0 z-40 mb-2 w-72 p-1.5 animate-pop" role="menu">
+                  <div class="section-title px-2.5 pt-1 pb-1">Add a device</div>
+                  <div class="grid grid-cols-2 gap-1">
+                    @for (p of PALETTE; track p.kind) {
+                      <button type="button" class="menu-item" role="menuitem" (click)="place(p.kind)">
+                        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
+                        <span class="min-w-0"><span class="block truncate text-xs font-medium text-ink-50">{{ p.label }}</span></span>
+                      </button>
+                    }
+                  </div>
+                  @if (advUi()) {
+                    <div class="section-title px-2.5 pt-2 pb-1">Cable type</div>
+                    <div class="flex flex-wrap gap-1 px-1.5 pb-1">
+                      @for (c of CABLE_TYPES; track c.id) {
+                        <button type="button" class="chip cursor-pointer" [ngClass]="cableKind() === c.id ? 'chip-brand ring-1 ring-brand-400/60' : 'chip-muted'" (click)="cableKind.set(c.id)">{{ c.label }}</button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusAddOpen() || placing() }" (click)="focusAddOpen.set(!focusAddOpen())" title="Add a device">
+                <nb-icon name="plus" [size]="14" /> Add
+              </button>
+              <button type="button" class="btn" [ngClass]="cableArmed() ? 'bg-warn-500 text-ink-950' : 'btn-ghost'" (click)="cableArmed() ? cancelCable() : armCable(effectiveCable())" title="Cable two devices (C)">
+                <nb-icon name="plug" [size]="14" /> {{ cableArmed() ? 'Cancel cable' : 'Cable' }}
+              </button>
+              <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
+              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusTerm() }" (click)="toggleFocusTerm()" title="Show or hide the terminal (T)">
+                <nb-icon name="terminal" [size]="14" /> Terminal
+              </button>
+              <button type="button" class="btn btn-ghost" (click)="toggleEve(); toggleFocus()" title="Open Eve (leaves focus mode)">
+                <nb-icon name="sparkles" [size]="14" /> Eve
+              </button>
+              <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
+              <button type="button" class="btn btn-ghost btn-icon" (click)="openPalette()" title="Command palette (Ctrl+K)" aria-label="Command palette">
+                <nb-icon name="command" [size]="14" />
+              </button>
+            </div>
+          </div>
+
+          @if (selected(); as d) {
+            <div class="absolute right-3 top-3 z-10 max-h-[calc(100%-5rem)] overflow-auto scroll-thin rounded-xl border border-ink-700 bg-ink-900/90 p-2.5 shadow-card backdrop-blur animate-pop" [ngClass]="reach() ? 'w-80' : 'w-72'">
+              <div class="flex items-center gap-2">
+                <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="15" [ngClass]="kindAccent(d.kind)" /></span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5 text-xs font-semibold text-ink-50"><span class="truncate">{{ d.name }}</span><span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span></div>
+                  <div class="truncate text-[10.5px] text-ink-400">{{ kindLabel(d.kind) }}@if (primaryIpv4(d); as ip) { · <span class="font-mono text-ok-300">{{ ip }}</span> }</div>
+                </div>
+                <button type="button" class="btn btn-ghost btn-icon h-7 w-7 text-ink-400" aria-label="Deselect" (click)="selectedId.set(null)"><nb-icon name="x" [size]="13" /></button>
+              </div>
+              @if (hints().length) {
+                <div class="mt-2 flex items-start gap-1.5 rounded-lg border border-warn-500/30 bg-warn-500/10 px-2 py-1.5 text-[10.5px] leading-snug text-ink-100">
+                  <nb-icon name="alert" [size]="12" class="mt-0.5 shrink-0 text-warn-300" />
+                  <span class="min-w-0 flex-1">{{ hints()[0].text }}</span>
+                  @if (hints()[0].action; as a) { <button type="button" class="btn btn-sm btn-secondary shrink-0" (click)="a.run()">{{ a.label }}</button> }
+                </div>
+              }
+              <div class="mt-2 grid grid-cols-5 gap-1">
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openTerminalFor(d); focusTerm() || toggleFocusTerm()" title="Terminal"><nb-icon name="terminal" [size]="13" /> Term</button>
+                <button type="button" class="btn btn-sm flex-col gap-0 py-1 text-[9.5px]" [ngClass]="reach() ? 'bg-ink-750 text-brand-200' : 'btn-ghost'" (click)="reach() ? closeReach() : openReach(d)" title="Ping or trace"><nb-icon name="zap" [size]="13" /> Reach</button>
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="startCable($event, d)" title="Cable"><nb-icon name="plug" [size]="13" /> Cable</button>
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openDetails(d)" title="Full inspector"><nb-icon name="inspect" [size]="13" /> Details</button>
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px] hover:text-danger-300" (click)="deleteDevice(d)" title="Delete"><nb-icon name="trash" [size]="13" /> Delete</button>
+              </div>
+              @if (reach()) {
+                <div class="mt-1 text-[11px]">
+                  <ng-container *ngTemplateOutlet="reachPanel; context: { $implicit: d, big: false }" />
+                </div>
+              }
+            </div>
+          }
+        }
+
+        <!-- zoom toolbar (desktop) -->
+        @if (!isNarrow()) {
+          <div class="absolute right-3 z-10 flex items-center gap-0.5 rounded-lg border border-ink-700 bg-ink-900/90 p-0.5 shadow-card backdrop-blur" [ngClass]="selectedLink() ? 'bottom-16' : 'bottom-3'">
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Zoom out" title="Zoom out (−)" (click)="zoomBy(1 / 1.2)"><nb-icon name="minus" [size]="14" /></button>
+            <button type="button" class="btn btn-ghost h-7 min-w-12 px-1 font-mono text-[11px] text-ink-300" title="Reset zoom (0)" (click)="resetZoom()">{{ zoomPct() }}%</button>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Zoom in" title="Zoom in (+)" (click)="zoomBy(1.2)"><nb-icon name="plus" [size]="14" /></button>
+            <span class="mx-0.5 h-4 w-px bg-ink-700"></span>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Fit to view" title="Fit to view (F)" (click)="fitToView()"><nb-icon name="fit" [size]="14" /></button>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Tidy up" title="Tidy up layout" (click)="tidyUp()"><nb-icon name="tidy" [size]="14" /></button>
           </div>
         }
-        <button
-          class="absolute bottom-3 right-3 z-10 min-h-11 rounded-full bg-cyan-700 px-4 text-sm font-medium text-white shadow-lg md:hidden"
-          (click)="addOpen.set(true)"
-        >
-          + Add
-        </button>
+
+        <!-- mobile FABs -->
+        @if (isNarrow()) {
+          <div class="absolute bottom-3 left-3 z-10 flex items-center gap-1.5">
+            <button type="button" class="btn btn-lg shadow-pop" [ngClass]="cableArmed() ? 'bg-warn-500 text-ink-950' : 'btn-secondary'" (click)="cableArmed() ? cancelCable() : armCable('ethernet')">
+              <nb-icon name="plug" [size]="15" /> {{ cableArmed() ? 'Cancel' : 'Cable' }}
+            </button>
+            @if (basicMode()) {
+              <button type="button" class="btn btn-secondary btn-icon h-11 w-11 rounded-xl shadow-pop" aria-label="Help: cables" (click)="openHelp('cable', $event)"><nb-icon name="help" [size]="16" /></button>
+            }
+          </div>
+          <button type="button" class="btn btn-primary btn-lg absolute right-3 bottom-3 z-10 shadow-pop" (click)="addOpen.set(true)"><nb-icon name="plus" [size]="16" /> Add</button>
+        }
+
+        <!-- loading / error / empty -->
+        @if (loading()) {
+          <div class="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/60 backdrop-blur-[1px]">
+            <div class="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-4 py-3 text-sm text-ink-200 shadow-pop"><span class="spinner"></span> Loading lab…</div>
+          </div>
+        } @else if (loadError(); as err) {
+          <div class="absolute inset-0 z-20 flex items-center justify-center p-4">
+            <div class="card max-w-sm p-5 text-center">
+              <nb-icon name="alert" [size]="26" class="mx-auto text-danger-400" />
+              <div class="mt-2 text-sm font-semibold text-ink-50">The lab could not be loaded</div>
+              <p class="mt-1 text-xs leading-relaxed text-ink-300">{{ err }}</p>
+              <button type="button" class="btn btn-primary mt-4" (click)="retryBoot()"><nb-icon name="refresh" [size]="14" /> Try again</button>
+            </div>
+          </div>
+        } @else if (api.state() && !api.state()!.devices.length) {
+          <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center p-6">
+            <div class="max-w-xs text-center text-ink-400">
+              <nb-icon name="network" [size]="30" class="mx-auto text-ink-600" />
+              <div class="mt-2 text-sm font-medium text-ink-200">An empty canvas</div>
+              <p class="mt-1 text-xs leading-relaxed">Add a device from the palette{{ isNarrow() ? ' (+ Add)' : '' }}, cable two of them, give them IPs, then Check.</p>
+            </div>
+          </div>
+        }
+
+        <!-- stage -->
         <div
           #stage
-          class="grid-canvas absolute inset-0 overflow-hidden touch-none"
+          class="grid-canvas absolute inset-0 touch-none overflow-hidden"
+          [style.background-position]="gridPos()"
+          [style.background-size]="gridSize()"
           (wheel)="onWheel($event, $any($event.currentTarget))"
           (pointerdown)="canvasDown($event, $any($event.currentTarget))"
           (pointermove)="canvasMove($event)"
           (pointerup)="canvasUp($event)"
           (pointercancel)="canvasUp($event)"
         >
-          <div
-            class="absolute left-0 top-0 origin-top-left will-change-transform"
-            [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'"
-          >
-            <svg
-              class="absolute left-0 top-0 overflow-visible"
-              [attr.width]="worldW()"
-              [attr.height]="worldH()"
-              [style.width.px]="worldW()"
-              [style.height.px]="worldH()"
-              overflow="visible"
-            >
+          <div class="absolute top-0 left-0 origin-top-left will-change-transform" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + pan().s + ')'">
+            <svg class="absolute top-0 left-0 overflow-visible" [attr.width]="worldW()" [attr.height]="worldH()" [style.width.px]="worldW()" [style.height.px]="worldH()" overflow="visible">
+              <defs>
+                <filter id="nb-glow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="2.5" result="b" />
+                  <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+              </defs>
               @for (l of api.state()?.links ?? []; track l.id) {
-                <path
-                  data-link
-                  [attr.d]="linkPath(l)"
-                  fill="none"
-                  stroke="transparent"
-                  stroke-width="14"
-                  stroke-linecap="round"
-                  class="cursor-pointer"
-                  (pointerdown)="selectLink($event, l)"
-                />
+                <path data-link [attr.d]="linkPath(l)" fill="none" stroke="transparent" stroke-width="16" stroke-linecap="round" class="cursor-pointer" (pointerdown)="selectLink($event, l)" />
+                @if (linkInTrace(l)) {
+                  <path [attr.d]="linkPath(l)" fill="none" [attr.stroke]="linkStroke(l)" stroke-width="7" stroke-linecap="round" opacity="0.25" class="pointer-events-none" />
+                }
                 <path
                   [attr.d]="linkPath(l)"
                   fill="none"
                   [attr.stroke]="linkStroke(l)"
                   [attr.stroke-dasharray]="linkDash(l)"
-                  [attr.stroke-width]="selectedLinkId() === l.id ? 3.5 : 2"
-                  [attr.opacity]="linkIsDown(l) ? '0.45' : '1'"
+                  [attr.stroke-width]="selectedLinkId() === l.id || linkInTrace(l) ? 3 : 2"
+                  stroke-linecap="round"
+                  [attr.opacity]="linkIsDown(l) ? '0.4' : '1'"
                   class="pointer-events-none"
+                  [class.cable-selected]="selectedLinkId() === l.id"
                 />
+                @if (advUi()) {
+                  <text [attr.x]="linkLabelPos(l, 'a').x" [attr.y]="linkLabelPos(l, 'a').y" font-size="9" text-anchor="middle" fill="#aeb9cc" stroke="#070a10" stroke-width="3" paint-order="stroke" class="pointer-events-none select-none font-mono">{{ linkLabel(l, 'a') }}</text>
+                  <text [attr.x]="linkLabelPos(l, 'b').x" [attr.y]="linkLabelPos(l, 'b').y" font-size="9" text-anchor="middle" fill="#aeb9cc" stroke="#070a10" stroke-width="3" paint-order="stroke" class="pointer-events-none select-none font-mono">{{ linkLabel(l, 'b') }}</text>
+                }
               }
               @if (cableFrom() && cableCursor()) {
-                <path
-                  [attr.d]="rubberPath()"
-                  fill="none"
-                  stroke="#22d3ee"
-                  stroke-dasharray="5 4"
-                  stroke-width="2"
-                  class="pointer-events-none"
-                />
+                <path [attr.d]="rubberPath()" fill="none" stroke="#22d3ee" stroke-dasharray="5 4" stroke-width="2" stroke-linecap="round" class="pointer-events-none" />
               }
               @for (p of animPkts(); track p.id) {
-                <circle r="5" [attr.fill]="p.drop ? '#f43f5e' : '#22d3ee'">
-                  <animateMotion dur="0.8s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
+                <circle r="5" filter="url(#nb-glow)" [attr.fill]="p.drop ? '#fb7185' : '#22d3ee'" class="pointer-events-none">
+                  <animateMotion dur="0.34s" fill="freeze" [attr.path]="'M ' + p.x1 + ' ' + p.y1 + ' L ' + p.x2 + ' ' + p.y2" />
                 </circle>
               }
             </svg>
-            <div class="absolute left-0 top-0">
-            @for (d of api.state()?.devices ?? []; track d.id) {
-              <div
-                data-dev
-                class="absolute cursor-grab rounded-lg border px-1.5 py-1 text-center shadow-lg"
-                [class.w-24]="!advUi()"
-                [class.w-28]="advUi()"
-                [ngClass]="
-                  kindColor(d.kind) +
-                  (selectedId() === d.id ? ' ring-2 ring-cyan-400' : '') +
-                  (cableFrom()?.id === d.id ? ' ring-2 ring-amber-400' : '') +
-                  (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '')
-                "
-                [style.left.px]="d.x"
-                [style.top.px]="d.y"
-                (pointerdown)="startDrag($event, d)"
-              >
-                <div class="text-[10px] uppercase text-zinc-400">{{ kindLabel(d.kind) }}</div>
-                <div class="truncate text-xs font-semibold">{{ d.name }}</div>
-                @if (primaryIpv4(d); as ip) {
-                  <div class="truncate font-mono text-[9px] text-emerald-300/90">{{ ip }}</div>
-                }
-                @if (!advUi()) {
-                  @if (usedPortRows(d).length) {
-                    <div class="flex flex-col gap-0.5 pt-0.5">
-                      @for (p of usedPortRows(d); track p.name) {
-                        <button
-                          type="button"
-                          class="truncate rounded font-mono text-[8px] leading-3 transition hover:bg-zinc-950/70 hover:ring-1 hover:ring-cyan-400/50"
-                          [class.text-emerald-200]="p.up"
-                          [class.text-amber-200]="!p.up"
-                          [title]="statusToggleTitle(d, p.name)"
-                          (pointerdown)="$event.stopPropagation()"
-                          (click)="toggleIface(d, p.name, $event)"
-                        >
-                          {{ p.name }} → {{ p.peer?.device }} · {{ p.status }}
+
+            <div class="absolute top-0 left-0">
+              @for (d of api.state()?.devices ?? []; track d.id) {
+                <div
+                  data-dev
+                  class="device-card absolute cursor-grab rounded-xl border px-2 pt-1.5 pb-1.5 shadow-card select-none"
+                  [style.width.px]="cardW()"
+                  [style.left.px]="d.x"
+                  [style.top.px]="d.y"
+                  [ngClass]="
+                    kindColor(d.kind) +
+                    (selectedId() === d.id ? ' ring-2 ring-brand-400 shadow-glow' : '') +
+                    (cableFrom()?.id === d.id ? ' ring-2 ring-warn-400' : '') +
+                    (api.state()?.highlightIds?.includes(d.id) ? ' hl-pulse' : '') +
+                    traceClass(d)
+                  "
+                  (pointerdown)="startDrag($event, d)"
+                >
+                  <div class="flex items-center gap-1.5">
+                    <nb-icon [name]="kindIcon(d.kind)" [size]="14" [ngClass]="kindAccent(d.kind)" />
+                    <span class="min-w-0 flex-1 truncate text-[9px] font-medium tracking-wider text-ink-300 uppercase">{{ kindLabel(d.kind) }}</span>
+                    <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }" [title]="deviceLed(d) === 'up' ? 'link up' : deviceLed(d) === 'warn' ? 'cabled but down' : 'not connected'"></span>
+                  </div>
+                  <div class="mt-0.5 truncate text-[12.5px] leading-tight font-semibold text-ink-50">{{ d.name }}</div>
+                  @if (primaryIpv4(d); as ip) {
+                    <div class="truncate font-mono text-[9.5px]" [ngClass]="ipClass(d)">{{ ip }}</div>
+                  } @else if (advUi() && primaryIpv6(d); as ip6) {
+                    <div class="truncate font-mono text-[9px] text-ok-300/80">{{ ip6 }}</div>
+                  }
+                  @if (d.associatedSsid) {
+                    <div class="mt-0.5 flex items-center gap-1 truncate text-[9px] text-violet-300"><nb-icon name="wifi" [size]="10" /> {{ d.associatedSsid }}</div>
+                  }
+                  @if (!advUi()) {
+                    @if (usedPortRows(d).length) {
+                      <div class="mt-1 flex flex-col gap-0.5">
+                        @for (p of usedPortRows(d); track p.name) {
+                          <button
+                            type="button"
+                            class="flex items-center gap-1 truncate rounded px-1 font-mono text-[8.5px] leading-4 transition hover:bg-ink-950/60 hover:ring-1 hover:ring-brand-400/50"
+                            [class.text-ok-200]="p.up"
+                            [class.text-warn-200]="!p.up"
+                            [title]="statusToggleTitle(d, p.name)"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="toggleIface(d, p.name, $event)"
+                          >
+                            <span class="led h-1.5 w-1.5" [ngClass]="p.up ? 'led-up' : 'led-warn'"></span>
+                            <span class="truncate">{{ p.name }} → {{ p.peer?.device }}</span>
+                          </button>
+                        }
+                      </div>
+                    }
+                    <button
+                      type="button"
+                      class="mt-1.5 inline-flex w-full items-center justify-center gap-1 rounded-md bg-ink-950/60 px-1.5 py-0.5 text-[9.5px] font-medium text-ink-200 transition hover:bg-ink-950/90 hover:text-brand-200"
+                      (pointerdown)="$event.stopPropagation()"
+                      (click)="startCable($event, d)"
+                    >
+                      <nb-icon name="plug" [size]="10" /> Cable
+                    </button>
+                  } @else {
+                    <div class="mt-1.5 grid gap-0.5" [class.grid-cols-4]="cardIfaces(d).length > 4" [class.grid-cols-2]="cardIfaces(d).length <= 4">
+                      @for (i of cardIfaces(d); track i.name) {
+                        <button type="button" class="rounded px-0.5 font-mono text-[9px] leading-4" [ngClass]="portChipClass(d, i)" (pointerdown)="$event.stopPropagation()" (click)="clickPort($event, d, i.name)" [title]="portTitle(d, i)">
+                          {{ shortPort(i.name) }}
                         </button>
                       }
                     </div>
                   }
-                  <button
-                    class="mt-1 rounded bg-zinc-950/50 px-1.5 py-0.5 text-[9px] text-zinc-200"
-                    (pointerdown)="$event.stopPropagation()"
-                    (click)="startCable($event, d)"
-                  >
-                    Cable
-                  </button>
-                } @else {
-                  <div
-                    class="grid gap-0.5 pt-1"
-                    [class.grid-cols-4]="cardIfaces(d).length > 4"
-                    [class.grid-cols-2]="cardIfaces(d).length <= 4"
-                  >
-                    @for (i of cardIfaces(d); track i.name) {
-                      <button
-                        class="rounded px-0.5 font-mono text-[9px] leading-4"
-                        [ngClass]="portChipClass(d, i)"
-                        (pointerdown)="$event.stopPropagation()"
-                        (click)="clickPort($event, d, i.name)"
-                        [title]="portTitle(d, i)"
-                      >
-                        {{ shortPort(i.name) }}
-                      </button>
-                    }
-                  </div>
-                }
-              </div>
-            }
+                </div>
+              }
             </div>
           </div>
         </div>
       </div>
     }
 
+    <!-- inspector -->
     @if (showInspect()) {
-      <aside
-        class="flex min-h-0 w-full flex-1 flex-col overflow-auto border-zinc-800 bg-zinc-900/80 md:w-72 md:flex-none md:border-l"
-      >
-        <div class="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-          <div class="text-xs font-medium">Inspector</div>
-          <div class="flex rounded-md border border-zinc-700 p-0.5">
-            <button
-              class="rounded px-1.5 py-0.5 text-[11px]"
-              [ngClass]="!advanced() ? 'bg-zinc-700 text-white' : 'text-zinc-400'"
-              (click)="setAdvanced(false)"
-            >
-              Simple
-            </button>
-            <button
-              class="rounded px-1.5 py-0.5 text-[11px]"
-              [ngClass]="advanced() ? 'bg-cyan-800 text-white' : 'text-zinc-400'"
-              (click)="setAdvanced(true)"
-            >
-              Advanced
-            </button>
-          </div>
-        </div>
+      <aside class="flex min-h-0 w-full flex-1 flex-col border-ink-800 bg-ink-900/70 md:w-[19.5rem] md:flex-none md:border-l">
         @if (selected(); as d) {
-          <div class="px-3 py-2">
-            <div class="text-sm font-semibold">{{ d.name }}</div>
-            <div class="text-xs text-zinc-500">{{ kindLabel(d.kind) }}</div>
+          <div class="flex items-start gap-2.5 border-b border-ink-800 px-3 py-2.5">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border" [ngClass]="kindColor(d.kind)">
+              <nb-icon [name]="kindIcon(d.kind)" [size]="18" [ngClass]="kindAccent(d.kind)" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="truncate text-sm font-semibold text-ink-50">{{ d.name }}</span>
+                <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span>
+              </div>
+              <div class="truncate text-[11px] text-ink-400">{{ kindLabel(d.kind) }} · <span class="font-mono">{{ d.hostname }}</span></div>
+            </div>
+            @if (!isNarrow()) {
+              <div class="seg">
+                <button type="button" class="seg-item px-2" [ngClass]="{ 'seg-item-on': !advanced() }" (click)="setAdvanced(false)">Simple</button>
+                <button type="button" class="seg-item px-2" [ngClass]="{ 'seg-item-on': advanced() }" (click)="setAdvanced(true)">Adv</button>
+              </div>
+            }
           </div>
+
+          <!-- quick actions -->
+          <div class="grid grid-cols-5 gap-1 border-b border-ink-800 px-2 py-1.5">
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openTerminalFor(d)" title="Open the terminal on this device (T)">
+              <nb-icon name="terminal" [size]="15" /> Terminal
+            </button>
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] transition-colors hover:bg-ink-800" [ngClass]="reach() ? 'bg-ink-800 text-brand-200' : 'text-ink-300 hover:text-ink-50'" (click)="reach() ? closeReach() : openReach(d)" title="Ping or trace from this device">
+              <nb-icon name="zap" [size]="15" /> Reach
+            </button>
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="startCable($event, d)" title="Start a cable from this device">
+              <nb-icon name="plug" [size]="15" /> Cable
+            </button>
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openEve(); explain()" title="Ask Eve to explain this device">
+              <nb-icon name="sparkles" [size]="15" /> Explain
+            </button>
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-danger-500/10 hover:text-danger-300" (click)="deleteDevice(d)" title="Delete device (Del)">
+              <nb-icon name="trash" [size]="15" /> Delete
+            </button>
+          </div>
+
           @if (!advanced()) {
-            <div class="min-h-0 flex-1 overflow-auto px-3 pb-2 text-sm">
-              <p class="mb-2 text-[11px] leading-snug text-zinc-500">Simple view — cables between devices, IPv4 only. Switch to Advanced to pick ports and cable types.</p>
-              <div class="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Used ports</div>
-              @for (p of usedPortRows(d); track p.name) {
-                <div class="mb-1 flex flex-wrap items-center gap-x-2 font-mono text-xs">
-                  <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
-                  <button
-                    type="button"
-                    [ngClass]="statusBtnClassFor(d, p.name)"
-                    [title]="statusToggleTitle(d, p.name)"
-                    (click)="toggleIface(d, p.name, $event)"
-                  >
-                    {{ p.status }}
-                  </button>
-                  @if (p.peer; as c) {
-                    <span>→ {{ c.device }} {{ c.iface }}</span>
-                    @if (c.cable !== 'ethernet' && c.cable !== 'radio') {
-                      <span class="text-[10px] text-zinc-500">{{ cableLabel(c.cable) }}</span>
-                    }
-                    <button class="text-[10px] text-rose-300" (click)="unplug(c.linkId)">Unplug</button>
-                  }
-                </div>
-              } @empty {
-                <p class="text-xs text-zinc-500">No cables on this device.</p>
-              }
-              @if (freePortRows(d).length) {
-                <button class="mt-1 text-[11px] text-cyan-400" (click)="showFreePorts.set(!showFreePorts())">
-                  {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free
-                  {{ freePortRows(d).length === 1 ? 'port' : 'ports' }}
-                </button>
-                @if (showFreePorts()) {
-                  @for (p of freePortRows(d); track p.name) {
-                    <div class="mt-1 font-mono text-xs text-zinc-500">
-                      {{ p.name }} ·
-                      <button
-                        type="button"
-                        [ngClass]="statusBtnClassFor(d, p.name)"
-                        [title]="statusToggleTitle(d, p.name)"
-                        (click)="toggleIface(d, p.name, $event)"
-                      >
-                        {{ p.status }}
-                      </button>
-                    </div>
-                  }
-                }
-              }
-              <div class="mb-1 mt-3 text-[10px] uppercase tracking-wide text-zinc-500">IPv4</div>
-              @for (row of ipv4Rows(d); track row.name) {
-                <div class="mb-1.5">
-                  <div class="font-mono text-xs text-emerald-300">{{ row.ip }}</div>
-                  <div class="text-[11px] text-zinc-500">{{ row.name }} · {{ row.status }}</div>
-                </div>
-              } @empty {
-                <p class="text-xs leading-5 text-zinc-500">
-                  {{ d.kind === 'switch' ? 'No IPv4 on this switch (normal for L2).' : 'No IPv4 address yet.' }}
-                </p>
-                @if (canAddIpv4(d)) {
-                  <div class="mt-2 flex items-center gap-2">
-                    <input
-                      class="min-h-10 min-w-0 flex-1 rounded-md border border-zinc-600 bg-zinc-950 px-2 font-mono text-xs"
-                      [(ngModel)]="ipInput"
-                      name="inspectip"
-                      (focus)="prepareIpv4Form(d)"
-                      placeholder="10.0.0.30"
-                    />
-                    <span class="text-xs text-zinc-500">/{{ ipPrefix }}</span>
-                  </div>
-                  <button
-                    class="mt-2 min-h-10 w-full rounded-md bg-emerald-700 text-xs font-medium disabled:opacity-50"
-                    [disabled]="ipBusy()"
-                    (click)="applyIpv4(d)"
-                  >
-                    {{ ipBusy() ? 'Adding…' : 'Add IP' }}
-                  </button>
-                }
-              }
-              @if (d.associatedSsid) {
-                <div class="mt-3 text-xs">Wi-Fi network: {{ d.associatedSsid }}</div>
-              }
+            <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 pb-3">
+              <ng-container *ngTemplateOutlet="devicePanel; context: { $implicit: d, big: false }" />
             </div>
           } @else {
-            <div class="flex gap-1 px-2">
-              <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'ifaces'" (click)="inspectorTab.set('ifaces')">
-                Ports
-              </button>
-              <button class="rounded px-2 py-0.5 text-[11px]" [class.bg-zinc-800]="inspectorTab() === 'run'" (click)="inspectorTab.set('run')">
-                Running-config
-              </button>
+            <div class="flex gap-1 border-b border-ink-800 px-2 py-1.5">
+              <button type="button" class="btn btn-sm" [ngClass]="inspectorTab() === 'ifaces' ? 'bg-ink-750 text-ink-50' : 'btn-ghost'" (click)="inspectorTab.set('ifaces')">Ports</button>
+              <button type="button" class="btn btn-sm" [ngClass]="inspectorTab() === 'routing' ? 'bg-ink-750 text-ink-50' : 'btn-ghost'" (click)="inspectorTab.set('routing')">Network</button>
+              <button type="button" class="btn btn-sm" [ngClass]="inspectorTab() === 'run' ? 'bg-ink-750 text-ink-50' : 'btn-ghost'" (click)="inspectorTab.set('run')">Config</button>
             </div>
             @if (inspectorTab() === 'ifaces') {
-              <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+              <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+                @if (hints().length) {
+                  <div class="mb-2 space-y-1.5">
+                    @for (h of hints(); track h.id) {
+                      <div class="flex items-start gap-2 rounded-lg border px-2.5 py-2" [ngClass]="h.level === 'warn' ? 'border-warn-500/30 bg-warn-500/10' : 'border-ink-700 bg-ink-800/60'">
+                        <nb-icon [name]="h.level === 'warn' ? 'alert' : 'info'" [size]="13" class="mt-0.5 shrink-0" [ngClass]="h.level === 'warn' ? 'text-warn-300' : 'text-ink-400'" />
+                        <div class="min-w-0 flex-1 text-[11px] leading-snug text-ink-100">{{ h.text }}</div>
+                        @if (h.action; as a) { <button type="button" class="btn btn-sm btn-secondary shrink-0" (click)="a.run()">{{ a.label }}</button> }
+                      </div>
+                    }
+                  </div>
+                }
                 @for (i of d.ifaces; track i.name) {
-                  <div class="mb-2 border-b border-zinc-800/80 pb-1">
-                    <div class="font-mono">
-                      {{ i.name }} ·
-                      <button
-                        type="button"
-                        [ngClass]="statusBtnClass(i)"
-                        [title]="statusToggleTitle(d, i.name)"
-                        (click)="toggleIface(d, i.name, $event)"
-                      >
-                        {{ linkStatus(i) }}
+                  <div class="mb-1.5 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5">
+                    <div class="flex items-center gap-2">
+                      <span class="led" [ngClass]="i.operUp ? 'led-up' : i.peer ? 'led-warn' : i.adminUp ? 'led-off' : 'led-off'"></span>
+                      <span class="font-mono font-medium text-ink-50">{{ i.name }}</span>
+                      @if (i.isRadio) { <nb-icon name="wifi" [size]="11" class="text-violet-300" /> }
+                      <button type="button" class="chip ml-auto cursor-pointer hover:ring-1 hover:ring-brand-400/60" [ngClass]="statusChipClass(i)" [title]="statusToggleTitle(d, i.name)" (click)="toggleIface(d, i.name, $event)">
+                        <nb-icon name="power" [size]="10" /> {{ linkStatus(i) }}
                       </button>
                     </div>
                     @if (i.peer; as p) {
-                      <div class="text-zinc-300">
-                        → {{ p.device }} {{ p.iface }}
-                        <span class="text-zinc-500">{{ cableLabel(p.cable) }}</span>
+                      <div class="flex items-center gap-1.5 text-ink-200">
+                        <span class="text-ink-500">→</span> {{ p.device }} <span class="font-mono text-ink-400">{{ p.iface }}</span>
+                        <span class="chip chip-muted">{{ cableLabel(p.cable) }}</span>
                         @if (!i.isRadio) {
-                          <button class="ml-1 text-rose-300" (click)="unplug(p.linkId)">Unplug</button>
+                          <button type="button" class="btn btn-ghost btn-icon ml-auto h-6 w-6 text-ink-500 hover:text-danger-300" title="Unplug" aria-label="Unplug" (click)="unplug(p.linkId)"><nb-icon name="unplug" [size]="12" /></button>
                         }
                       </div>
                     } @else if (!i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) {
-                      <div class="text-zinc-600">free</div>
+                      <div class="text-ink-500">free</div>
                     }
-                    @if (i.statusReason && i.status === 'Wrong cable') {
-                      <div class="text-amber-300/90">{{ i.statusReason }}</div>
-                    }
-                    @if (i.ipv4) {
-                      <div>IPv4 {{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div>
-                    }
+                    @if (i.statusReason && i.status === 'Wrong cable') { <div class="text-warn-300">{{ i.statusReason }}</div> }
+                    @if (i.ipv4) { <div class="font-mono text-ok-300">{{ i.ipv4.ip }}/{{ i.ipv4.prefix }}</div> }
                     @for (v of ipv6Rows(i); track v.ip) {
-                      <div class="truncate" [class.text-zinc-500]="v.linkLocal">
-                        IPv6 {{ v.ip }}{{ v.linkLocal ? ' (link-local)' : '' }}
-                      </div>
+                      <div class="truncate font-mono" [ngClass]="v.linkLocal ? 'text-ink-500' : 'text-ok-300/90'">{{ v.ip }}{{ v.linkLocal ? ' · link-local' : '' }}</div>
                     }
-                    <div class="text-zinc-500">
-                      {{ i.mode }}
-                      @if (i.accessVlan !== 1) {
-                        VLAN {{ i.accessVlan }}
-                      }
-                      @if (i.isRadio) {
-                        radio
-                      }
+                    <div class="flex flex-wrap gap-x-2 text-[10.5px] text-ink-500">
+                      <span>{{ i.mode }}@if (i.accessVlan !== 1) { · VLAN {{ i.accessVlan }} }</span>
+                      @if (i.zone) { <span>zone {{ i.zone }}</span> }
+                      <span class="truncate font-mono">{{ i.mac }}</span>
                     </div>
-                    <div class="truncate text-zinc-600">MAC {{ i.mac }}</div>
                   </div>
                 }
-                @if (d.associatedSsid) {
-                  <div>SSID {{ d.associatedSsid }}</div>
+              </div>
+            } @else if (inspectorTab() === 'routing') {
+              <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-5">
+                <div class="section-title mb-1">Addresses</div>
+                @for (row of ipv4Rows(d); track row.name) {
+                  <div class="flex items-center gap-2"><span class="font-mono text-ok-300">{{ row.ip }}</span><span class="text-ink-500">{{ row.name }}</span><span class="chip ml-auto" [ngClass]="row.up ? 'chip-ok' : 'chip-warn'">{{ row.status }}</span></div>
+                } @empty {
+                  <div class="text-ink-500">{{ d.kind === 'switch' ? 'No IPv4 (layer 2 switch).' : 'No IPv4 yet.' }}</div>
                 }
+                @if (primaryIpv6(d); as ip6) { <div class="font-mono text-ok-300/90">{{ ip6 }}</div> }
+                <div class="section-title mt-3 mb-1">Default gateway</div>
+                @if (gatewayOf(d); as gw) {
+                  <div class="flex items-center gap-2 font-mono text-ink-100">
+                    <span class="flex-1">{{ gw }}</span>
+                    <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-500 hover:text-brand-200" title="Change gateway" aria-label="Change gateway" (click)="startGatewayEdit(d)"><nb-icon name="pencil" [size]="12" /></button>
+                    <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-500 hover:text-danger-300" title="Remove gateway" aria-label="Remove gateway" (click)="removeGateway(d)"><nb-icon name="x" [size]="12" /></button>
+                  </div>
+                  @if (gwEdit()) {
+                    <form class="mt-1.5 flex items-center gap-1.5" (submit)="$event.preventDefault(); setGateway(d)">
+                      <input class="field min-w-0 flex-1 font-mono" [(ngModel)]="gwInput" name="gw-adv-edit" [placeholder]="suggestGateway(d) || '10.0.0.1'" />
+                      <button type="submit" class="btn btn-primary" [disabled]="gwBusy()">Change</button>
+                      <button type="button" class="btn btn-secondary" (click)="gwEdit.set(false)">Cancel</button>
+                    </form>
+                  }
+                  @if (gatewayOffSubnet(d)) { <div class="text-warn-300">Not on this device's own subnet.</div> }
+                } @else {
+                  <div class="text-ink-500">none</div>
+                  @if (ipv4Rows(d).length && d.kind !== 'cloud') {
+                    <form class="mt-1.5 flex items-center gap-1.5" (submit)="$event.preventDefault(); setGateway(d)">
+                      <input class="field min-w-0 flex-1 font-mono" [(ngModel)]="gwInput" name="gw-adv" placeholder="10.0.0.1" (focus)="!gwInput && prepareGatewayForm(d)" />
+                      <button type="submit" class="btn btn-secondary" [disabled]="gwBusy()">Set</button>
+                    </form>
+                  }
+                }
+                @if (d.kind === 'router') {
+                  <div class="section-title mt-3 mb-1">OSPF neighbors</div>
+                  @for (n of d.ospfNeighbors ?? []; track n.routerId) {
+                    <div class="flex items-center gap-2 font-mono"><span class="text-ink-100">{{ n.routerId }}</span><span class="chip ml-auto" [ngClass]="n.state === 'FULL' ? 'chip-ok' : 'chip-warn'">{{ n.state }}</span></div>
+                  } @empty {
+                    <div class="text-ink-500">none — <button type="button" class="text-brand-300 underline-offset-2 hover:underline" (click)="openTerminalFor(d); runLine('show ip ospf neighbor')">show ip ospf neighbor</button></div>
+                  }
+                }
+                @if (d.kind === 'server' || d.kind === 'workstation') {
+                  <div class="section-title mt-3 mb-1">Services</div>
+                  <div class="flex items-center gap-2">SSH <span class="chip ml-auto" [ngClass]="d.sshListen ? 'chip-ok' : 'chip-muted'">{{ d.sshListen ? 'listening :22' : 'off' }}</span></div>
+                  @if (!d.sshListen) { <button type="button" class="btn btn-sm btn-secondary mt-1" (click)="runCommands(d, ['systemctl start ssh'], 'SSH started')">Start SSH</button> }
+                }
+                @if (d.associatedSsid) {
+                  <div class="section-title mt-3 mb-1">Wi-Fi</div>
+                  <div class="flex items-center gap-2"><nb-icon name="wifi" [size]="12" class="text-violet-300" /> {{ d.associatedSsid }} <span class="text-ink-500">via {{ d.associatedAp ? devName(d.associatedAp) : 'AP' }}</span></div>
+                }
+                <div class="section-title mt-3 mb-1">Reachability</div>
+                <ng-container *ngTemplateOutlet="reachPanel; context: { $implicit: d, big: false }" />
               </div>
             } @else {
-              <pre class="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[10px] text-zinc-400">{{ d.runningConfig }}</pre>
+              <div class="flex items-center justify-between border-b border-ink-800/60 px-3 py-1 text-[10.5px] text-ink-500">
+                running-config
+                <button type="button" class="btn btn-ghost btn-sm" (click)="openTerminalFor(d); runLine('show run')"><nb-icon name="terminal" [size]="11" /> show run</button>
+              </div>
+              <pre class="term scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-[10.5px] leading-[1.6] text-ink-300">{{ d.runningConfig }}</pre>
             }
           }
-          <div class="m-2 flex gap-2">
-            <button
-              class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 text-sm text-zinc-200 md:min-h-9 md:text-xs"
-              (click)="closeInspect()"
-            >
-              Close
-            </button>
-            <button
-              class="min-h-12 min-w-0 flex-1 rounded-lg border border-rose-800 text-sm text-rose-300 md:min-h-9 md:text-xs"
-              (click)="confirmDel.set(d)"
-            >
-              Delete
-            </button>
-          </div>
+          @if (isNarrow()) {
+            <div class="flex gap-2 border-t border-ink-800 p-2">
+              <button type="button" class="btn btn-secondary btn-lg flex-1" (click)="closeInspect()">Back to canvas</button>
+            </div>
+          }
         } @else {
-          <p class="px-3 py-4 text-xs text-zinc-500">Tap a device on the canvas, then open Inspect.</p>
+          <div class="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+            <nb-icon name="inspect" [size]="26" class="text-ink-600" />
+            <div class="text-sm font-medium text-ink-200">Nothing selected</div>
+            <p class="text-xs leading-relaxed text-ink-400">{{ isNarrow() ? 'Tap a device on the canvas, then come back here.' : 'Click a device to see its ports, addresses, hints and a ping/trace tool.' }}</p>
+          </div>
         }
       </aside>
     }
 
+    <!-- Eve -->
     @if (showEve()) {
-      <aside class="flex min-h-0 w-full flex-1 flex-col border-zinc-800 bg-zinc-950 md:w-80 md:flex-none md:border-l">
-        <div class="border-b border-zinc-800 px-3 py-2 text-xs font-medium text-cyan-300">Eve — lab instructor</div>
-        <div class="flex gap-1 px-2 py-1">
-          <button class="rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="explain()">Explain selection</button>
-          <button class="rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="fixLab()">Fix my lab</button>
+      <aside class="flex min-h-0 w-full flex-1 flex-col border-ink-800 bg-ink-950 md:w-80 md:flex-none md:border-l">
+        <div class="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
+          <span class="grid h-7 w-7 place-items-center rounded-lg bg-eve-500/15 text-eve-300 ring-1 ring-eve-500/30"><nb-icon name="sparkles" [size]="14" /></span>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-ink-50">Eve</div>
+            <div class="text-[10px] text-ink-500">Lab instructor · changes need your approval</div>
+          </div>
+          @if (eve.busy()) { <span class="spinner border-t-eve-400"></span> }
+          @if (!isNarrow()) {
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Eve" (click)="eveOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
+          }
         </div>
-        <div class="min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
+        <div class="scroll-thin flex gap-1.5 overflow-x-auto px-3 py-2">
+          <button type="button" class="btn btn-sm btn-secondary shrink-0" (click)="explain()"><nb-icon name="bulb" [size]="12" /> Explain {{ selected() ? selected()!.name : 'lab' }}</button>
+          <button type="button" class="btn btn-sm btn-secondary shrink-0" (click)="fixLab()"><nb-icon name="wrench" [size]="12" /> Fix my lab</button>
+          <button type="button" class="btn btn-sm shrink-0" [ngClass]="eveMode() === 'build' ? 'btn-eve' : 'btn-secondary'" (click)="eveMode.set(eveMode() === 'build' ? 'chat' : 'build')"><nb-icon name="hammer" [size]="12" /> Build a lab</button>
+        </div>
+        <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
+          @if (!eve.msgs().length) {
+            <div class="rounded-xl border border-ink-800 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-ink-300">
+              Ask why a ping fails, what a running-config line does, or describe a lab to build. Eve reads the engine — it never invents forwarding — and asks before changing anything.
+            </div>
+          }
           @for (m of eve.msgs(); track $index) {
-            <div class="mb-2" [class.text-cyan-200]="m.role === 'eve'" [class.text-zinc-400]="m.role === 'user'">
-              <span class="text-[10px] uppercase text-zinc-600">{{ m.role }}</span>
-              <div class="whitespace-pre-wrap">{{ m.text }}</div>
+            <div class="mb-2 flex" [ngClass]="m.role === 'user' ? 'justify-end' : 'justify-start'">
+              <div class="max-w-[92%] rounded-2xl px-3 py-2 whitespace-pre-wrap break-words" [ngClass]="m.role === 'user' ? 'rounded-br-md bg-brand-600/25 text-ink-50' : 'rounded-bl-md bg-ink-800 text-ink-100'">{{ m.text }}</div>
             </div>
           }
           @if (eve.busy()) {
-            <div class="text-[10px] text-zinc-500">Eve is thinking…</div>
+            <div class="mb-2 flex items-center gap-1 px-3 py-2 text-ink-500">
+              <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
+              <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
+              <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
+            </div>
           }
-          @if (eve.error()) {
-            <div class="text-[10px] text-rose-400">{{ eve.error() }}</div>
+          @if (eve.error(); as err) {
+            <div class="mb-2 flex items-start gap-2 rounded-lg border border-danger-500/40 bg-danger-500/10 px-2.5 py-2 text-[11px] text-danger-200"><nb-icon name="alert" [size]="12" class="mt-0.5 shrink-0" /> {{ err }}</div>
           }
         </div>
         @if (eve.hitl(); as h) {
-          <div class="m-2 rounded-md border border-amber-700 bg-amber-950/50 p-2 text-xs">
-            <div class="mb-1 font-medium text-amber-200">{{ h.prompt }}</div>
-            @if (h.toolName) {
-              <div class="mb-1 font-mono text-[10px] text-amber-300/80">{{ h.toolName }}</div>
-            }
-            @if (h.options?.length) {
-              <div class="flex flex-wrap gap-2">
+          <div class="m-2 rounded-xl border border-warn-500/50 bg-warn-500/10 p-3 text-xs animate-pop">
+            <div class="flex items-center gap-2 text-warn-200"><nb-icon name="alert" [size]="14" /> <span class="font-semibold">Eve wants to change the lab</span></div>
+            <div class="mt-1 text-ink-100">{{ h.prompt }}</div>
+            @if (h.toolName) { <div class="mt-1 font-mono text-[10.5px] text-warn-300/90">{{ h.toolName }}</div> }
+            @if (hitlInput(h); as inp) { <pre class="term mt-1 max-h-28 overflow-auto rounded-md bg-ink-950/70 p-2 text-[10px] leading-4 text-ink-300">{{ inp }}</pre> }
+            <div class="mt-2 flex flex-wrap gap-2">
+              @if (h.options?.length) {
                 @for (o of h.options; track o.id) {
-                  <button class="rounded bg-amber-700 px-2 py-1" (click)="answerEve(o.id)">{{ o.label }}</button>
+                  <button type="button" class="btn btn-sm" [ngClass]="isApproveOption(o) ? 'bg-warn-500 text-ink-950 hover:bg-warn-400' : 'btn-secondary'" (click)="answerEve(o.id)">{{ o.label }}</button>
                 }
-              </div>
-            } @else {
-              <div class="flex gap-2">
-                <button class="rounded bg-amber-700 px-2 py-1" (click)="applyPending()">Apply</button>
-                <button class="rounded border border-zinc-600 px-2 py-1" (click)="discardPending()">Discard</button>
-              </div>
-            }
+              } @else {
+                <button type="button" class="btn btn-sm bg-warn-500 text-ink-950 hover:bg-warn-400" (click)="applyPending()">Approve</button>
+                <button type="button" class="btn btn-sm btn-secondary" (click)="discardPending()">Cancel</button>
+              }
+            </div>
           </div>
         } @else if (pending(); as p) {
-          <div class="m-2 rounded-md border border-amber-700 bg-amber-950/50 p-2 text-xs">
-            <div class="mb-1 font-medium text-amber-200">{{ p.title }}</div>
-            <div class="flex gap-2">
-              <button class="rounded bg-amber-700 px-2 py-1" (click)="applyPending()">Apply</button>
-              <button class="rounded border border-zinc-600 px-2 py-1" (click)="discardPending()">Discard</button>
+          <div class="m-2 rounded-xl border border-warn-500/50 bg-warn-500/10 p-3 text-xs">
+            <div class="font-medium text-warn-200">{{ p.title }}</div>
+            <div class="mt-2 flex gap-2">
+              <button type="button" class="btn btn-sm bg-warn-500 text-ink-950" (click)="applyPending()">Apply</button>
+              <button type="button" class="btn btn-sm btn-secondary" (click)="discardPending()">Discard</button>
             </div>
           </div>
         }
-        <textarea
-          class="mx-2 h-16 rounded border border-zinc-800 bg-zinc-900 p-1 text-xs"
-          [(ngModel)]="buildPrompt"
-          placeholder="Build from prompt…"
-        ></textarea>
-        <button class="mx-2 mb-1 rounded bg-zinc-800 px-2 py-1 text-[11px]" (click)="buildFromPrompt()">Build from prompt</button>
-        <form class="flex gap-1 border-t border-zinc-800 p-2" (submit)="$event.preventDefault(); sendEve()">
-          <input
-            class="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs"
-            [(ngModel)]="eveInput"
-            name="eve"
-            placeholder="Ask Eve…"
-          />
-          <button class="rounded bg-cyan-800 px-2 text-xs">Send</button>
+        <form class="border-t border-ink-800 p-2" (submit)="$event.preventDefault(); sendEve()">
+          @if (eveMode() === 'build') {
+            <div class="mb-1.5 flex items-center gap-1.5 text-[10.5px] text-eve-300"><nb-icon name="hammer" [size]="11" /> Build mode: describe the topology, e.g. “two VLANs, one router, a Linux server on VLAN 10”.
+              <button type="button" class="ml-auto text-ink-400 hover:text-ink-200" (click)="eveMode.set('chat')">cancel</button>
+            </div>
+          }
+          <div class="flex items-end gap-1.5">
+            <textarea
+              class="field min-h-9 flex-1 resize-none py-2 leading-5"
+              rows="1"
+              [(ngModel)]="eveInput"
+              name="eve"
+              [placeholder]="eveMode() === 'build' ? 'Describe the lab to build…' : 'Ask Eve…'"
+              (keydown.enter)="$event.preventDefault(); sendEve()"
+            ></textarea>
+            <button type="submit" class="btn btn-icon h-9 w-9" [ngClass]="eveMode() === 'build' ? 'btn-eve' : 'btn-primary'" aria-label="Send" [disabled]="eve.busy()"><nb-icon name="send" [size]="14" /></button>
+          </div>
         </form>
       </aside>
     }
   </div>
 
+  <!-- ===================================================================== dock: terminal + packets -->
   @if (showTerm()) {
-    <div
-      class="flex min-h-0 shrink-0 flex-col border-t border-zinc-800 md:h-52 md:flex-row"
-      [class.flex-1]="isNarrow()"
-    >
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-black">
-        <div class="flex items-center gap-2 border-b border-zinc-800 px-2 py-1 text-[10px] text-zinc-500">
-          Terminal
-          <select class="bg-zinc-900 text-xs" name="termdev" [ngModel]="termDevice()" (ngModelChange)="termDevice.set($event)">
-            @for (d of api.state()?.devices ?? []; track d.id) {
-              <option [value]="d.id">{{ d.name }}</option>
-            }
-          </select>
+    <div class="relative flex min-h-0 shrink-0 flex-col border-t border-ink-800 md:flex-row" [class.flex-1]="isNarrow()" [style.height.px]="isNarrow() ? null : dockH()">
+      @if (!isNarrow()) {
+        <div class="absolute inset-x-0 -top-1 z-10 flex h-2 cursor-row-resize items-center justify-center group" (pointerdown)="startDockResize($event)" title="Drag to resize">
+          <span class="h-1 w-16 rounded-full bg-ink-700 transition-colors group-hover:bg-brand-500/70"></span>
         </div>
-        <div class="term min-h-0 flex-1 overflow-auto px-2 py-1 text-[11px] leading-5 text-emerald-300/90">
-          @for (line of termLines(); track $index) {
-            <pre [class.text-rose-400]="line.err" class="whitespace-pre-wrap">{{ line.text }}</pre>
-          }
-        </div>
-        <form class="flex border-t border-zinc-800" (submit)="$event.preventDefault(); runLine()">
-          <span class="term max-w-[45%] truncate px-2 py-1 text-[11px] text-emerald-500">{{ prompt() }}</span>
-          <input class="term min-w-0 flex-1 bg-black px-1 py-1 text-[11px] outline-none" [(ngModel)]="termInput" name="cli" />
-        </form>
-      </div>
-      <div class="max-h-40 overflow-auto border-t border-zinc-800 bg-zinc-950 p-2 md:max-h-none md:w-96 md:border-l md:border-t-0">
-        <div class="mb-1 flex items-center justify-between text-[10px] uppercase text-zinc-500">
-          <span>Packets</span>
-          @if (!advanced()) {
-            <span class="normal-case text-zinc-600">IPv4</span>
-          }
-        </div>
-        @for (p of visiblePackets(); track p.id) {
-          <button class="mb-1 block w-full rounded px-1 py-0.5 text-left font-mono text-[10px] hover:bg-zinc-900" (click)="selectedPkt.set(p)">
-            <span [class.text-rose-400]="p.drop" [class.text-cyan-300]="!p.drop">{{ p.drop ? 'drop' : 'ok' }}</span>
-            {{ packetLine(p) }}
-            @if (p.simulated) {
-              <span class="rounded bg-zinc-800 px-1 text-[9px] text-amber-300">simulated</span>
-            }
-            <div class="truncate text-zinc-500">{{ p.reason }}</div>
-          </button>
-        }
-        @if (selectedPkt(); as p) {
-          <div class="mt-2 rounded border border-zinc-800 p-2 text-[10px] leading-4">
-            <div>IPv4 {{ p.srcIp && !p.srcIp.includes(':') ? p.srcIp : '—' }} → {{ p.dstIp && !p.dstIp.includes(':') ? p.dstIp : '—' }}</div>
-            <div>{{ p.proto }} {{ p.drop ? 'dropped' : 'forwarded' }}</div>
-            <div>{{ p.reason }}</div>
-            @if (advanced()) {
-              <div>MAC {{ p.srcMac }} → {{ p.dstMac }}</div>
-              <div>VLAN {{ p.vlan ?? '—' }} SSID {{ p.ssid ?? '—' }} TTL {{ p.ttl ?? '—' }}</div>
-              @if (p.srcIp?.includes(':')) {
-                <div>IPv6 {{ p.srcIp }} → {{ p.dstIp }}</div>
-              }
-            }
-          </div>
-        }
-      </div>
+      }
+      <nb-terminal
+        class="md:border-r md:border-ink-800"
+        [devices]="api.state()?.devices ?? []"
+        [deviceId]="termDevice()"
+        [lines]="termLines()"
+        [prompt]="prompt()"
+        [busy]="termBusy()"
+        [vocab]="vocab()"
+        [quick]="quickCmds()"
+        (deviceChange)="selectTermDevice($event)"
+        (run)="runLine($event)"
+        (clear)="clearTerm()"
+        (cancel)="cancelPing()"
+      />
+      <nb-packets
+        class="h-48 shrink-0 border-t border-ink-800 md:h-auto md:w-[26rem] md:border-t-0"
+        [packets]="visiblePacketsFiltered()"
+        [selected]="selectedPkt()"
+        [advanced]="advanced()"
+        [log]="activityLog()"
+        [focusDevice]="selected()?.name ?? null"
+        [onlyFocus]="pktOnlySelected()"
+        (onlyFocusChange)="pktOnlySelected.set($event)"
+        (select)="selectedPkt.set($event)"
+        (explain)="explainPacket($event)"
+        (replay)="replayPacket($event)"
+      />
     </div>
   }
 
-  <footer class="hidden shrink-0 border-t border-zinc-800 px-3 py-1 text-[10px] text-zinc-500 md:block">
-    {{
-      api.state()?.differsNote ||
-        'How this lab differs from real gear: Wi-Fi RF is a simplified BSS (SSID, channel, PSK, association) then normal IP. SSH is path+port 22, not crypto. OSPF is single area 0.'
-    }}
-    Goal: {{ api.state()?.goal }}
+  <!-- ===================================================================== footer -->
+  @if (!focusMode()) {
+  <footer class="hidden shrink-0 items-center gap-2 border-t border-ink-800 bg-ink-900/60 px-3 py-1 text-[10.5px] text-ink-500 md:flex">
+    <span class="led" [ngClass]="api.online() ? (api.wsConnected() ? 'led-up' : 'led-warn') : 'led-down'" [title]="api.online() ? (api.wsConnected() ? 'API + live socket connected' : 'API reachable, socket reconnecting') : 'API unreachable'"></span>
+    <span>{{ api.online() ? (api.wsConnected() ? 'Connected' : 'Reconnecting…') : 'Offline' }}</span>
+    <span class="text-ink-700">·</span>
+    <button type="button" class="min-w-0 truncate text-left hover:text-ink-300" (click)="aboutOpen.set(true)">{{ api.state()?.differsNote || 'Simulated: Wi-Fi RF is a simplified BSS, SSH is path+port 22, OSPF is single area 0.' }}</button>
+    <span class="ml-auto shrink-0">{{ api.guest() ? 'Guest · saved in this browser' : api.email() }}</span>
   </footer>
-
-  @if (!basicMode()) {
-  <nav
-    class="flex shrink-0 border-t border-zinc-800 bg-zinc-950 pb-[env(safe-area-inset-bottom)] md:hidden"
-    aria-label="Mobile workspace"
-  >
-    @for (t of mobileTabs; track t.id) {
-      <button
-        class="min-h-11 flex-1 py-2 text-[11px] font-medium"
-        [class.text-cyan-300]="mobileTab() === t.id"
-        [class.text-zinc-500]="mobileTab() !== t.id"
-        (click)="setTab(t.id)"
-      >
-        {{ t.label }}
-      </button>
-    }
-  </nav>
   }
 
+  <!-- ===================================================================== mobile nav -->
+  @if (!basicMode()) {
+    <nav class="flex shrink-0 border-t border-ink-800 bg-ink-900 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile workspace">
+      @for (t of mobileTabs; track t.id) {
+        <button type="button" class="flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors" [ngClass]="mobileTab() === t.id ? 'text-brand-300' : 'text-ink-500'" [attr.aria-current]="mobileTab() === t.id ? 'page' : null" (click)="setTab(t.id)">
+          <nb-icon [name]="t.icon" [size]="18" />
+          {{ t.label }}
+        </button>
+      }
+    </nav>
+  }
 </div>
 
-@if (basicMode() && basicSheet() && selected(); as d) {
-  <div class="fixed inset-0 z-20 bg-black/50 md:hidden" (click)="basicSheet.set(false)">
-    <div
-      class="absolute inset-x-0 bottom-0 max-h-[75dvh] overflow-auto rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-      (click)="$event.stopPropagation()"
-    >
-      <div class="flex items-start justify-between gap-2">
-        <div>
-          <div class="text-lg font-semibold">{{ d.name }}</div>
-          <div class="text-sm text-zinc-400">{{ kindLabel(d.kind) }}</div>
+<!-- ======================================================================= shared: device panel (Simple inspector + Basic sheet) -->
+<ng-template #devicePanel let-d let-big="big">
+  @if (hints().length) {
+    <div class="mt-2 space-y-1.5">
+      @for (h of hints(); track h.id) {
+        <div class="flex items-start gap-2 rounded-lg border px-2.5 py-2" [ngClass]="h.level === 'warn' ? 'border-warn-500/30 bg-warn-500/10' : 'border-ink-700 bg-ink-800/60'">
+          <nb-icon [name]="h.level === 'warn' ? 'alert' : 'info'" [size]="13" class="mt-0.5 shrink-0" [ngClass]="h.level === 'warn' ? 'text-warn-300' : 'text-ink-400'" />
+          <div class="min-w-0 flex-1 leading-snug text-ink-100" [ngClass]="big ? 'text-xs' : 'text-[11px]'">{{ h.text }}</div>
+          @if (h.action; as a) { <button type="button" class="btn btn-secondary shrink-0" [ngClass]="big ? '' : 'btn-sm'" (click)="a.run()">{{ a.label }}</button> }
         </div>
-        <button
-          type="button"
-          class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: this device"
-          (click)="openHelp('add', $event)"
-        >
-          ?
-        </button>
-      </div>
-      <div class="mt-3 flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500">
-        <span>Used ports</span>
-        <button
-          type="button"
-          class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold normal-case text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: ports"
-          (click)="openHelp('ports', $event)"
-        >
-          ?
-        </button>
-      </div>
-      @for (p of usedPortRows(d); track p.name) {
-        <div class="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-sm">
-          <span [class.text-emerald-300]="p.up" [class.text-amber-300]="!p.up">{{ p.name }}</span>
-          <button
-            type="button"
-            [ngClass]="statusBtnClassFor(d, p.name)"
-            [title]="statusToggleTitle(d, p.name)"
-            (click)="toggleIface(d, p.name, $event)"
-          >
-            {{ p.status }}
-          </button>
-          @if (p.peer; as c) {
-            <span class="text-xs text-zinc-300">→ {{ c.device }} {{ c.iface }}</span>
-            <button class="text-xs text-rose-300" (click)="unplug(c.linkId)">Unplug</button>
-          }
-        </div>
-      } @empty {
-        <p class="mt-1 text-sm text-zinc-500">No cables yet</p>
       }
-      <button type="button" class="mt-1 text-left text-xs text-cyan-400" (click)="openHelp('status', $event)">
-        What do Up and Disabled mean?
+    </div>
+  }
+
+  <div class="mt-3 flex items-center gap-1">
+    <span class="section-title">Connections</span>
+    @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: ports" (click)="openHelp('ports', $event)"><nb-icon name="help" [size]="13" /></button> }
+  </div>
+  @for (p of usedPortRows(d); track p.name) {
+    <div class="mt-1 flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5" [ngClass]="big ? 'text-sm' : 'text-xs'">
+      <span class="led" [ngClass]="p.up ? 'led-up' : 'led-warn'"></span>
+      <span class="font-mono font-medium text-ink-50">{{ p.name }}</span>
+      @if (p.peer; as c) {
+        <span class="min-w-0 truncate text-ink-300"><span class="text-ink-500">→</span> {{ c.device }} <span class="font-mono text-ink-500">{{ c.iface }}</span></span>
+      }
+      <button type="button" class="chip ml-auto shrink-0 cursor-pointer hover:ring-1 hover:ring-brand-400/60" [ngClass]="statusChipClassFor(d, p.name)" [title]="statusToggleTitle(d, p.name)" (click)="toggleIface(d, p.name, $event)">
+        <nb-icon name="power" [size]="10" /> {{ p.status }}
       </button>
-      @if (freePortRows(d).length) {
-        <button class="mt-2 text-xs text-cyan-400" (click)="showFreePorts.set(!showFreePorts())">
-          {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free
-          {{ freePortRows(d).length === 1 ? 'port' : 'ports' }}
+      @if (p.peer; as c) {
+        <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-danger-300" title="Unplug" aria-label="Unplug" (click)="unplug(c.linkId)"><nb-icon name="unplug" [size]="13" /></button>
+      }
+    </div>
+  } @empty {
+    <div class="mt-1 rounded-lg border border-dashed border-ink-700 px-2.5 py-2 text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">
+      No cables yet.
+      <button type="button" class="text-brand-300 underline-offset-2 hover:underline" (click)="startCable($event, d)">Start a cable</button>
+    </div>
+  }
+  @if (freePortRows(d).length) {
+    <button type="button" class="mt-1.5 text-[11px] text-brand-300 hover:underline" (click)="showFreePorts.set(!showFreePorts())">
+      {{ showFreePorts() ? 'Hide' : 'Show' }} {{ freePortRows(d).length }} free {{ freePortRows(d).length === 1 ? 'port' : 'ports' }}
+    </button>
+    @if (showFreePorts()) {
+      <div class="mt-1 flex flex-wrap gap-1">
+        @for (p of freePortRows(d); track p.name) {
+          <button type="button" class="chip cursor-pointer font-mono hover:ring-1 hover:ring-brand-400/60" [ngClass]="p.adminUp ? 'chip-muted' : 'border border-ink-700 text-ink-500'" [title]="statusToggleTitle(d, p.name)" (click)="toggleIface(d, p.name, $event)">{{ p.name }} · {{ p.status }}</button>
+        }
+      </div>
+    }
+  }
+
+  <div class="mt-3 flex items-center gap-1">
+    <span class="section-title">IPv4</span>
+    @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: IPv4" (click)="openHelp('ipv4', $event)"><nb-icon name="help" [size]="13" /></button> }
+  </div>
+  @for (row of ipv4Rows(d); track row.name) {
+    @if (ipEdit() === row.name) {
+      <form class="mt-1 rounded-lg border border-brand-500/40 bg-ink-900/60 p-2.5" (submit)="$event.preventDefault(); changeIpv4(d, row.name)">
+        <div class="mb-1.5 text-[10.5px] text-ink-400">Replace {{ row.ip }} on {{ row.name }}{{ isLinux(d) ? ' (ip addr del + ip addr add)' : '' }}</div>
+        <div class="flex items-center gap-2">
+          <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="ipEditValue" [name]="'ipedit-' + row.name" inputmode="decimal" placeholder="10.0.0.20" />
+          <span class="text-ink-500">/</span>
+          <input class="field w-16 font-mono" [ngClass]="big ? 'field-lg' : ''" type="number" min="1" max="32" [(ngModel)]="ipEditPrefix" [name]="'ipprefix-' + row.name" />
+        </div>
+        <div class="mt-2 flex gap-2">
+          <button type="submit" class="btn btn-primary flex-1" [ngClass]="big ? 'btn-lg' : ''" [disabled]="ipBusy()">{{ ipBusy() ? 'Changing…' : 'Change address' }}</button>
+          <button type="button" class="btn btn-secondary" [ngClass]="big ? 'btn-lg' : ''" (click)="ipEdit.set(null)">Cancel</button>
+        </div>
+      </form>
+    } @else {
+      <div class="mt-1 flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5">
+        <span class="font-mono text-ok-300" [ngClass]="big ? 'text-base' : 'text-xs'">{{ row.ip }}</span>
+        <span class="text-ink-500" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">{{ row.name }}</span>
+        <span class="chip ml-auto" [ngClass]="row.up ? 'chip-ok' : 'chip-warn'">{{ row.status }}</span>
+        @if (d.kind !== 'switch') {
+          <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-brand-200" title="Change this address or mask" aria-label="Change address" (click)="startIpEdit(d, row.name)"><nb-icon name="pencil" [size]="12" /></button>
+        }
+      </div>
+    }
+  } @empty {
+    <p class="mt-1 text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">{{ d.kind === 'switch' ? 'No IPv4 on this switch — normal for layer 2.' : 'No IPv4 address yet.' }}</p>
+    @if (canAddIpv4(d)) {
+      <form class="mt-2 flex items-center gap-2" (submit)="$event.preventDefault(); applyIpv4(d)">
+        <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="ipInput" [name]="big ? 'newip' : 'inspectip'" inputmode="decimal" placeholder="10.0.0.30" (focus)="prepareIpv4Form(d)" />
+        <span class="shrink-0 text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">/{{ ipPrefix }}</span>
+        <button type="submit" class="btn btn-ok shrink-0" [ngClass]="big ? 'btn-lg' : ''" [disabled]="ipBusy()">{{ ipBusy() ? 'Adding…' : 'Add IP' }}</button>
+      </form>
+      @if (isLinux(d) && (d.kind === 'workstation' || d.kind === 'server')) {
+        <button type="button" class="btn btn-secondary mt-2 w-full" [ngClass]="big ? 'btn-lg' : ''" (click)="runDhcp(d)"><nb-icon name="refresh" [size]="13" /> Get an address via DHCP</button>
+      }
+    }
+  }
+
+  @if ((d.kind === 'workstation' || d.kind === 'server' || d.kind === 'router' || d.kind === 'firewall') && ipv4Rows(d).length) {
+    <div class="mt-3 flex items-center gap-1">
+      <span class="section-title">Default gateway</span>
+      @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: gateway" (click)="openHelp('gateway', $event)"><nb-icon name="help" [size]="13" /></button> }
+    </div>
+    @if (gatewayOf(d); as gw) {
+      @if (gwEdit()) {
+        <form class="mt-1 rounded-lg border border-brand-500/40 bg-ink-900/60 p-2.5" (submit)="$event.preventDefault(); setGateway(d)">
+          <div class="mb-1.5 text-[10.5px] text-ink-400">Replace {{ gw }}{{ isLinux(d) ? ' (ip route replace default via …)' : d.kind === 'router' ? ' (no ip route + ip route)' : '' }}</div>
+          <div class="flex items-center gap-2">
+            <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="gwInput" [name]="big ? 'gw-edit-big' : 'gw-edit'" inputmode="decimal" [placeholder]="suggestGateway(d) || '10.0.0.1'" />
+            <button type="submit" class="btn btn-primary shrink-0" [ngClass]="big ? 'btn-lg' : ''" [disabled]="gwBusy()">Change</button>
+            <button type="button" class="btn btn-secondary shrink-0" [ngClass]="big ? 'btn-lg' : ''" (click)="gwEdit.set(false)">Cancel</button>
+          </div>
+        </form>
+      } @else {
+        <div class="mt-1 flex items-center gap-2 rounded-lg border bg-ink-900/60 px-2.5 py-1.5 font-mono text-ink-100" [ngClass]="[big ? 'text-sm' : 'text-xs', gatewayOffSubnet(d) || gatewayUnowned(d) ? 'border-warn-500/40' : 'border-ink-800']">
+          <nb-icon name="route" [size]="13" [ngClass]="gatewayOffSubnet(d) || gatewayUnowned(d) ? 'text-warn-300' : 'text-ink-400'" />
+          <span class="min-w-0 flex-1 truncate">{{ gw }}</span>
+          <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-brand-200" title="Change gateway" aria-label="Change gateway" (click)="startGatewayEdit(d)"><nb-icon name="pencil" [size]="12" /></button>
+          <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-danger-300" title="Remove gateway" aria-label="Remove gateway" (click)="removeGateway(d)"><nb-icon name="x" [size]="12" /></button>
+        </div>
+        @if (gatewayOffSubnet(d)) { <p class="mt-1 text-[10.5px] text-warn-300">Not on {{ d.name }}'s own subnet — this gateway can never be reached.</p> }
+        @else if (gatewayUnowned(d)) { <p class="mt-1 text-[10.5px] text-warn-300">No device in this lab owns this address.</p> }
+      }
+    } @else {
+      <form class="mt-1 flex items-center gap-2" (submit)="$event.preventDefault(); setGateway(d)">
+        <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="gwInput" [name]="big ? 'gw-big' : 'gw'" inputmode="decimal" [placeholder]="suggestGateway(d) || '10.0.0.1'" (focus)="!gwInput && prepareGatewayForm(d)" />
+        <button type="submit" class="btn btn-secondary shrink-0" [ngClass]="big ? 'btn-lg' : ''" [disabled]="gwBusy()">Set</button>
+      </form>
+      @if (!needsGateway(d)) { <p class="mt-1 text-[10.5px] text-ink-500">Optional here — every address in this lab is on the same network.</p> }
+    }
+  }
+
+  @if (hasRadio(d)) {
+    <div class="section-title mt-3">Wi-Fi</div>
+    @if (d.associatedSsid) {
+      <div class="mt-1 flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1.5 text-violet-200" [ngClass]="big ? 'text-sm' : 'text-xs'"><nb-icon name="wifi" [size]="13" /> Joined <b>{{ d.associatedSsid }}</b></div>
+    } @else if (wifiOpen()) {
+      <div class="mt-1 rounded-lg border border-ink-800 bg-ink-900/60 p-2.5">
+        @if (wifiNetworks().length) {
+          <div class="flex flex-wrap gap-1">
+            @for (w of wifiNetworks(); track w.ssid) {
+              <button type="button" class="chip cursor-pointer" [ngClass]="wifiSsid === w.ssid ? 'chip-brand ring-1 ring-brand-400/60' : 'chip-muted'" (click)="pickWifi(w.ssid)"><nb-icon name="wifi" [size]="10" /> {{ w.ssid }} <span class="text-ink-500">· {{ w.ap }}</span></button>
+            }
+          </div>
+        }
+        <form class="mt-2 flex flex-col gap-2" (submit)="$event.preventDefault(); connectWifi(d)">
+          <input class="field font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="wifiSsid" [name]="big ? 'ssid-big' : 'ssid'" placeholder="SSID" />
+          <input class="field font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="wifiPsk" [name]="big ? 'psk-big' : 'psk'" placeholder="password (from the AP config)" />
+          <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary flex-1" [ngClass]="big ? 'btn-lg' : ''" [disabled]="wifiBusy()">{{ wifiBusy() ? 'Joining…' : 'Join' }}</button>
+            <button type="button" class="btn btn-secondary" [ngClass]="big ? 'btn-lg' : ''" (click)="wifiOpen.set(false)">Cancel</button>
+          </div>
+        </form>
+      </div>
+    } @else {
+      <button type="button" class="btn btn-secondary mt-1 w-full" [ngClass]="big ? 'btn-lg' : ''" (click)="openWifi(d)"><nb-icon name="wifi" [size]="13" /> Join a Wi-Fi network{{ wifiNetworks().length ? ' (' + wifiNetworks().length + ' visible)' : '' }}</button>
+    }
+  }
+
+  @if (d.kind === 'ap' && wifiNetworks().length) {
+    <div class="section-title mt-3">Advertised SSIDs</div>
+    <div class="mt-1 flex flex-wrap gap-1">
+      @for (w of wifiNetworks(); track w.ssid) {
+        @if (w.ap === d.name) { <span class="chip chip-eve"><nb-icon name="wifi" [size]="10" /> {{ w.ssid }}</span> }
+      }
+    </div>
+  }
+
+  <div class="mt-3 flex items-center gap-1">
+    <span class="section-title">Reach</span>
+    @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: ping" (click)="openHelp('ping', $event)"><nb-icon name="help" [size]="13" /></button> }
+  </div>
+  <ng-container *ngTemplateOutlet="reachPanel; context: { $implicit: d, big: big }" />
+</ng-template>
+
+<!-- ======================================================================= shared: reach (ping / trace) -->
+<ng-template #reachPanel let-d let-big="big">
+  @if (reach(); as r) {
+    <div class="mt-1 rounded-lg border border-ink-800 bg-ink-900/60 p-2.5" data-reach>
+      <div class="flex items-center gap-2">
+        <select class="field min-w-0 flex-1" [ngClass]="big ? 'field-lg' : ''" [ngModel]="r.target" (ngModelChange)="setReachTarget($event)" [name]="big ? 'target-big' : 'target'" aria-label="Target">
+          @for (t of reachTargets(d); track t.ip) { <option [value]="t.ip">{{ t.label }}</option> }
+          @if (r.target && !reachHasTarget(d, r.target)) { <option [value]="r.target">{{ r.target }}</option> }
+        </select>
+        @if (advanced() && !basicMode()) {
+          <select class="field w-24" [ngModel]="r.proto" (ngModelChange)="setReachProto($event)" name="proto" aria-label="Protocol">
+            <option value="icmp">ICMP</option>
+            <option value="ssh">SSH :22</option>
+          </select>
+        }
+      </div>
+      <input class="field mt-2 font-mono" [ngClass]="big ? 'field-lg' : ''" [ngModel]="r.target" (ngModelChange)="setReachTarget($event)" [name]="big ? 'target-ip-big' : 'target-ip'" placeholder="or type an IP / hostname" inputmode="decimal" />
+      <div class="mt-2 flex gap-2">
+        <button type="button" class="btn btn-primary flex-1" [ngClass]="big ? 'btn-lg' : ''" [disabled]="r.busy" (click)="runPing(d)"><nb-icon name="zap" [size]="13" /> Ping</button>
+        <button type="button" class="btn btn-secondary flex-1" [ngClass]="big ? 'btn-lg' : ''" [disabled]="r.busy" (click)="runTrace(d)"><nb-icon name="route" [size]="13" /> Trace</button>
+        <button
+          type="button"
+          class="btn shrink-0"
+          [ngClass]="[big ? 'btn-lg' : '', monitor() ? 'bg-ok-500/15 text-ok-300 border-ok-500/40' : 'btn-secondary']"
+          [disabled]="r.busy"
+          (click)="monitor() ? stopMonitor() : startMonitor(d)"
+          title="Re-test every 5 seconds and light the path up when it starts working"
+        >
+          <nb-icon name="eye" [size]="13" /> {{ monitor() ? 'Stop' : 'Watch' }}
         </button>
-        @if (showFreePorts()) {
-          @for (p of freePortRows(d); track p.name) {
-            <div class="mt-1 font-mono text-sm text-zinc-500">
-              {{ p.name }} ·
-              <button
-                type="button"
-                [ngClass]="statusBtnClassFor(d, p.name)"
-                [title]="statusToggleTitle(d, p.name)"
-                (click)="toggleIface(d, p.name, $event)"
-              >
-                {{ p.status }}
-              </button>
+      </div>
+      @if (r.busy) { <div class="mt-2 flex items-center gap-2 text-[11px] text-ink-400"><span class="spinner"></span> running…</div> }
+      @if (r.result; as res) {
+        <div class="mt-2 rounded-lg border px-2.5 py-2" [ngClass]="res.ok ? 'border-ok-500/30 bg-ok-500/10' : 'border-danger-500/30 bg-danger-500/10'">
+          <div class="flex items-center gap-1.5 font-medium" [ngClass]="[res.ok ? 'text-ok-200' : 'text-danger-200', big ? 'text-sm' : 'text-xs']">
+            <nb-icon [name]="res.ok ? 'circle-check' : 'circle-x'" [size]="13" /> {{ res.kind === 'ping' ? (res.ok ? 'Reply received' : 'No reply') : (res.ok ? 'Reachable' : 'Dropped') }}
+          </div>
+          @if (res.hops.length) {
+            <div class="mt-1 flex flex-wrap items-center gap-1 font-mono text-[10.5px] text-ink-200">
+              @for (h of res.hops; track $index; let last = $last) { <span class="rounded bg-ink-800 px-1">{{ h }}</span> @if (!last) { <span class="text-ink-500">→</span> } }
             </div>
           }
-        }
+          <div class="mt-1 leading-snug text-ink-200" [ngClass]="big ? 'text-xs' : 'text-[11px]'">{{ res.reason }}</div>
+          @if (res.summary && res.kind === 'ping') { <div class="mt-0.5 font-mono text-[10px] text-ink-400">{{ res.summary }}</div> }
+          @if (!res.ok) {
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" class="btn btn-sm btn-primary" (click)="troubleshootReach(d)"><nb-icon name="stethoscope" [size]="11" /> Explain the drop</button>
+              @if (!basicMode()) {
+                <button type="button" class="btn btn-sm btn-eve" (click)="openEve(); eve.send('Why does ' + d.name + ' fail to reach ' + r.target + '? Engine reason: ' + res.reason + '. Use get_path and get_lab_state, then propose the smallest fix.')"><nb-icon name="sparkles" [size]="11" /> Ask Eve</button>
+              }
+            </div>
+          }
+        </div>
       }
-      <div class="mt-3 flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500">
-        <span>IPv4</span>
-        <button
-          type="button"
-          class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 text-xs font-semibold normal-case text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: IPv4"
-          (click)="openHelp('ipv4', $event)"
-        >
-          ?
-        </button>
+    </div>
+  } @else {
+    <button type="button" class="btn btn-secondary mt-1 w-full" [ngClass]="big ? 'btn-lg' : ''" (click)="openReach(d)"><nb-icon name="zap" [size]="13" /> Ping or trace from {{ d.name }}</button>
+  }
+</ng-template>
+
+<!-- ======================================================================= Basic sheet -->
+@if (basicMode() && basicSheet() && selected(); as d) {
+  <div class="backdrop md:hidden" (click)="basicSheet.set(false)">
+    <div class="absolute inset-x-0 bottom-0 max-h-[82dvh] overflow-auto rounded-t-3xl border-t border-ink-700 bg-ink-900 px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-pop animate-slide-up" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="sheet-handle mb-3"></div>
+      <div class="flex items-start gap-3">
+        <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="22" [ngClass]="kindAccent(d.kind)" /></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 text-lg font-semibold text-ink-50">{{ d.name }} <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span></div>
+          <div class="text-sm text-ink-400">{{ kindLabel(d.kind) }}</div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon h-9 w-9" aria-label="Help: this device" (click)="openHelp('add', $event)"><nb-icon name="help" [size]="16" /></button>
       </div>
-      @for (row of ipv4Rows(d); track row.name) {
-        <div class="mt-1 font-mono text-base text-emerald-300">{{ row.ip }}</div>
-        <div class="text-xs text-zinc-500">{{ row.name }} · {{ row.status }}</div>
-      } @empty {
-        <p class="mt-1 text-sm text-zinc-500">No IPv4 yet</p>
-        @if (canAddIpv4(d)) {
-          <div class="mt-2 flex items-center gap-2">
-            <input
-              class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 bg-zinc-950 px-3 font-mono text-sm"
-              [(ngModel)]="ipInput"
-              name="newip"
-              inputmode="decimal"
-              placeholder="10.0.0.30"
-            />
-            <span class="shrink-0 text-sm text-zinc-500">/{{ ipPrefix }}</span>
-          </div>
-          <button
-            class="mt-2 min-h-12 w-full rounded-lg bg-emerald-700 text-sm font-medium disabled:opacity-50"
-            [disabled]="ipBusy()"
-            (click)="applyIpv4(d)"
-          >
-            {{ ipBusy() ? 'Adding…' : 'Add IP' }}
-          </button>
-        }
-      }
-      <div class="mt-4 flex items-center gap-2">
-        <button class="min-h-12 min-w-0 flex-1 rounded-lg bg-cyan-700 text-sm font-medium" (click)="startCable($event, d)">
-          Cable
-        </button>
-        <button
-          type="button"
-          class="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-zinc-600 text-base font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-          aria-label="Help: cables"
-          (click)="openHelp('cable', $event)"
-        >
-          ?
-        </button>
-      </div>
-      <div class="mt-2 flex gap-2">
-        <button class="min-h-12 min-w-0 flex-1 rounded-lg border border-zinc-600 text-sm text-zinc-200" (click)="basicSheet.set(false)">
-          Close
-        </button>
-        <button class="min-h-12 min-w-0 flex-1 rounded-lg border border-rose-800 text-sm text-rose-300" (click)="basicSheet.set(false); confirmDel.set(d)">
-          Delete
-        </button>
+      <ng-container *ngTemplateOutlet="devicePanel; context: { $implicit: d, big: true }" />
+      <div class="mt-4 flex gap-2">
+        <button type="button" class="btn btn-primary btn-lg flex-1" (click)="startCable($event, d)"><nb-icon name="plug" [size]="15" /> Cable</button>
+        <button type="button" class="btn btn-secondary btn-lg flex-1" (click)="basicSheet.set(false)">Close</button>
+        <button type="button" class="btn btn-danger btn-lg" (click)="basicSheet.set(false); deleteDevice(d)"><nb-icon name="trash" [size]="15" /></button>
       </div>
     </div>
   </div>
 }
 
+<!-- ======================================================================= Add sheet (mobile) -->
 @if (addOpen()) {
-  <div class="fixed inset-0 z-20 bg-black/60 md:hidden" (click)="addOpen.set(false)">
-    <div
-      class="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
-      (click)="$event.stopPropagation()"
-    >
+  <div class="backdrop md:hidden" (click)="addOpen.set(false)">
+    <div class="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-ink-700 bg-ink-900 px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-pop animate-slide-up" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="sheet-handle mb-3"></div>
       <div class="flex items-center justify-between gap-2">
-        <div class="text-sm font-medium">Connect or add</div>
-        @if (basicMode()) {
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-600 text-sm font-semibold text-zinc-300 hover:border-cyan-500 hover:bg-zinc-800 hover:text-cyan-200"
-            aria-label="Help: add a device"
-            (click)="openHelp('add', $event)"
-          >
-            ?
-          </button>
-        }
+        <div class="text-sm font-semibold text-ink-50">Connect or add</div>
+        @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-9 w-9" aria-label="Help: add a device" (click)="openHelp('add', $event)"><nb-icon name="help" [size]="16" /></button> }
       </div>
-      <button
-        class="mb-3 mt-2 min-h-12 w-full rounded-lg border px-3 text-left text-sm"
-        [ngClass]="cableArmed() ? 'border-amber-400 bg-amber-950/60' : 'border-zinc-600'"
-        (click)="armCable('ethernet')"
-      >
-        <div class="font-medium">Cable</div>
-        <div class="text-[11px] text-zinc-400">Tap two devices. First free ports are used.</div>
+      <button type="button" class="mt-2 mb-3 flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 text-left" [ngClass]="cableArmed() ? 'border-warn-400/70 bg-warn-500/10' : 'border-ink-600 bg-ink-800/60'" (click)="armCable('ethernet')">
+        <nb-icon name="plug" [size]="18" class="text-warn-300" />
+        <span><span class="block text-sm font-medium text-ink-50">Cable</span><span class="block text-[11px] text-ink-400">Tap two devices. First free ports are used.</span></span>
       </button>
-      <div class="text-sm font-medium">Add a device</div>
-      <p class="mb-3 text-[11px] text-zinc-400">
-        {{ basicMode() ? 'It appears on the canvas. Drag it, then Cable.' : 'It drops in the middle of the canvas. Drag it, then Cable.' }}
-      </p>
+      <div class="section-title mb-2">Add a device</div>
       <div class="grid grid-cols-2 gap-2">
         @for (p of PALETTE; track p.kind) {
-          <button
-            class="min-h-14 rounded-lg border border-zinc-700 px-3 py-2 text-left text-xs hover:bg-zinc-800"
-            (click)="place(p.kind)"
-          >
-            <div class="font-medium">{{ p.label }}</div>
-            <div class="text-[10px] text-zinc-500">{{ p.hint }}</div>
+          <button type="button" class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800" (click)="place(p.kind)">
+            <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" /></span>
+            <span class="min-w-0"><span class="block text-xs font-medium text-ink-50">{{ p.label }}</span><span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span></span>
           </button>
         }
       </div>
@@ -930,74 +1240,413 @@
   </div>
 }
 
-@if (basicMode() && helpView(); as h) {
-  <div
-    class="fixed inset-0 z-30 flex items-end justify-center bg-black/60 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center"
-    (click)="helpOpen.set(null)"
-  >
-    <div
-      class="max-h-[80dvh] w-full max-w-md overflow-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-4 shadow-xl"
-      (click)="$event.stopPropagation()"
-      role="dialog"
-      aria-modal="true"
-      [attr.aria-labelledby]="'nb-help-title'"
-    >
-      <div class="flex items-start justify-between gap-3">
-        <h2 id="nb-help-title" class="text-lg font-semibold text-zinc-100">{{ h.title }}</h2>
-        <button
-          type="button"
-          class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 hover:bg-zinc-800"
-          aria-label="Close help"
-          (click)="helpOpen.set(null)"
-        >
-          ×
-        </button>
-      </div>
-      @for (p of h.body; track $index) {
-        <p class="mt-3 text-sm leading-6 text-zinc-300">{{ p }}</p>
+<!-- ======================================================================= Help -->
+@if (helpOpen(); as hid) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="helpOpen.set(null)">
+    <div class="card max-h-[80dvh] w-full max-w-md overflow-auto p-5 animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="nb-help-title">
+      @if (hid === 'hub' || !helpView()) {
+        <div class="flex items-start justify-between gap-3">
+          <h2 id="nb-help-title" class="text-lg font-semibold text-ink-50">Help</h2>
+          <button type="button" class="btn btn-ghost btn-icon" aria-label="Close help" (click)="helpOpen.set(null)"><nb-icon name="x" [size]="16" /></button>
+        </div>
+        <p class="mt-1 text-xs text-ink-400">Short explanations of every part of the lab, written for a first-week admin.</p>
+        <div class="mt-3 grid gap-1">
+          @for (t of helpTopics; track t.id) {
+            <button type="button" class="menu-item justify-between" (click)="helpOpen.set(t.id)">{{ t.title }} <nb-icon name="chevron-right" [size]="14" class="text-ink-500" /></button>
+          }
+        </div>
+      } @else if (helpView(); as h) {
+        <div class="flex items-start justify-between gap-3">
+          <h2 id="nb-help-title" class="text-lg font-semibold text-ink-50">{{ h.title }}</h2>
+          <button type="button" class="btn btn-ghost btn-icon" aria-label="Close help" (click)="helpOpen.set(null)"><nb-icon name="x" [size]="16" /></button>
+        </div>
+        @for (p of h.body; track $index) { <p class="mt-3 text-sm leading-6 text-ink-200">{{ p }}</p> }
+        <div class="mt-4 flex gap-2">
+          <button type="button" class="btn btn-secondary btn-lg" (click)="helpOpen.set('hub')">All topics</button>
+          <button type="button" class="btn btn-primary btn-lg flex-1" (click)="helpOpen.set(null)">Got it</button>
+        </div>
       }
-      <button
-        type="button"
-        class="mt-4 min-h-12 w-full rounded-lg bg-cyan-700 text-sm font-medium text-white hover:bg-cyan-600"
-        (click)="helpOpen.set(null)"
-      >
-        Got it
-      </button>
     </div>
   </div>
 }
 
+<!-- ======================================================================= Confirm delete / reset -->
 @if (confirmDel(); as d) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm">
-      <p>Delete {{ d.name }}?</p>
-      <div class="mt-3 flex justify-end gap-2">
-        <button class="rounded border border-zinc-600 px-3 py-1" (click)="confirmDel.set(null)">Cancel</button>
-        <button class="rounded bg-rose-700 px-3 py-1" (click)="doDelete()">Delete</button>
+  <div class="backdrop flex items-center justify-center p-4" (click)="confirmDel.set(null)">
+    <div class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" role="alertdialog" aria-modal="true">
+      <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="trash" [size]="16" class="text-danger-400" /> Delete {{ d.name }}?</div>
+      <p class="mt-2 text-xs leading-relaxed text-ink-300">Its cables go with it. You can undo from the notification for a few seconds.</p>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="btn btn-secondary" (click)="confirmDel.set(null)">Cancel</button>
+        <button type="button" class="btn bg-danger-500 text-white hover:bg-danger-400" (click)="doDelete()">Delete</button>
       </div>
     </div>
   </div>
 }
 
-@if (showCheat()) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4" (click)="showCheat.set(false)">
-    <pre
-      class="max-h-[80dvh] w-full max-w-[640px] overflow-auto rounded-lg border border-zinc-700 bg-zinc-950 p-4 font-mono text-xs"
-      (click)="$event.stopPropagation()"
-    >{{ cheat() }}</pre>
+@if (confirmReset()) {
+  <div class="backdrop flex items-center justify-center p-4" (click)="confirmReset.set(false)">
+    <div class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" role="alertdialog" aria-modal="true">
+      <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="reset" [size]="16" class="text-warn-400" /> Reset this lab?</div>
+      <p class="mt-2 text-xs leading-relaxed text-ink-300">Every change you made — cables, addresses, config — is discarded and the lab returns to its starting state.</p>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="btn btn-secondary" (click)="confirmReset.set(false)">Cancel</button>
+        <button type="button" class="btn bg-warn-500 text-ink-950 hover:bg-warn-400" (click)="resetLab()">Reset</button>
+      </div>
+    </div>
   </div>
 }
 
+<!-- ======================================================================= Cheat sheet -->
+@if (showCheat()) {
+  <nb-cheat-sheet [kind]="cheatKind()" [kinds]="PALETTE" [rows]="cheatRows()" [loading]="cheatLoading()" (close)="showCheat.set(false)" (kindChange)="setCheatKind($event)" (run)="insertCommand($event)" />
+}
+
+<!-- ======================================================================= Auth -->
 @if (authOpen()) {
-  <div class="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
-    <form class="w-full max-w-80 rounded-lg border border-zinc-700 bg-zinc-900 p-4 text-sm" (submit)="$event.preventDefault(); doLogin()">
-      <p class="mb-2 font-medium">Sign in / register</p>
-      <input class="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2" [(ngModel)]="email" name="email" placeholder="email" />
-      <input class="mb-3 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2" [(ngModel)]="password" name="pw" type="password" placeholder="password" />
-      <div class="flex justify-end gap-2">
-        <button type="button" class="rounded px-2" (click)="authOpen.set(false)">Close</button>
-        <button class="rounded bg-cyan-700 px-3 py-1">Continue</button>
+  <div class="backdrop flex items-center justify-center p-4" (click)="authOpen.set(false)">
+    <div class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      @if (api.guest()) {
+        <div class="seg w-full">
+          <button type="button" class="seg-item flex-1 justify-center" [ngClass]="{ 'seg-item-on': authMode() === 'login' }" (click)="authMode.set('login'); authError.set(null)">Sign in</button>
+          <button type="button" class="seg-item flex-1 justify-center" [ngClass]="{ 'seg-item-on': authMode() === 'register' }" (click)="authMode.set('register'); authError.set(null)">Create account</button>
+        </div>
+        <p class="mt-3 text-xs leading-relaxed text-ink-300">{{ authMode() === 'login' ? 'Your labs will sync to this account and follow you across devices.' : 'The lab you are working on now is copied to the new account.' }}</p>
+        <form class="mt-3 flex flex-col gap-2" (submit)="$event.preventDefault(); doAuth()">
+          <input class="field field-lg" [(ngModel)]="email" name="email" type="email" autocomplete="email" placeholder="email" required />
+          <input class="field field-lg" [(ngModel)]="password" name="pw" type="password" [autocomplete]="authMode() === 'login' ? 'current-password' : 'new-password'" placeholder="password" required />
+          @if (authError(); as err) { <div class="flex items-start gap-1.5 text-xs text-danger-300"><nb-icon name="alert" [size]="13" class="mt-0.5 shrink-0" /> {{ err }}</div> }
+          <div class="mt-1 flex justify-end gap-2">
+            <button type="button" class="btn btn-secondary btn-lg" (click)="authOpen.set(false)">Close</button>
+            <button type="submit" class="btn btn-primary btn-lg" [disabled]="authBusy()">{{ authBusy() ? 'Please wait…' : authMode() === 'login' ? 'Sign in' : 'Create account' }}</button>
+          </div>
+        </form>
+      } @else {
+        <div class="flex items-center gap-3">
+          <span class="grid h-10 w-10 place-items-center rounded-full bg-ok-500/15 text-ok-300"><nb-icon name="user" [size]="18" /></span>
+          <div class="min-w-0"><div class="truncate text-sm font-semibold text-ink-50">{{ api.email() }}</div><div class="text-xs text-ink-400">{{ myLabs().length }} saved {{ myLabs().length === 1 ? 'lab' : 'labs' }}</div></div>
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button" class="btn btn-secondary btn-lg" (click)="authOpen.set(false)">Close</button>
+          <button type="button" class="btn btn-danger btn-lg" (click)="signOut()"><nb-icon name="logout" [size]="14" /> Sign out</button>
+        </div>
+      }
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= Save as -->
+@if (saveAsOpen()) {
+  <div class="backdrop flex items-center justify-center p-4" (click)="saveAsOpen.set(false)">
+    <form class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveAs()" role="dialog" aria-modal="true">
+      <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="save" [size]="16" class="text-brand-300" /> Save a copy</div>
+      <p class="mt-1 text-xs text-ink-400">Saves the current topology and configuration under your account.</p>
+      <input class="field field-lg mt-3" [(ngModel)]="saveAsName" name="labname" placeholder="Lab name" required autofocus />
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="btn btn-secondary btn-lg" (click)="saveAsOpen.set(false)">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-lg" [disabled]="saveAsBusy()">{{ saveAsBusy() ? 'Saving…' : 'Save' }}</button>
       </div>
     </form>
   </div>
 }
+
+<!-- ======================================================================= Shortcuts -->
+@if (shortcutsOpen()) {
+  <div class="backdrop flex items-center justify-center p-4" (click)="shortcutsOpen.set(false)">
+    <div class="card w-full max-w-md p-5 animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="keyboard" [size]="16" class="text-brand-300" /> Keyboard shortcuts</div>
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Close" (click)="shortcutsOpen.set(false)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <div class="mt-3 grid gap-1.5">
+        @for (s of shortcuts; track s.what) {
+          <div class="flex items-center gap-3 text-xs">
+            <span class="flex w-28 shrink-0 flex-wrap gap-1">@for (k of s.keys; track k) { <span class="kbd">{{ k }}</span> }</span>
+            <span class="text-ink-200">{{ s.what }}</span>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= About -->
+@if (aboutOpen()) {
+  <div class="backdrop flex items-center justify-center p-4" (click)="aboutOpen.set(false)">
+    <div class="card w-full max-w-md p-5 animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="info" [size]="16" class="text-brand-300" /> About this simulation</div>
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Close" (click)="aboutOpen.set(false)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <p class="mt-3 text-xs leading-relaxed text-ink-200">{{ api.state()?.differsNote }}</p>
+      <ul class="mt-3 space-y-1 text-xs text-ink-300">
+        <li class="flex gap-2"><nb-icon name="check" [size]="13" class="mt-0.5 text-ok-400" /> Forwarding is real: MAC learning, 802.1Q, ARP/NDP, static routes, OSPFv2 area 0, DHCP, SLAAC, ACL, NAT.</li>
+        <li class="flex gap-2"><nb-icon name="check" [size]="13" class="mt-0.5 text-ok-400" /> Every drop carries the engine’s reason. The UI never fakes a success.</li>
+        <li class="flex gap-2"><nb-icon name="alert" [size]="13" class="mt-0.5 text-warn-400" /> Approximations (Wi-Fi RF, SSH crypto, OSPF timers) are marked <em>simulated</em>.</li>
+        <li class="flex gap-2"><nb-icon name="x" [size]="13" class="mt-0.5 text-danger-400" /> No BGP, MPLS, VXLAN or 802.1X — this is a junior-admin lab, not a CCIE catalog.</li>
+      </ul>
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= Welcome -->
+@if (welcomeOpen()) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="dismissWelcome()">
+    <div class="card w-full max-w-lg overflow-hidden animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="border-b border-ink-800 bg-gradient-to-br from-brand-900/60 to-ink-900 px-6 py-5">
+        <div class="flex items-center gap-2 text-brand-300"><nb-icon name="network" [size]="18" /><span class="text-[11px] font-semibold tracking-wider uppercase">NetBench</span></div>
+        <h2 class="mt-2 text-xl font-semibold text-ink-50">A network lab you can break safely</h2>
+        <p class="mt-1 text-sm text-ink-300">Cable devices, give them addresses, ping — and see exactly why a packet was dropped.</p>
+      </div>
+      <div class="grid gap-3 px-6 py-5 sm:grid-cols-3">
+        <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">1</span> Pick a lab</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Eight scenarios, easiest first. Each has a goal and a checklist.</p></div>
+        <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">2</span> Fix it</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Select a device for hints, ports, IPs and a Ping/Trace tool — or type real commands in the terminal.</p></div>
+        <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">3</span> Check</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Honest pass/fail with the exact reason. Stuck? Eve explains or fixes, with your approval.</p></div>
+      </div>
+      <div class="flex flex-wrap items-center justify-end gap-2 border-t border-ink-800 px-6 py-4">
+        @if (!isNarrow()) { <span class="mr-auto text-[11px] text-ink-500">Press <span class="kbd">?</span> anytime for shortcuts</span> }
+        <button type="button" class="btn btn-secondary btn-lg" (click)="dismissWelcome()">Explore</button>
+        <button type="button" class="btn btn-primary btn-lg" (click)="dismissWelcome(true)">Start with lab 1 <nb-icon name="arrow-right" [size]="14" /></button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= Troubleshoot -->
+@if (diagnosis(); as dg) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="diagnosis.set(null)">
+    <div class="card w-full max-w-lg overflow-hidden animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="nb-diag-title">
+      <div class="flex items-start gap-3 border-b border-ink-800 px-5 py-4">
+        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl" [ngClass]="dg.reachable ? 'bg-ok-500/15 text-ok-300' : 'bg-danger-500/15 text-danger-300'"><nb-icon [name]="dg.reachable ? 'circle-check' : 'stethoscope'" [size]="18" /></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-1.5">
+            @if (!dg.reachable) { <span class="chip" [ngClass]="layerChip(dg.layer)">{{ dg.layer }}</span> }
+            @if (dg.device) { <span class="chip chip-muted font-mono">{{ dg.device }}{{ dg.iface ? ' ' + dg.iface : '' }}</span> }
+          </div>
+          <h2 id="nb-diag-title" class="mt-1 text-base font-semibold text-ink-50">{{ dg.title }}</h2>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" aria-label="Close" (click)="diagnosis.set(null)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <div class="px-5 py-4">
+        <p class="text-sm leading-relaxed text-ink-200">{{ dg.detail }}</p>
+        <div class="mt-3 rounded-lg border border-ink-800 bg-ink-950/60 px-3 py-2 font-mono text-[11px] text-ink-300"><span class="text-ink-500">engine:</span> {{ dg.reason }}</div>
+        @if (dg.lookAt.length) {
+          <div class="section-title mt-4 mb-1.5">Look at</div>
+          <ul class="space-y-1">
+            @for (l of dg.lookAt; track $index) { <li class="flex items-start gap-2 text-xs text-ink-200"><nb-icon name="eye" [size]="12" class="mt-0.5 shrink-0 text-brand-300" /> {{ l }}</li> }
+          </ul>
+        }
+        @if (dg.commands.length) {
+          <div class="section-title mt-4 mb-1.5">Verify in the terminal</div>
+          <div class="flex flex-wrap gap-1.5">
+            @for (c of dg.commands; track $index) {
+              <button type="button" class="btn btn-sm btn-secondary font-mono" (click)="runDiagCommand(c)"><nb-icon name="terminal" [size]="11" /> {{ c.device }}: {{ c.cmd }}</button>
+            }
+          </div>
+        }
+      </div>
+      <div class="flex flex-wrap items-center justify-end gap-2 border-t border-ink-800 px-5 py-3">
+        @if (dg.device) { <button type="button" class="btn btn-secondary mr-auto" (click)="goToDevice(dg.device)"><nb-icon name="inspect" [size]="13" /> Go to {{ dg.device }}</button> }
+        @if (!basicMode() && !dg.reachable) { <button type="button" class="btn btn-eve" (click)="askEveDiag()"><nb-icon name="sparkles" [size]="13" /> Ask Eve</button> }
+        @if (dg.fix; as f) { <button type="button" class="btn btn-ok" (click)="applyDiagFix()"><nb-icon name="wrench" [size]="13" /> {{ f.label }}</button> }
+        @if (dg.reachable) { <button type="button" class="btn btn-primary" (click)="diagnosis.set(null); doCheck()"><nb-icon name="circle-check" [size]="13" /> Check again</button> }
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= Checkpoints -->
+@if (checkpointsOpen()) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="checkpointsOpen.set(false); diff.set(null)">
+    <div class="card flex max-h-[85dvh] w-full max-w-xl flex-col overflow-hidden animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="flex items-center gap-2 border-b border-ink-800 px-5 py-3">
+        <nb-icon name="clock" [size]="16" class="text-brand-300" />
+        <h2 class="text-sm font-semibold text-ink-50">Checkpoints</h2>
+        <span class="text-[10.5px] text-ink-500">saved configurations of this lab, in this browser</span>
+        <button type="button" class="btn btn-ghost btn-icon ml-auto" aria-label="Close" (click)="checkpointsOpen.set(false); diff.set(null)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <form class="flex items-center gap-2 border-b border-ink-800 px-5 py-3" (submit)="$event.preventDefault(); saveCheckpoint()">
+        <input class="field flex-1" [(ngModel)]="ckptName" name="ckpt" placeholder="Name this checkpoint (e.g. before VLAN change)" />
+        <button type="submit" class="btn btn-primary"><nb-icon name="bookmark" [size]="13" /> Save now</button>
+      </form>
+      <div class="scroll-thin min-h-0 flex-1 overflow-auto px-5 py-3">
+        @if (diff(); as df) {
+          <div class="mb-3 flex items-center gap-2">
+            <button type="button" class="btn btn-sm btn-ghost" (click)="diff.set(null)"><nb-icon name="chevron-right" [size]="12" class="rotate-180" /> Back</button>
+            <span class="text-xs text-ink-300">Changes since <b class="text-ink-50">{{ df.against.name }}</b> ({{ when(df.against.at) }})</span>
+          </div>
+          @if (!df.rows.length && !df.links.added.length && !df.links.removed.length) {
+            <p class="rounded-lg border border-ink-800 px-3 py-4 text-center text-xs text-ink-400">No configuration differences.</p>
+          }
+          @for (r of df.rows; track r.device) {
+            <div class="mb-2 rounded-lg border border-ink-800 bg-ink-950/60 p-2.5">
+              <div class="flex items-center gap-2 text-xs font-semibold text-ink-50">
+                <span class="font-mono">{{ r.device }}</span>
+                <span class="chip" [ngClass]="r.status === 'added' ? 'chip-ok' : r.status === 'removed' ? 'chip-danger' : 'chip-warn'">{{ r.status }}</span>
+              </div>
+              @for (l of r.removed; track $index) { <div class="font-mono text-[11px] text-danger-300">− {{ l }}</div> }
+              @for (l of r.added; track $index) { <div class="font-mono text-[11px] text-ok-300">+ {{ l }}</div> }
+            </div>
+          }
+          @if (df.links.added.length || df.links.removed.length) {
+            <div class="rounded-lg border border-ink-800 bg-ink-950/60 p-2.5">
+              <div class="text-xs font-semibold text-ink-50">Cables</div>
+              @for (l of df.links.removed; track $index) { <div class="font-mono text-[11px] text-danger-300">− {{ l }}</div> }
+              @for (l of df.links.added; track $index) { <div class="font-mono text-[11px] text-ok-300">+ {{ l }}</div> }
+            </div>
+          }
+        } @else {
+          @for (c of labCheckpoints(); track c.id) {
+            <div class="mb-2 flex items-center gap-3 rounded-lg border border-ink-800 bg-ink-950/60 px-3 py-2">
+              <nb-icon name="bookmark" [size]="14" class="shrink-0 text-brand-300" />
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-xs font-medium text-ink-50">{{ c.name }}</div>
+                <div class="text-[10.5px] text-ink-500">{{ when(c.at) }} · {{ c.lab.devices.length }} devices · {{ c.lab.links.length }} cables</div>
+              </div>
+              <button type="button" class="btn btn-sm btn-secondary" (click)="diffCheckpoint(c)" title="What changed since this checkpoint"><nb-icon name="diff" [size]="12" /> Diff</button>
+              <button type="button" class="btn btn-sm btn-secondary" (click)="restoreCheckpoint(c)" title="Reopen the lab exactly as it was"><nb-icon name="undo" [size]="12" /> Restore</button>
+              <button type="button" class="btn btn-ghost btn-icon h-7 w-7 text-ink-500 hover:text-danger-300" aria-label="Delete checkpoint" (click)="deleteCheckpoint(c.id)"><nb-icon name="trash" [size]="13" /></button>
+            </div>
+          } @empty {
+            <p class="rounded-lg border border-dashed border-ink-700 px-3 py-5 text-center text-xs text-ink-400">No checkpoints for this lab yet. Save one before a risky change; afterwards, Diff shows exactly which commands changed.</p>
+          }
+          @if (otherCheckpoints().length) {
+            <div class="section-title mt-3 mb-1.5">Other labs</div>
+            @for (c of otherCheckpoints(); track c.id) {
+              <div class="mb-1.5 flex items-center gap-3 rounded-lg border border-ink-800/60 px-3 py-1.5 text-xs">
+                <span class="min-w-0 flex-1 truncate text-ink-300">{{ c.lab.name }} · {{ c.name }} <span class="text-ink-600">· {{ when(c.at) }}</span></span>
+                <button type="button" class="btn btn-sm btn-ghost" (click)="restoreCheckpoint(c)">Open</button>
+                <button type="button" class="btn btn-ghost btn-icon h-7 w-7 text-ink-500 hover:text-danger-300" aria-label="Delete checkpoint" (click)="deleteCheckpoint(c.id)"><nb-icon name="trash" [size]="13" /></button>
+              </div>
+            }
+          }
+        }
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ======================================================================= Lab editor -->
+@if (labEditOpen()) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="labEditOpen.set(false)">
+    <form class="card flex max-h-[88dvh] w-full max-w-xl flex-col overflow-hidden animate-pop" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); applyLabEdit()" role="dialog" aria-modal="true">
+      <div class="flex items-center gap-2 border-b border-ink-800 px-5 py-3">
+        <nb-icon name="pencil" [size]="16" class="text-brand-300" />
+        <h2 class="text-sm font-semibold text-ink-50">Edit lab</h2>
+        <span class="text-[10.5px] text-ink-500">make it yours, then share the link</span>
+        <button type="button" class="btn btn-ghost btn-icon ml-auto" aria-label="Close" (click)="labEditOpen.set(false)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <div class="scroll-thin min-h-0 flex-1 overflow-auto px-5 py-4">
+        <label class="section-title mb-1 block">Name</label>
+        <input class="field" [(ngModel)]="labEdit.name" name="labname2" required />
+        <label class="section-title mt-3 mb-1 block">Goal (what Check must prove)</label>
+        <textarea class="field min-h-16 py-2" rows="2" [(ngModel)]="labEdit.goal" name="labgoal"></textarea>
+        <label class="section-title mt-3 mb-1 block">Description</label>
+        <input class="field" [(ngModel)]="labEdit.description" name="labdesc" placeholder="Optional one-liner" />
+
+        <div class="section-title mt-4 mb-1.5">Checks</div>
+        @for (c of labChecks(); track $index; let i = $index) {
+          <div class="mb-1.5 flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-950/60 px-3 py-1.5 text-xs">
+            <span class="chip chip-brand">{{ c.type }}</span>
+            <span class="min-w-0 flex-1 truncate text-ink-100">{{ checkLabel(c) }}</span>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7 text-ink-500 hover:text-danger-300" aria-label="Remove check" (click)="removeCheck(i)"><nb-icon name="x" [size]="13" /></button>
+          </div>
+        } @empty {
+          <p class="mb-1.5 text-xs text-ink-500">No checks yet — a lab without checks cannot be passed.</p>
+        }
+        <div class="mt-2 rounded-lg border border-dashed border-ink-700 p-3">
+          <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-xs">
+            <span class="text-ink-400">Type</span>
+            <select class="field" [(ngModel)]="newCheck.type" name="ctype">
+              <option value="ping">ping — source reaches an address</option>
+              <option value="ssh">ssh — allowed or denied to a server</option>
+              <option value="wifi-associated">wifi — client is associated</option>
+              <option value="dhcp-bound">dhcp — device holds a lease</option>
+              <option value="ospf-full">ospf — two routers reach FULL</option>
+            </select>
+            @if (newCheck.type === 'ping' || newCheck.type === 'ssh') {
+              <span class="text-ink-400">From</span>
+              <select class="field" [(ngModel)]="newCheck.src" name="csrc">
+                @for (n of deviceNames(); track n) { <option [value]="n">{{ n }}</option> }
+              </select>
+              <span class="text-ink-400">To</span>
+              <input class="field font-mono" [(ngModel)]="newCheck.dst" name="cdst" list="nb-lab-ips" placeholder="10.0.0.20 or a device name" />
+              <datalist id="nb-lab-ips">@for (ip of labIps(); track ip) { <option [value]="ip"></option> }</datalist>
+              @if (newCheck.type === 'ping') {
+                <span class="text-ink-400">Family</span>
+                <select class="field" [(ngModel)]="newCheck.family" name="cfam"><option value="v4">IPv4</option><option value="v6">IPv6</option></select>
+              } @else {
+                <span class="text-ink-400">Expect</span>
+                <select class="field" [(ngModel)]="newCheck.expect" name="cexp"><option value="allow">allowed</option><option value="deny">denied</option></select>
+              }
+            } @else if (newCheck.type === 'wifi-associated') {
+              <span class="text-ink-400">Client</span>
+              <select class="field" [(ngModel)]="newCheck.client" name="cclient">@for (n of deviceNames(); track n) { <option [value]="n">{{ n }}</option> }</select>
+            } @else if (newCheck.type === 'dhcp-bound') {
+              <span class="text-ink-400">Device</span>
+              <select class="field" [(ngModel)]="newCheck.device" name="cdev">@for (n of deviceNames(); track n) { <option [value]="n">{{ n }}</option> }</select>
+            } @else {
+              <span class="text-ink-400">Router A</span>
+              <select class="field" [(ngModel)]="newCheck.a" name="ca"><option value="">—</option>@for (n of routerNames(); track n) { <option [value]="n">{{ n }}</option> }</select>
+              <span class="text-ink-400">Router B</span>
+              <select class="field" [(ngModel)]="newCheck.b" name="cb"><option value="">—</option>@for (n of routerNames(); track n) { <option [value]="n">{{ n }}</option> }</select>
+            }
+          </div>
+          <button type="button" class="btn btn-secondary mt-2 w-full" (click)="addCheck()"><nb-icon name="plus" [size]="13" /> Add check</button>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-2 border-t border-ink-800 px-5 py-3">
+        <span class="text-[10.5px] text-ink-500">Applying reopens the lab with the new details (runtime state such as ARP caches resets).</span>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary" (click)="labEditOpen.set(false)">Cancel</button>
+          <button type="submit" class="btn btn-primary" [disabled]="labEditBusy()">{{ labEditBusy() ? 'Applying…' : 'Apply' }}</button>
+        </div>
+      </div>
+    </form>
+  </div>
+}
+
+<!-- ======================================================================= Command palette -->
+@if (paletteOpen()) {
+  <div class="backdrop flex items-start justify-center p-3 pt-[12vh]" (click)="paletteOpen.set(false)">
+    <div class="card flex max-h-[70dvh] w-full max-w-lg flex-col overflow-hidden animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="flex items-center gap-2 border-b border-ink-800 px-3">
+        <nb-icon name="search" [size]="15" class="text-ink-400" />
+        <input
+          class="min-h-11 flex-1 bg-transparent text-sm text-ink-50 outline-none placeholder:text-ink-500"
+          name="palette"
+          autocomplete="off"
+          placeholder="Type a device, lab or action…"
+          [value]="paletteQ()"
+          (input)="setPaletteQ($any($event.target).value)"
+          (keydown)="paletteKey($event)"
+        />
+        <span class="kbd">esc</span>
+      </div>
+      <div class="scroll-thin min-h-0 flex-1 overflow-auto p-1.5" role="listbox">
+        @for (it of paletteItems(); track it.id; let i = $index) {
+          <button
+            type="button"
+            class="menu-item"
+            [ngClass]="{ 'bg-ink-800': i === paletteIdx() }"
+            role="option"
+            [attr.aria-selected]="i === paletteIdx()"
+            (mouseenter)="paletteIdx.set(i)"
+            (click)="runPalette(it)"
+          >
+            <nb-icon [name]="it.icon" [size]="14" class="shrink-0 text-ink-400" />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-xs text-ink-50">{{ it.label }}</span>
+              @if (it.hint) { <span class="block truncate text-[10.5px] text-ink-500">{{ it.hint }}</span> }
+            </span>
+            <span class="shrink-0 text-[10px] text-ink-500 uppercase tracking-wider">{{ it.group }}</span>
+          </button>
+        } @empty {
+          <div class="px-3 py-6 text-center text-xs text-ink-500">Nothing matches “{{ paletteQ() }}”.</div>
+        }
+      </div>
+    </div>
+  </div>
+}
+
+<nb-toasts [items]="toasts()" [bottom]="isNarrow() ? (basicMode() ? '4.5rem' : '4rem') : '1rem'" (dismiss)="dismissToast($event)" />

@@ -68,12 +68,24 @@ describe('sessions + engine path/check', () => {
     expect(drop?.reason ?? path.body.reason).toBe(path.body.reason);
   });
 
-  it('run_check on each of the eight seeded labs passes', async () => {
-    expect(BUILTIN_LABS.length).toBe(8);
+  it('run_check on every seeded lab matches its design (study labs pass, fault labs fail honestly)', async () => {
+    expect(BUILTIN_LABS.length).toBe(17);
+    // Labs whose goal is to repair something start with a failing Check.
+    const faultLabs = new Set([
+      'lab-0a-plug-the-cable',
+      'lab-0b-first-address',
+      'lab-0c-port-shutdown',
+      'lab-2b-wrong-mask',
+      'lab-9-static-routes',
+      'lab-10-ospf-three-routers',
+      'lab-11-nat-internet',
+      'lab-12-wlc-capwap',
+    ]);
     for (const lab of BUILTIN_LABS) {
       const { sessionId } = await openLab(lab.id);
       const chk = await request(server).post(`/api/sessions/${sessionId}/check`).expect(201);
-      expect(chk.body.ok, `${lab.id} ${JSON.stringify(chk.body.results)}`).toBe(true);
+      expect(chk.body.ok, `${lab.id} ${JSON.stringify(chk.body.results)}`).toBe(!faultLabs.has(lab.id));
+      for (const r of chk.body.results as { ok: boolean; reason: string }[]) expect(typeof r.reason).toBe('string');
     }
   });
 

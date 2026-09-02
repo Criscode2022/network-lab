@@ -283,13 +283,62 @@ describe('DHCP, wifi, firewall, NAT, TTL, loop', () => {
 });
 
 describe('built-in labs Check', () => {
-  it('all eight seeded labs pass', () => {
-    expect(BUILTIN_LABS).toHaveLength(8);
-    for (const lab of BUILTIN_LABS) {
+  /** Fault labs start failing and must pass once the fix named in their goal is applied. */
+  const FIX: Record<string, (e: Engine) => void> = {
+    'lab-0a-plug-the-cable': (e) => e.addLink('PC2:eth0', 'SW1:Gi0/2', true, 'ethernet'),
+    'lab-0b-first-address': (e) => e.exec('PC2', 'ip addr add 10.0.0.20/24 dev eth0'),
+    'lab-0c-port-shutdown': (e) => {
+      for (const l of ['enable', 'conf t', 'int Gi0/2', 'no shut', 'end']) e.exec('SW1', l);
+    },
+    'lab-2b-wrong-mask': (e) => {
+      e.exec('PC2', 'ip addr del 10.0.0.200/25 dev eth0');
+      e.exec('PC2', 'ip addr add 10.0.0.200/24 dev eth0');
+    },
+    'lab-9-static-routes': (e) => {
+      for (const l of ['enable', 'conf t', 'ip route 10.2.2.0 255.255.255.0 10.0.12.2', 'end']) e.exec('R1', l);
+      for (const l of ['enable', 'conf t', 'ip route 10.1.1.0 255.255.255.0 10.0.12.1', 'end']) e.exec('R2', l);
+    },
+    'lab-10-ospf-three-routers': (e) => {
+      for (const l of ['enable', 'conf t', 'router ospf 1', 'network 10.0.13.0 0.0.0.3 area 0', 'network 10.0.23.0 0.0.0.3 area 0', 'network 10.3.3.0 0.0.0.255 area 0', 'end']) e.exec('R3', l);
+    },
+    'lab-11-nat-internet': (e) => {
+      for (const l of ['enable', 'conf t', 'ip access-list standard LAN', 'permit 192.168.1.0 0.0.0.255', 'ip nat inside source list LAN interface Gi0/1 overload', 'end']) e.exec('R1', l);
+    },
+    'lab-12-wlc-capwap': (e) => {
+      for (const l of ['enable', 'conf t', 'capwap controller 10.0.10.5', 'end']) e.exec('AP1', l);
+      e.exec('PC1', 'nmcli wifi connect CORP password netbench');
+    },
+  };
+
+  it('has a curriculum of 17 labs with unique ids', () => {
+    expect(BUILTIN_LABS).toHaveLength(17);
+    expect(new Set(BUILTIN_LABS.map((l) => l.id)).size).toBe(BUILTIN_LABS.length);
+    expect(BUILTIN_LABS[0].id).toBe('lab-0a-plug-the-cable');
+  });
+
+  it('study labs pass as shipped', () => {
+    for (const lab of BUILTIN_LABS.filter((l) => !FIX[l.id])) {
+      const chk = Engine.fromLab(lab).check();
+      expect(chk.ok, `${lab.id}: ${chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}`).toBe(true);
+    }
+  });
+
+  it('fault labs fail as shipped and pass after the documented fix', () => {
+    for (const lab of BUILTIN_LABS.filter((l) => FIX[l.id])) {
       const e = Engine.fromLab(lab);
+      expect(e.check().ok, `${lab.id} should start broken`).toBe(false);
+      FIX[lab.id](e);
+      e.converge();
       const chk = e.check();
       expect(chk.ok, `${lab.id}: ${chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}`).toBe(true);
     }
+  });
+
+  it('wrong mask drops on the way back with an honest reason', () => {
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2b-wrong-mask')!);
+    const p = e.getPath('PC1', '10.0.0.200', 'icmp', 'v4');
+    expect(p.ok).toBe(false);
+    expect(p.reason).toMatch(/No route to 10\.0\.0\.10 on PC2/);
   });
 });
 
@@ -590,5 +639,79 @@ describe('get_path drop reason matches inspector', () => {
     expect(path.ok).toBe(false);
     const drop = [...path.events].reverse().find((x) => x.drop);
     expect(drop?.reason).toBe(path.reason);
+  });
+});
+
+describe('route and address removal', () => {
+  it('ip route del / replace fix a wrong default gateway on a host', () => {
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    // Wrong gateway: add refuses a second default, replace swaps it, del removes it.
+    expect(e.exec('PC1', 'ip route add default via 10.0.0.9').error).toBe(true);
+    expect(e.exec('PC1', 'ip route replace default via 10.0.0.9').error).toBeFalsy();
+    expect(e.ping('PC1', '10.0.1.20', { count: 1 }).ok).toBe(false);
+    expect(e.exec('PC1', 'ip route replace default via 10.0.0.1').error).toBeFalsy();
+    expect(e.ping('PC1', '10.0.1.20', { count: 1 }).ok).toBe(true);
+    expect(e.exec('PC1', 'ip route del default').error).toBeFalsy();
+    expect(e.dev('PC1').defaultGw4).toBeUndefined();
+    expect(e.exec('PC1', 'ip route del default').error).toBe(true);
+    const r = e.ping('PC1', '10.0.1.20', { count: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.reason.toLowerCase()).toMatch(/no route|gateway/);
+    expect(e.exec('PC1', 'ip route add default via 10.0.0.1').error).toBeFalsy();
+    expect(e.ping('PC1', '10.0.1.20', { count: 1 }).ok).toBe(true);
+    expect(e.runningConfig(e.dev('PC1'))).toContain('ip route 0.0.0.0 0.0.0.0 10.0.0.1');
+  });
+
+  it('ip addr del removes the address and the routes that depended on it', () => {
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    expect(e.exec('PC1', 'ip addr del 10.0.0.99/24 dev eth0').error).toBe(true);
+    expect(e.exec('PC1', 'ip addr del 10.0.0.10/24 dev eth0').error).toBeFalsy();
+    const pc = e.dev('PC1');
+    expect(pc.ifaces[0].ipv4).toBeUndefined();
+    expect(pc.routesV4.some((r) => r.prefix === 0)).toBe(false);
+    // Re-address with a different mask, then a fresh gateway: back to working.
+    e.exec('PC1', 'ip addr add 10.0.0.10/24 dev eth0');
+    expect(e.exec('PC1', 'ip route add default via 10.0.0.1').error).toBeFalsy();
+    expect(e.ping('PC1', '10.0.1.20', { count: 1 }).ok).toBe(true);
+  });
+
+  it('router: no ip route removes a static route; no ip address clears an interface', () => {
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-8-firewall-ssh')!);
+    e.exec('R1', 'enable');
+    e.exec('R1', 'conf t');
+    expect(e.exec('R1', 'no ip route 10.0.30.0 255.255.255.0 10.0.99.2').error).toBeFalsy();
+    expect(e.dev('R1').routesV4.some((r) => r.dest === '10.0.30.0' && r.proto === 'static')).toBe(false);
+    expect(e.exec('R1', 'no ip route 10.0.30.0 255.255.255.0 10.0.99.2').error).toBe(true);
+    expect(e.getPath('JUMP', '10.0.30.10', 'ssh', 'v4').ok).toBe(false);
+    e.exec('R1', 'ip route 10.0.30.0 255.255.255.0 10.0.99.2');
+    e.exec('R1', 'end');
+    expect(e.getPath('JUMP', '10.0.30.10', 'ssh', 'v4').ok).toBe(true);
+    e.exec('R1', 'conf t');
+    e.exec('R1', 'int Gi0/1');
+    expect(e.exec('R1', 'no ip address').error).toBeFalsy();
+    expect(e.dev('R1').ifaces.find((i) => i.name === 'Gi0/1')?.ipv4).toBeUndefined();
+  });
+
+  it('AP and WLC accept int/shutdown per interface', () => {
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-7-wifi-dhcp-ping')!);
+    const ap = e.dev('AP1');
+    e.exec('AP1', 'enable');
+    e.exec('AP1', 'conf t');
+    expect(e.exec('AP1', 'int wlan0').error).toBeFalsy();
+    expect(e.exec('AP1', 'shutdown').error).toBeFalsy();
+    expect(ap.ifaces.find((i) => i.name === 'wlan0')?.adminUp).toBe(false);
+    expect(ap.ifaces.find((i) => i.name === 'Gi0/1')?.adminUp).toBe(true);
+    expect(e.exec('AP1', 'no shutdown').error).toBeFalsy();
+    expect(ap.ifaces.find((i) => i.name === 'wlan0')?.adminUp).toBe(true);
+    // Every startup line of every builtin lab must be a command the device understands.
+    for (const lab of BUILTIN_LABS) {
+      const fresh = Engine.fromLab({ ...lab, devices: lab.devices.map((d) => ({ ...d, startup: [], post: [] })) });
+      for (const d of lab.devices) {
+        for (const line of d.startup ?? []) {
+          const r = fresh.exec(fresh.dev(d.name).id, line);
+          expect(r.error, `${lab.id} ${d.name}: ${line} -> ${r.output}`).toBeFalsy();
+        }
+      }
+    }
   });
 });
