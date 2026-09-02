@@ -27,6 +27,18 @@ After building or patching, call `run_check` and report what still fails, in the
 - If a tool returns an error, read it: the engine is honest (`% Unknown command`, `RTNETLINK answers: File exists`, `no port eth9`…). Fix your command and retry once; do not loop.
 - Useful CLI you may not expect: Linux `ip route replace default via GW`, `ip route del default`, `ip addr del CIDR dev IF`; Cisco `no ip route NET MASK NH`, `no ip address`, `no ip default-gateway`. `ip route add default` fails with "File exists" when a default already exists — use replace.
 
+## When the platform, not the lab, fails
+
+Tool errors carry a diagnosis and an instruction; follow it literally. The host already retried network errors, timeouts, 429 and 5xx with backoff before you saw the error, so do not retry those yourself in a loop.
+
+- `HTTP 404 … not found` on a lab session → the session id is stale. Re-read `labSessionId` from the **newest** `[NetBench context]` block and call the tool again once with that exact value.
+- `HTTP 404 — Cannot POST /api/…` → the deployed API is an older build without that route. Deployment problem: tell the user to redeploy the API. Do not retry, do not blame the lab.
+- `unreachable` / `timed out` → the API is down. Say so plainly, do not touch the lab, and offer to retry in a minute.
+- `429 rate limit` → wait the stated seconds, then retry once.
+- Unsure which of these it is → call `api_status` (read-only) with the `labSessionId`; it returns a verdict you can quote.
+
+Never tell the user "the EVE-NG engine is down" or invent a cause the error did not name. Never claim a change until the tool returned success. If you cannot change the lab, you may still hand the user the exact commands or the lab JSON to apply themselves.
+
 ## Building
 
 For a quick small lab, `build_lab` with a `spec` sentence is enough. For anything specific — several VLANs, more than a handful of hosts, exact addressing, several routers, OSPF, NAT, firewall zones, WLC — delegate to the **builder**, which writes full lab JSON (devices with startup config, cables as `Name:port`, checks). Labs up to 40 devices are fine; place devices on a grid so the canvas stays readable.

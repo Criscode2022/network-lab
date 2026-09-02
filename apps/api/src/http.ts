@@ -92,11 +92,30 @@ function labFromBuildBody(body: { spec?: string; lab?: unknown }): { lab: LabJso
   return { lab: labFromSpec(body.spec ?? ''), startupErrors: [] };
 }
 
+/** Build identity so clients (the Eve host, the UI) can tell "old deploy" from "down" — Railway/Vercel set the commit env vars. */
+const BUILD_VERSION =
+  process.env.NETBENCH_BUILD ||
+  process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 12) ||
+  process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ||
+  process.env.SOURCE_VERSION?.slice(0, 12) ||
+  'dev';
+const STARTED_AT = Date.now();
+
 @Controller()
 export class HealthController {
   @Get('health')
   health() {
-    return { ok: true, service: 'netbench-api', engine: 'discrete-event', split: 'long-running-node' };
+    return {
+      ok: true,
+      service: 'netbench-api',
+      engine: 'discrete-event',
+      split: 'long-running-node',
+      version: BUILD_VERSION,
+      uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
+      // Route families the Eve host depends on; lets it diagnose a stale deploy without probing each route.
+      eveTools: true,
+      idempotency: true,
+    };
   }
 }
 
@@ -451,62 +470,88 @@ export class EveToolsController {
     return this.session(body.labId ?? '').engine.check();
   }
 
+  /** Body field first (what the Eve host sends), header as a fallback for other clients. */
+  private idemKey(body: { idempotencyKey?: string }, header: string | undefined): string | undefined {
+    const k = (body.idempotencyKey ?? header ?? '').trim();
+    return k && k.length <= 120 ? k : undefined;
+  }
+
   @Post('apply_device_config')
-  applyCfg(@Body() body: { labId?: string; deviceId?: string; commands?: string[]; confirmToken?: string }) {
-    const s = this.session(body.labId ?? '');
+  applyCfg(
+    @Body() body: { labId?: string; deviceId?: string; commands?: string[]; confirmToken?: string; idempotencyKey?: string },
+    @Headers('idempotency-key') idemHeader?: string,
+  ) {
+    const key = this.idemKey(body, idemHeader);
+    const s = this.session(body.labId ?? '', { count: false });
+    const replay = this.sim.replayed(s, 'apply_device_config', key);
+    if (replay !== undefined) return { ...(replay as object), replayed: true };
+    this.sim.rateLimit(s);
     try {
       this.sim.consumeConfirm(s.id, 'apply_device_config', body.confirmToken);
-      return this.sim.applyConfig(s, body.deviceId ?? '', body.commands ?? []);
+      const r = this.sim.applyConfig(s, body.deviceId ?? '', body.commands ?? []);
+      this.sim.remember(s, 'apply_device_config', key, r);
+      return r;
     } catch (e) {
       boom(e);
     }
   }
 
   @Post('apply_lab_patch')
-  applyPatch(@Body() body: { labId?: string; patch?: unknown; confirmToken?: string }) {
-    const s = this.session(body.labId ?? '');
+  applyPatch(
+    @Body() body: { labId?: string; patch?: unknown; confirmToken?: string; idempotencyKey?: string },
+    @Headers('idempotency-key') idemHeader?: string,
+  ) {
+    const key = this.idemKey(body, idemHeader);
+    const s = this.session(body.labId ?? '', { count: false });
+    const replay = this.sim.replayed(s, 'apply_lab_patch', key);
+    if (replay !== undefined) return { ...(replay as object), replayed: true };
+    this.sim.rateLimit(s);
     try {
       this.sim.consumeConfirm(s.id, 'apply_lab_patch', body.confirmToken);
-      const r = this.sim.applyPatch(s, body.patch);
-      return { ...r, state: s.engine.getState() };
+      const r = { ...this.sim.applyPatch(s, body.patch), state: s.engine.getState() };
+      this.sim.remember(s, 'apply_lab_patch', key, r);
+      return r;
     } catch (e) {
       boom(e);
     }
   }
 
   @Post('build_lab')
-  build(@Body() body: { spec?: string; lab?: unknown; confirmToken?: string; labId?: string }) {
+  build(
+    @Body() body: { spec?: string; lab?: unknown; confirmToken?: string; labId?: string; idempotencyKey?: string },
+    @Headers('idempotency-key') idemHeader?: string,
+  ) {
     if (body.spec && OUT_OF_SCOPE.test(body.spec)) {
       throw new HttpException(
         'Eve refuses BGP/MPLS/VXLAN/802.1X. NetBench is a junior-admin lab: use OSPF area 0 and the eight device types.',
         400,
       );
     }
+    if (!body.labId) throw new HttpException('labId and confirmToken required', 400);
+    const key = this.idemKey(body, idemHeader);
+    const s = this.session(body.labId, { count: false });
+    const replay = this.sim.replayed(s, 'build_lab', key);
+    if (replay !== undefined) return { ...(replay as object), replayed: true };
+    this.sim.rateLimit(s);
     let built: ReturnType<typeof labFromBuildBody>;
     try {
       built = labFromBuildBody(body);
+      this.sim.consumeConfirm(s.id, 'build_lab', body.confirmToken);
     } catch (e) {
       boom(e);
     }
-    if (body.labId) {
-      const s = this.session(body.labId);
-      try {
-        this.sim.consumeConfirm(s.id, 'build_lab', body.confirmToken);
-      } catch (e) {
-        boom(e);
-      }
-      s.engine = Engine.fromLab(built.lab);
-      const check = s.engine.check();
-      return {
-        labId: s.id,
-        lab: built.lab,
-        startupErrors: built.startupErrors,
-        check,
-        summary: `${built.lab.devices.length} devices, ${built.lab.links.length} cables, ${built.lab.checks.length} checks; check ${check.ok ? 'passes' : 'fails: ' + check.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}${built.startupErrors.length ? `; ${built.startupErrors.length} startup line(s) rejected` : ''}`,
-        state: s.engine.getState(),
-      };
-    }
-    throw new HttpException('labId and confirmToken required', 400);
+    s.engine = Engine.fromLab(built.lab);
+    const check = s.engine.check();
+    const r = {
+      labId: s.id,
+      lab: built.lab,
+      startupErrors: built.startupErrors,
+      check,
+      summary: `${built.lab.devices.length} devices, ${built.lab.links.length} cables, ${built.lab.checks.length} checks; check ${check.ok ? 'passes' : 'fails: ' + check.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}${built.startupErrors.length ? `; ${built.startupErrors.length} startup line(s) rejected` : ''}`,
+      state: s.engine.getState(),
+    };
+    this.sim.remember(s, 'build_lab', key, r);
+    return r;
   }
 
   @Post('highlight_devices')

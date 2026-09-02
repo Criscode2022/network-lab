@@ -3,14 +3,16 @@ import { AppModule } from './app.module.ts';
 import type { INestApplication } from '@nestjs/common';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { SimService } from './sim.service.ts';
+import { RateLimitFilter } from './rate-limit.filter.ts';
 import http from 'node:http';
 
 const EVE_ORIGIN = process.env.EVE_ORIGIN || 'http://127.0.0.1:4010';
 
 export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
-  app.enableCors({ origin: true, credentials: true });
+  app.enableCors({ origin: true, credentials: true, exposedHeaders: ['Retry-After'] });
   app.setGlobalPrefix('api');
+  app.useGlobalFilters(new RateLimitFilter());
   attachEveProxy(app);
   return app;
 }

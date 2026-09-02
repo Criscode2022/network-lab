@@ -846,7 +846,7 @@
         <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
           @if (!eve.msgs().length) {
             <div class="rounded-xl border border-ink-800 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-ink-300">
-              Ask why a ping fails, what a running-config line does, or describe a lab to build. Eve reads the engine — it never invents forwarding — and asks before changing anything.
+              Ask why a ping fails, what a running-config line does, or describe a lab to build. Eve reads the engine — it never invents forwarding — and only stops to ask you a question; switch Auto-approve off to confirm each change yourself.
             </div>
           }
           @for (m of eve.msgs(); track $index) {
@@ -865,7 +865,11 @@
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
               <span class="typing-dot h-1.5 w-1.5 rounded-full bg-eve-400"></span>
-              @if (eve.retrying()) { <span class="ml-1 text-[10.5px]">retry {{ eve.retrying() }}/2</span> }
+              @if (eve.retrying()) {
+                <span class="ml-1 text-[10.5px]">retry {{ eve.retrying() }}/{{ eve.maxRetries }}@if (retryInSec()) { · in {{ retryInSec() }} s }</span>
+              } @else if (eve.reconnecting()) {
+                <span class="ml-1 text-[10.5px]">reconnecting {{ eve.reconnecting() }}…</span>
+              }
             </div>
           }
           @if (eve.error() && !eve.retrying()) {
@@ -879,21 +883,41 @@
           }
         </div>
         @if (eve.hitl(); as h) {
-          <div class="m-2 rounded-xl border border-warn-500/50 bg-warn-500/10 p-3 text-xs animate-pop">
-            <div class="flex items-center gap-2 text-warn-200"><nb-icon name="alert" [size]="14" /> <span class="font-semibold">Eve wants to change the lab</span></div>
-            <div class="mt-1 text-ink-100">{{ h.prompt }}</div>
-            @if (h.toolName) { <div class="mt-1 font-mono text-[10.5px] text-warn-300/90">{{ h.toolName }}</div> }
-            @if (hitlInput(h); as inp) { <pre class="term mt-1 max-h-28 overflow-auto rounded-md bg-ink-950/70 p-2 text-[10px] leading-4 text-ink-300">{{ inp }}</pre> }
+          <div
+            class="m-2 rounded-xl border p-3 text-xs animate-pop"
+            [ngClass]="h.kind === 'question' ? 'border-eve-500/50 bg-eve-500/10' : 'border-warn-500/50 bg-warn-500/10'"
+          >
+            <div class="flex items-center gap-2" [ngClass]="h.kind === 'question' ? 'text-eve-200' : 'text-warn-200'">
+              <nb-icon [name]="h.kind === 'question' ? 'sparkles' : 'alert'" [size]="14" />
+              <span class="font-semibold">{{ hitlTitle(h) }}</span>
+              @if (eve.pendingCount() > 1) { <span class="ml-auto rounded-full bg-ink-800 px-1.5 text-[10px] text-ink-300">+{{ eve.pendingCount() - 1 }} more</span> }
+            </div>
+            <div class="mt-1 whitespace-pre-wrap text-ink-100">{{ h.prompt }}</div>
+            @if (h.toolName && h.kind !== 'question') { <div class="mt-1 font-mono text-[10.5px] text-warn-300/90">{{ h.toolName }}</div> }
+            @if (h.kind !== 'question') {
+              @if (hitlInput(h); as inp) { <pre class="term mt-1 max-h-28 overflow-auto rounded-md bg-ink-950/70 p-2 text-[10px] leading-4 text-ink-300">{{ inp }}</pre> }
+            }
             <div class="mt-2 flex flex-wrap gap-2">
               @if (h.options?.length) {
                 @for (o of h.options; track o.id) {
-                  <button type="button" class="btn btn-sm" [ngClass]="isApproveOption(o) ? 'bg-warn-500 text-ink-950 hover:bg-warn-400' : 'btn-secondary'" (click)="answerEve(o.id)">{{ o.label }}</button>
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    [ngClass]="h.kind === 'question' ? 'btn-eve' : isApproveOption(o) ? 'bg-warn-500 text-ink-950 hover:bg-warn-400' : 'btn-secondary'"
+                    [title]="o.description ?? ''"
+                    (click)="answerEve(o.id)"
+                  >
+                    {{ o.label }}
+                  </button>
                 }
-              } @else {
+              } @else if (h.kind !== 'question') {
                 <button type="button" class="btn btn-sm bg-warn-500 text-ink-950 hover:bg-warn-400" (click)="applyPending()">Approve</button>
                 <button type="button" class="btn btn-sm btn-secondary" (click)="discardPending()">Cancel</button>
               }
             </div>
+            @if (h.kind === 'question' && (h.allowFreeform || !h.options?.length)) {
+              <div class="mt-2 text-[10.5px] text-ink-400">Or type your answer below and press Enter.</div>
+            }
           </div>
         } @else if (pending(); as p) {
           <div class="m-2 rounded-xl border border-warn-500/50 bg-warn-500/10 p-3 text-xs">
@@ -916,7 +940,7 @@
               rows="1"
               [(ngModel)]="eveInput"
               name="eve"
-              [placeholder]="eveMode() === 'build' ? 'Describe the lab to build…' : 'Ask Eve…'"
+              [placeholder]="eve.hitl()?.kind === 'question' ? 'Answer Eve…' : eveMode() === 'build' ? 'Describe the lab to build…' : 'Ask Eve…'"
               (keydown.enter)="$event.preventDefault(); sendEve()"
             ></textarea>
             <button type="submit" class="btn btn-icon h-9 w-9" [ngClass]="eveMode() === 'build' ? 'btn-eve' : 'btn-primary'" aria-label="Send" [disabled]="eve.busy()"><nb-icon name="send" [size]="14" /></button>

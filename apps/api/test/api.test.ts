@@ -37,6 +37,10 @@ describe('health', () => {
     expect(r.body.ok).toBe(true);
     expect(r.body.service).toBe('netbench-api');
     expect(r.body.split).toBe('long-running-node');
+    // The Eve host reads these to tell "old deploy without eve routes" from "API down".
+    expect(typeof r.body.version).toBe('string');
+    expect(r.body.eveTools).toBe(true);
+    expect(r.body.idempotency).toBe(true);
   });
 });
 
@@ -188,6 +192,63 @@ describe('confirmToken + patch schema', () => {
       .send({ labId: sessionId, spec: 'two PCs and a switch', confirmToken: tok.body.confirmToken });
     expect(built.status).toBeLessThan(400);
     expect(built.body.state.devices.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('mutating eve tools replay the first response for a repeated idempotencyKey instead of applying twice', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post('/api/eve/tools/confirm').send({ labId: sessionId, purpose: 'apply_device_config' }).expect(201);
+    const body = {
+      labId: sessionId,
+      deviceId: 'PC1',
+      commands: ['ip addr add 10.0.0.77/24 dev eth0'],
+      confirmToken: tok.body.confirmToken,
+      idempotencyKey: 'apply_device_config-test-key-1',
+    };
+    const first = await request(server).post('/api/eve/tools/apply_device_config').send(body);
+    expect(first.status, JSON.stringify(first.body)).toBeLessThan(400);
+    expect(first.body.replayed).toBeUndefined();
+    // Same key, token already consumed: must be the stored response, not a 403 and not a second "File exists" apply.
+    const again = await request(server).post('/api/eve/tools/apply_device_config').send(body);
+    expect(again.status, JSON.stringify(again.body)).toBeLessThan(400);
+    expect(again.body.replayed).toBe(true);
+    expect(again.body.outputs).toEqual(first.body.outputs);
+    // A different key with the consumed token is a real second call and is refused.
+    const other = await request(server)
+      .post('/api/eve/tools/apply_device_config')
+      .send({ ...body, idempotencyKey: 'apply_device_config-test-key-2' });
+    expect(other.status).toBe(403);
+    // The key is bound to its purpose.
+    const wrongPurpose = await request(server)
+      .post('/api/eve/tools/apply_lab_patch')
+      .send({ labId: sessionId, patch: { addDevices: [] }, confirmToken: 'x', idempotencyKey: 'apply_device_config-test-key-1' });
+    expect(wrongPurpose.status).toBe(409);
+  });
+
+  it('build_lab replays too, and the replay does not rebuild the engine', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    const tok = await request(server).post('/api/eve/tools/confirm').send({ labId: sessionId, purpose: 'build_lab' }).expect(201);
+    const body = { labId: sessionId, spec: 'two PCs and a switch', confirmToken: tok.body.confirmToken, idempotencyKey: 'build-key-1' };
+    const first = await request(server).post('/api/eve/tools/build_lab').set('idempotency-key', 'ignored-when-body-has-key').send(body);
+    expect(first.status, JSON.stringify(first.body)).toBeLessThan(400);
+    await request(server).post(`/api/sessions/${sessionId}/cli`).send({ deviceId: 'PC1', line: 'ip addr add 10.9.9.9/24 dev eth0' });
+    const again = await request(server).post('/api/eve/tools/build_lab').send(body);
+    expect(again.body.replayed).toBe(true);
+    expect(again.body.summary).toBe(first.body.summary);
+    const st = await request(server).post('/api/eve/tools/get_lab_state').send({ labId: sessionId });
+    expect(JSON.stringify(st.body)).toContain('10.9.9.9');
+  });
+
+  it('rate limit answers 429 with a Retry-After header', async () => {
+    const { sessionId } = await openLab('lab-1-first-ipv4-ping');
+    let r: request.Response | undefined;
+    for (let i = 0; i < 125; i++) {
+      r = await request(server).post('/api/eve/tools/run_check').send({ labId: sessionId });
+      if (r.status === 429) break;
+    }
+    expect(r?.status).toBe(429);
+    expect(Number(r?.headers['retry-after'])).toBeGreaterThan(0);
+    expect(r?.body.retryAfter).toBe(Number(r?.headers['retry-after']));
+    expect(String(r?.body.message)).toMatch(/retry in \d+s/);
   });
 
   it('patch schema rejects unknown device types', async () => {

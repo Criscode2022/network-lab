@@ -1,12 +1,13 @@
 import { defineTool } from 'eve/tools';
 import { z } from 'zod';
 import { mutationApproval } from '../lib/approval.ts';
-import { mintConfirm, nest } from '../lib/nest.ts';
+import { guardLabId, guardPatch, patchDanger, type PatchLike } from '../lib/guards.ts';
+import { mintConfirm, nest, newIdempotencyKey } from '../lib/nest.ts';
 
 export default defineTool({
   description:
     'Add/remove devices or cables and run config lines on devices (configs run after links are added). Cables are "Name:port" pairs, e.g. "PC3:eth0" ↔ "SW1:Gi0/3". labId is the labSessionId UUID from context. Do not pass a confirmToken. Runs immediately; report what changed.',
-  approval: mutationApproval(),
+  approval: mutationApproval<{ labId: string; patch: PatchLike }>({ dangerous: (i) => patchDanger(i.patch) }),
   inputSchema: z.object({
     labId: z.string(),
     patch: z.object({
@@ -28,7 +29,9 @@ export default defineTool({
     }),
   }),
   async execute(input) {
-    const confirmToken = await mintConfirm(input.labId, 'apply_lab_patch');
-    return nest('/eve/tools/apply_lab_patch', { labId: input.labId, patch: input.patch, confirmToken });
+    const labId = guardLabId(input.labId);
+    const patch = guardPatch(input.patch);
+    const confirmToken = await mintConfirm(labId, 'apply_lab_patch');
+    return nest('/eve/tools/apply_lab_patch', { labId, patch, confirmToken }, { idempotencyKey: newIdempotencyKey('apply_lab_patch') });
   },
 });

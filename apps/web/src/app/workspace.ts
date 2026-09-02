@@ -2583,6 +2583,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const t = this.eveInput.trim();
     if (!t) return;
     this.eveInput = '';
+    // Typing while Eve waits on a question answers the question instead of starting a new turn.
+    if (this.eve.hitl()?.kind === 'question') {
+      await this.eve.answer(t);
+      return;
+    }
     if (this.eveMode() === 'build') {
       this.eveMode.set('chat');
       await this.eve.send(`Build this lab with build_lab. Spec: ${t}`);
@@ -2640,7 +2645,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   isApproveOption(o: { id: string; label: string }) {
-    return /approve|allow|yes/i.test(o.id) || /approve|allow|yes/i.test(o.label);
+    return /approve|allow|yes|continue/i.test(o.id) || /approve|allow|yes/i.test(o.label);
+  }
+
+  hitlTitle(h: { kind: string; toolName?: string }) {
+    if (h.kind === 'question') return 'Eve has a question';
+    if (h.kind === 'session-limit') return 'Eve reached a session budget';
+    return 'Eve wants to change the lab';
+  }
+
+  /** Seconds until the next automatic retry (0 when none is scheduled). */
+  retryInSec() {
+    const at = this.eve.retryAt();
+    return at ? Math.max(0, Math.ceil((at - Date.now()) / 1000)) : 0;
   }
 
   reachHasTarget(d: DeviceState, target: string) {
