@@ -79,8 +79,8 @@ Lab JSON schema: `packages/engine/schema/lab.schema.json`.
 **Split is required:** the forwarding engine is a long-running Node process (not a 10s serverless timeout).
 
 1. **Neon** — create a project, run `sql/schema.sql`, set `DATABASE_URL`.
-2. **API** — Railway / Fly / Render / any always-on Node. `apps/api/Dockerfile`. Env: `PORT`, `JWT_SECRET`, `DATABASE_URL`.
-   Live: `https://api-production-caeb.up.railway.app/api/health`
+2. **API** — Railway / Fly / Render / any always-on Node ≥ 24 (the image also builds eve, which refuses older Node). `apps/api/Dockerfile`. Env: `PORT`, `JWT_SECRET`, `DATABASE_URL`.
+   Live: `https://api-production-caeb.up.railway.app/api/health` — the response must carry `version` and `eveTools: true`; if not, the running build is stale. Railway currently has **no GitHub push trigger** (the Railway GitHub App lost access to the repo), so deploys are triggered by hand — runbook in `HANDOFF.md` §11.1.
 3. **Angular** — Vercel. Live: `https://netbench-www-criscode2022s-projects.vercel.app/`
    Off localhost the UI calls the Railway API. Railway nginx (`https://web-production-033453.up.railway.app/`) is a public fallback.
 4. **Eve** — from `apps/eve-agent`. Preferred: Vercel (`eve link` / `eve deploy`, OIDC + AI Gateway). Self-host: `apps/eve-agent/Dockerfile` on a long-running Node host (`eve build && eve start`). Off localhost, tools call `https://api-production-caeb.up.railway.app`.

@@ -338,6 +338,8 @@ Angular drawer (`eve-client.ts`): the context block prepended to every message c
 
 ## 9. How to run locally
 
+Node **24** (eve 0.47 refuses < 24; root `engines` still says `>=20`, which is stale). Local dev machine runs 24.18.
+
 ```bash
 cp .env.example .env   # JWT_SECRET, optional DATABASE_URL, AI_GATEWAY_API_KEY
 npm install
@@ -377,12 +379,62 @@ Vercel production is public GET 200. Some MCP deploys hit SSO — GitHub-linked 
 
 | Service | How |
 | --- | --- |
-| Angular | Vercel project `netbench-www`, GitHub `main`. Root/workspace build via `apps/web/vercel.json`. |
-| API | Railway Docker from **repo root**, `apps/api/Dockerfile`. Do not use a root `railway.json` that maps the Nest image onto the web service (already fixed with per-service Dockerfiles). |
-| Eve | `cd apps/eve-agent && npx eve deploy` (OIDC + AI Gateway). |
+| Angular | Vercel project `netbench-www`, GitHub `main`. Root/workspace build via `apps/web/vercel.json` (also rewrites `/api/*` to the Railway API). |
+| API | Railway Docker from **repo root**, `apps/api/Dockerfile` (base `node:24-slim` — eve needs Node ≥ 24). Do not use a root `railway.json` that maps the Nest image onto the web service (already fixed with per-service Dockerfiles). |
+| Eve | `cd apps/eve-agent && npx eve deploy` (OIDC + AI Gateway). The Railway API image also runs `eve start` on `127.0.0.1:4010` (`start.sh`) as a `/eve` proxy; it has no AI Gateway key on Railway, so the **Vercel** Eve host is the one the drawer uses. |
 | DB | Neon; `sql/schema.sql`. |
 
-Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that service is wired to GitHub.
+Push to `main` auto-deploys Vercel www + Eve. **Railway does not auto-deploy right now** — see 11.1.
+
+### 11.1 Railway runbook (read before touching the API deploy)
+
+Facts (2026-09-02):
+
+| Item | Value |
+| --- | --- |
+| Railway account | `cristiancode2023@gmail.com` (workspace "Cristian Damil García's Projects", plan **trial**) |
+| Project | `netbench-api` — `e2d2a1ac-a145-4fa8-a9d7-bab91bee847c` |
+| Environment | `production` — `b4959227-3300-4001-8528-d8ea05573032` |
+| Service `api` | `6389fae3-4cf5-4d5f-a398-5ac3445bbc09`, domain `api-production-caeb.up.railway.app` → port 3001, healthcheck `/api/health`, builder DOCKERFILE `apps/api/Dockerfile`, root dir = repo root |
+| Service `web` (legacy nginx image, not the production UI) | `988ec0da-cf7f-43c7-8cfb-ba0866c504d5`, `web-production-033453.up.railway.app` |
+| Source | GitHub `Criscode2022/network-lab` (public), branch `main` |
+| Variables on `api` | `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production`, `PORT=3001` (+ Railway-provided). No `NETBENCH_API_TOKEN`, no `AI_GATEWAY_API_KEY`. |
+
+CLI (already used from this repo; the directory is linked to project + `production`):
+
+```bash
+npx --yes @railway/cli login              # browser OAuth; a human must click Verify. Do not use --browserless on this PC.
+npx @railway/cli whoami
+npx @railway/cli link -p netbench-api -e production --json
+npx @railway/cli status --json            # services, latest deployment, commit, builder settings
+npx @railway/cli deployment list -s api --limit 10 --json
+npx @railway/cli logs <deploymentId> -s api --build --lines 80   # build log (add -d for runtime log)
+npx @railway/cli api 'query { ... }' --raw-var k=v --compact      # raw GraphQL; `railway api search <term>` / `describe <Type>` for the schema
+```
+
+PowerShell 5 quirks: no `&&`, no heredocs; native `.exe` calls need `\"` inside JSON. Git progress on stderr shows up as a red "NativeCommandError" — check the exit code, not the colour.
+
+**Deploy a specific commit (what actually works today):**
+
+```bash
+git push origin main                      # then:
+npx @railway/cli api 'mutation($s: String!, $e: String!, $c: String!) { serviceInstanceDeployV2(serviceId: $s, environmentId: $e, commitSha: $c) }' \
+  --raw-var s=6389fae3-4cf5-4d5f-a398-5ac3445bbc09 --raw-var e=b4959227-3300-4001-8528-d8ea05573032 --raw-var c=$(git rev-parse HEAD) --compact
+# returns a deploymentId; poll `deployment list` until SUCCESS (build ≈ 90 s), then:
+curl -s https://api-production-caeb.up.railway.app/api/health
+# must show "version":"<sha12>", "eveTools":true, "idempotency":true
+```
+
+Without `commitSha`, `serviceInstanceDeployV2` redeploys the last commit Railway *heard about* (it only hears via GitHub webhooks, which are broken — see below), and `railway redeploy` rebuilds the previous deployment's commit. Both are useless for shipping new code today.
+
+**Why the API was stuck on a 1 Sep image (both causes fixed/diagnosed 2 Sep):**
+
+1. **No GitHub trigger.** `deploymentTriggers` for both services is empty, and `deploymentTriggerCreate` fails with *"Cannot create deployment trigger for Criscode2022/network-lab because no one in the project has access to it"*: the Railway GitHub App is no longer installed on / granted this repo. Railway can still clone it on demand because it is public, so manual deploys work, but pushes never trigger builds. `railway service source connect --repo Criscode2022/network-lab --branch main --service api` re-attaches the source (and kicked off one build of the current HEAD) but does **not** create a trigger. **Human fix (browser only):** Railway → Account Settings → Integrations → GitHub → Configure the Railway app → grant `network-lab` (or all repos); then `api` service → Settings → Source → connect `Criscode2022/network-lab` / `main`, or run the `deploymentTriggerCreate` mutation (`input: {projectId, environmentId, serviceId, provider: "github", repository: "Criscode2022/network-lab", branch: "main"}`). Verify with the `deploymentTriggers` query (non-empty) and a test push.
+2. **Node version.** `apps/api/Dockerfile` was `FROM node:22-slim`; `eve@0.47.x` requires Node ≥ 24, so `RUN npx eve build` failed (`eve requires Node.js >=24. You are running v22…`) and every build since eve was added would have failed even with triggers. Fixed in `ede0ec3` (`node:24-slim`; local dev is Node 24.18 too). Deployment `5fa9d844…` built it, healthcheck passed, live health shows `version: ede0ec3ff8da, eveTools: true`.
+
+Symptoms of a stale API build, so you recognise it fast: health JSON without `version`/`eveTools`; Eve tools fail with `HTTP 404 — Cannot POST /api/eve/tools/confirm` **and** `lab session not found` for the `labKey` the UI sends (both routes/behaviours landed after 1 Sep). Eve's `api_status` tool and `nest.ts` now name this case explicitly ("older build than this Eve agent… redeploy apps/api").
+
+**Not done on purpose:** no trigger/deploy for the Railway `web` service (legacy; the production UI is Vercel and each Railway build burns trial credit).
 
 ---
 
@@ -416,7 +468,9 @@ Push to `main` auto-deploys Vercel www. Railway rebuilds the API when that servi
 | (uncommitted) | Learning tools: Troubleshoot assistant (layered reading of engine drop reasons), Watch monitor, checkpoints with config diff/restore, lab editor (name/goal/checks), command palette, subnet/VLAN overlays, packet capture per device, Markdown lab report |
 | (uncommitted) | Engine: `ip route del/replace`, `ip addr del/flush`, `no ip route`, `no ip address`, `no ip default-gateway`, AP/WLC `int` + per-port shutdown (fixes the `% Unknown command` lines behind labs 7/8); 9 new labs (17 total) with a curriculum test; UI change-gateway / change-address flows, wrong-mask and NAT diagnoses, expected policy drops shown as “denied” |
 | (uncommitted) | Eve: shared model config with a longer cheap fallback chain + env overrides, no session token caps, compaction at 0.8; mutating tools auto-run (`EVE_REQUIRE_APPROVAL=1` restores HITL); Nest calls retried 2×; `build_lab` accepts full lab JSON (`validateLab`, startup-line feedback, immediate check) and the spec builder scales to 12 PCs over trunked switches; drawer auto-approve switch, 2× auto-retry + manual Retry, full-topology context block |
-| (uncommitted) | Eve resilience: dynamic multi-provider model chain with a durable per-session fallback hook (root + subagents), `EVE_APPROVAL` modes, input guards, `idempotencyKey` on mutating tools, `nest.ts` timeouts/jitter/`Retry-After`/error kinds (route-missing vs stale-session), `api_status` tool, outage guidance in `instructions.md`; API idempotent replay + `Retry-After` + health `version`; drawer: HITL by kind (questions to the user, everything else auto), freeform answers, 3× same-session retries, stream reconnect |
+| `79d346c`…`e58d5d6` | Eve resilience: dynamic multi-provider model chain with a durable per-session fallback hook (root + subagents), `EVE_APPROVAL` modes, input guards, `idempotencyKey` on mutating tools, `nest.ts` timeouts/jitter/`Retry-After`/error kinds (route-missing vs stale-session), `api_status` tool, outage guidance in `instructions.md`; API idempotent replay + `Retry-After` + health `version`/`eveTools`/`idempotency`; drawer: HITL by kind (questions to the user, everything else auto), freeform answers, 3× same-session retries, stream reconnect |
+| `469b424` | `api_status` + `nest.ts` recognise an outdated API build (health without `eveTools`) and give one "redeploy apps/api" message instead of "reload the lab" |
+| `ede0ec3` | `apps/api/Dockerfile` → `node:24-slim` (eve needs Node ≥ 24; every Railway build had failed at `npx eve build`). Deployed manually via `serviceInstanceDeployV2`; live API now `version ede0ec3ff8da`, `eveTools: true`. Railway GitHub trigger still missing — §11.1 |
 
 Verified for that work: `ng build` clean; engine 41 / API 31 tests green (3 new: idempotent replay ×2, `Retry-After`); `npx eve build` bundles the four `hooks/model-fallback.ts` files; Playwright captures at 1280×800 (desktop, Focus, check pass/fail, ping/trace, troubleshoot, checkpoint diff, monitor turning green, lab editor apply, palette, hints, menu, auth) and 390×844 (Basic, Basic sheet + ping, full-mobile Canvas/Inspect/Terminal).
 
@@ -435,7 +489,7 @@ Verified for that work: `ng build` clean; engine 41 / API 31 tests green (3 new:
 11. **No regex literals / arrow functions in templates** — Angular rejects them; use component methods (`isApproveOption`, `reachHasTarget`).
 12. **Terminal input** binds `[value]`/`(input)` to a signal on purpose: `ngModel` writes programmatic changes asynchronously, which breaks Tab completion and ↑/↓ history.
 13. **Hints are state, not simulation** — `hintsFor()` only reads engine facts (adminUp, status, peers, running-config, checks). Never add a hint that predicts forwarding.
-14. **`HTTP 404 — Cannot POST /api/eve/tools/confirm` from Eve** (usually together with `lab session not found` for the `labKey` the UI sends) means the Railway API is an older build than the Vercel web + Eve host: `/confirm` landed in `1f95015` and `labKey` session resolution in `65ba42a`; a stale API has neither. Check `GET https://api-production-caeb.up.railway.app/api/health` — the current build answers with `version` and `eveTools: true`; the old one only `{ok, service, engine, split}`. Fix = Railway → service → Deployments (look for failed builds or none triggered; Settings → Source must be this repo, branch `main`, auto-deploy on) → Redeploy. It is not a lab/session problem, reloading the lab does nothing, and Eve (`api_status`, `nest.ts` hints) is told to say so and not retry.
+14. **`HTTP 404 — Cannot POST /api/eve/tools/confirm` from Eve** (usually together with `lab session not found` for the `labKey` the UI sends) means the Railway API is an older build than the Vercel web + Eve host: `/confirm` landed in `1f95015` and `labKey` session resolution in `65ba42a`; a stale API has neither. Check `GET https://api-production-caeb.up.railway.app/api/health` — the current build answers with `version` and `eveTools: true`; the old one only `{ok, service, engine, split}`. Fix = deploy the current `main` commit with the `serviceInstanceDeployV2` mutation in §11.1 (pushes alone do not deploy until the GitHub App access is restored). It is not a lab/session problem, reloading the lab does nothing, and Eve (`api_status`, `nest.ts` hints) is told to say so and not retry.
 
 ---
 
@@ -446,7 +500,8 @@ These are ideas, not commitments:
 - Recable/no-shut existing Gi0/3 on old sessions without asking the user to delete the cable.
 - Persist Basic/Advanced/Focus per user account, not only localStorage.
 - Dedicated `POST /sessions/:id/state` (or `/labs` on builtin id) that does not let a signed-in autosave overwrite a row keyed by a builtin lab id.
-- Railway API auto-deploy confirmation after engine-only commits (`addLink` / cable types live in the engine image).
+- **Restore Railway push-to-deploy** (needs a human in the Railway dashboard: GitHub App access to `network-lab`, then create the `main` trigger — §11.1). Until then every API change is shipped with the `serviceInstanceDeployV2` mutation; check `deploymentTriggers` first, do not assume a push deployed anything.
+- Bump root `package.json` `engines.node` to `>=24` (eve's real requirement; would have surfaced the Docker base-image problem locally).
 - Desktop Basic is unused; only phones. Desktop uses Simple vs Advanced.
 - Console cable (out-of-band CLI) — not in the palette.
 
@@ -475,9 +530,10 @@ These are ideas, not commitments:
 ## 16. First commands for a new agent
 
 ```bash
-cd /Users/cristian/orca/network-lab   # or the worktree you were given
+cd /Users/cristian/orca/network-lab   # or the worktree you were given (Windows: C:\Users\ALUMNO TARDE\Documents\repositorios\network-lab, PowerShell 5 — no &&)
 git status && git log -5 --oneline
 npm test -w @netbench/engine && npm test -w @netbench/api
+curl -s https://api-production-caeb.up.railway.app/api/health   # "version" must match a recent main commit; if it lacks eveTools, deploy per §11.1 before debugging anything Eve-related
 ```
 
 Then read `workspace.html` / `workspace.ts` if the task is UI, or `engine.ts` / `labs.ts` if it is forwarding. Keep the eight-device junior palette. Verify phones at 390×844 and desktop at 1280×800 for any UI change.
