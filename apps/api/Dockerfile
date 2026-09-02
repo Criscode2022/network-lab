@@ -1,4 +1,5 @@
-FROM node:22-slim
+# eve (built below for the /eve proxy) requires Node >= 24; local dev runs 24 as well.
+FROM node:24-slim
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/engine ./packages/engine
