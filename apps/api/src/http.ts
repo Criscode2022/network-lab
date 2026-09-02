@@ -225,13 +225,15 @@ export class SessionsController {
   }
 
   @Post()
-  async open(@Headers('authorization') auth: string | undefined, @Body() body: { labId?: string; lab?: LabJson }) {
+  async open(@Headers('authorization') auth: string | undefined, @Body() body: { labId?: string; lab?: LabJson; labKey?: string }) {
     const u = await this.user(auth);
     const saved = body.labId ? await getLab(body.labId) : undefined;
     const lab = body.lab ?? (body.labId ? labById(body.labId) ?? saved?.json : undefined) ?? BUILTIN_LABS[0];
-    const s = this.sim.create(lab, u.id, u.guest);
+    const labKey = typeof body.labKey === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.labKey) ? body.labKey : undefined;
+    const s = this.sim.create(lab, u.id, u.guest, labKey);
     return {
       sessionId: s.id,
+      labKey,
       guest: u.guest,
       state: s.engine.getState(),
       warning: u.guest
@@ -393,16 +395,23 @@ export class EveToolsController {
     @Inject(SimService) private readonly sim: SimService,
   ) {}
 
-  private session(labId: string) {
-    const s = this.sim.sessions.get(labId) ?? [...this.sim.sessions.values()].find((x) => x.engine.id === labId || x.id === labId);
-    if (!s) throw new HttpException('lab session not found', 404);
-    this.sim.rateLimit(s);
+  /** `labId` may be the session UUID, the engine lab id or the browser's stable labKey. */
+  private session(labId: string, opts: { count?: boolean } = {}) {
+    const s = labId ? this.sim.resolve(labId) : undefined;
+    if (!s) {
+      throw new HttpException(
+        `lab session "${labId || '(empty)'}" not found — it expired or the API restarted. Use the labSessionId from the latest [NetBench context] block; the UI recreates the session automatically.`,
+        404,
+      );
+    }
+    if (opts.count !== false) this.sim.rateLimit(s);
     return s;
   }
 
   @Post('confirm')
   confirm(@Body() body: { labId?: string; purpose?: string }) {
-    const s = this.session(body.labId ?? '');
+    // Minting is paired with the mutating call that follows, which is the one that counts against the rate limit.
+    const s = this.session(body.labId ?? '', { count: false });
     const purpose = body.purpose ?? 'apply_lab_patch';
     return { confirmToken: this.sim.mintConfirm(s.id, purpose), labId: s.id };
   }

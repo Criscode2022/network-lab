@@ -20,7 +20,12 @@ export interface Session {
   createdAt: number;
   calls: number[];
   highlights: string[];
+  /** Stable per-browser key the UI sends on open; Eve tools may address the lab by it across API restarts. */
+  labKey?: string;
 }
+
+/** Tool/CLI calls per minute per session (NB_RATE_LIMIT to override). */
+const RATE_LIMIT = Number(process.env.NB_RATE_LIMIT) > 0 ? Number(process.env.NB_RATE_LIMIT) : 120;
 
 interface Confirm {
   token: string;
@@ -38,7 +43,7 @@ export class SimService {
     return BUILTIN_LABS;
   }
 
-  create(lab: LabJson, userId: string, guest: boolean): Session {
+  create(lab: LabJson, userId: string, guest: boolean, labKey?: string): Session {
     const engine = Engine.fromLab(lab);
     const s: Session = {
       id: randomUUID(),
@@ -48,6 +53,7 @@ export class SimService {
       createdAt: Date.now(),
       calls: [],
       highlights: [],
+      ...(labKey ? { labKey } : {}),
     };
     this.sessions.set(s.id, s);
     return s;
@@ -59,11 +65,25 @@ export class SimService {
     return s;
   }
 
+  /** Session id, engine lab id or browser labKey → session (newest wins for a labKey). */
+  resolve(ref: string): Session | undefined {
+    const direct = this.sessions.get(ref);
+    if (direct) return direct;
+    let best: Session | undefined;
+    for (const s of this.sessions.values()) {
+      if (s.labKey === ref || s.engine.id === ref) {
+        if (!best || s.createdAt > best.createdAt) best = s;
+      }
+    }
+    return best;
+  }
+
   rateLimit(s: Session): void {
     const now = Date.now();
     s.calls = s.calls.filter((t) => now - t < 60_000);
-    if (s.calls.length >= 60) {
-      throw new HttpException('rate limit: 60 tool/CLI calls per minute', HttpStatus.TOO_MANY_REQUESTS);
+    if (s.calls.length >= RATE_LIMIT) {
+      const retryIn = Math.ceil((60_000 - (now - s.calls[0])) / 1000);
+      throw new HttpException(`rate limit: ${RATE_LIMIT} tool/CLI calls per minute — retry in ${retryIn}s`, HttpStatus.TOO_MANY_REQUESTS);
     }
     s.calls.push(now);
   }

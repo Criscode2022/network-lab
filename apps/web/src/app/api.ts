@@ -174,8 +174,22 @@ type WsMsg = {
 };
 
 const GUEST_LAB_KEY = 'nb_guest_lab';
+const LAB_KEY_KEY = 'nb_lab_key';
 
 type GuestSnap = { v: 1; at: number; lab: unknown };
+
+/** Stable per-browser key sent with every session; Eve addresses the lab by it so API restarts do not strand it. */
+function loadLabKey(): string {
+  try {
+    const existing = localStorage.getItem(LAB_KEY_KEY);
+    if (existing && /^[A-Za-z0-9_-]{8,64}$/.test(existing)) return existing;
+    const fresh = `lab-${(typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/-/g, '').slice(0, 24)}`;
+    localStorage.setItem(LAB_KEY_KEY, fresh);
+    return fresh;
+  } catch {
+    return `lab-${Math.random().toString(36).slice(2, 14)}`;
+  }
+}
 
 interface TokenPayload {
   sub?: string;
@@ -217,12 +231,18 @@ export class Api {
   online = signal(true);
   wsConnected = signal(false);
   onPackets: ((events: PacketEvent[]) => void) | null = null;
+  /** Called after a lost server session was transparently recreated from the last snapshot. */
+  onRecovered: (() => void) | null = null;
+  readonly labKey = loadLabKey();
 
   private ws: WebSocket | null = null;
   private wsReady: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private cliWaiters: Array<(msg: WsMsg) => void> = [];
+  private lastLab: LabJson | null = null;
+  private lastLabId: string | null = null;
+  private recovering: Promise<boolean> | null = null;
 
   constructor() {
     const stored = localStorage.getItem('nb_token');
@@ -277,15 +297,20 @@ export class Api {
         /* ignore malformed frames */
       }
     };
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       if (this.ws !== socket) return;
       this.ws = null;
       this.wsConnected.set(false);
+      // 4404: the API no longer knows this session (restart/redeploy) — rebuild it instead of reconnecting forever.
+      if (ev.code === 4404) {
+        void this.recover();
+        return;
+      }
       this.reconnectTimer = setTimeout(() => this.connectWs(), 1200);
     };
   }
 
-  async json<T>(path: string, init?: RequestInit): Promise<T> {
+  async json<T>(path: string, init?: RequestInit, opts: { recovered?: boolean } = {}): Promise<T> {
     let r: Response;
     try {
       r = await fetch(`${API}${path}`, { ...init, headers: { ...this.headers(), ...(init?.headers ?? {}) } });
@@ -296,10 +321,49 @@ export class Api {
     this.online.set(true);
     const body = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const msg = (body as { message?: string | string[] }).message;
-      throw new ApiError(Array.isArray(msg) ? msg.join(', ') : msg || r.statusText || `HTTP ${r.status}`, r.status);
+      const raw = (body as { message?: string | string[] }).message;
+      const msg = Array.isArray(raw) ? raw.join(', ') : raw || r.statusText || `HTTP ${r.status}`;
+      const m = path.match(/^\/sessions\/([^/]+)\//);
+      if (r.status === 404 && /session not found/i.test(msg) && m && !opts.recovered && m[1] === this.sessionId()) {
+        if (await this.recover()) {
+          return this.json<T>(path.replace(`/sessions/${m[1]}/`, `/sessions/${this.sessionId()}/`), init, { recovered: true });
+        }
+      }
+      throw new ApiError(msg, r.status);
     }
     return body as T;
+  }
+
+  /**
+   * The server lost our session (restart, redeploy, eviction): reopen the last saved lab under the same labKey so the
+   * UI and Eve keep working. Runs once at a time; returns false when there is nothing to restore from.
+   */
+  recover(): Promise<boolean> {
+    if (this.recovering) return this.recovering;
+    this.recovering = (async () => {
+      const lab = this.lastLab ?? this.readGuestLab();
+      const body = lab ? { lab, labKey: this.labKey } : this.lastLabId ? { labId: this.lastLabId, labKey: this.labKey } : null;
+      if (!body) return false;
+      try {
+        this.disconnectWs();
+        const r = await this.json<{ sessionId: string; state: LabState }>(
+          '/sessions',
+          { method: 'POST', body: JSON.stringify(body) },
+          { recovered: true },
+        );
+        this.sessionId.set(r.sessionId);
+        this.state.set(r.state);
+        this.connectWs();
+        this.persistSoon();
+        this.onRecovered?.();
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.recovering = null;
+      }
+    })();
+    return this.recovering;
   }
 
   userId(): string {
@@ -388,10 +452,12 @@ export class Api {
     }
     const r = await this.json<{ sessionId: string; state: LabState; warning?: string }>('/sessions', {
       method: 'POST',
-      body: JSON.stringify({ labId, lab }),
+      body: JSON.stringify({ labId, lab, labKey: this.labKey }),
     });
     this.sessionId.set(r.sessionId);
     this.state.set(r.state);
+    this.lastLab = (lab as LabJson | undefined) ?? null;
+    this.lastLabId = labId ?? null;
     if (r.warning) this.warning.set(r.warning);
     this.connectWs();
     this.persistSoon();
@@ -421,6 +487,7 @@ export class Api {
   }
 
   async cli(deviceId: string, line: string) {
+    if (this.recovering) await this.recovering;
     const id = this.sessionId();
     if (this.ws && this.ws.readyState !== WebSocket.OPEN && this.wsReady) {
       await Promise.race([this.wsReady, new Promise((r) => setTimeout(r, 800))]);
@@ -434,6 +501,9 @@ export class Api {
         });
         this.ws!.send(JSON.stringify({ type: 'cli', deviceId, line }));
       });
+      if ((reply as { type?: string; error?: unknown }).type === 'error') {
+        throw new ApiError(String((reply as { error?: unknown }).error ?? 'CLI failed'), 400);
+      }
       if (reply.state) {
         this.state.set(reply.state);
         this.persistSoon();
@@ -471,6 +541,8 @@ export class Api {
       method: 'POST',
       body: '{}',
     });
+    const snap = r.json ?? r.lab?.json ?? null;
+    if (snap) this.lastLab = snap;
     if (this.guest() && r.json) this.writeGuestLab(r.json);
     return r;
   }

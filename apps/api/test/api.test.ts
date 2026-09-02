@@ -157,6 +157,28 @@ describe('confirmToken + patch schema', () => {
     expect(r.body.runningConfig).toContain('PC1b');
   });
 
+  it('eve tools resolve a browser labKey to the newest session, and confirm is not rate-limited', async () => {
+    const labKey = 'browser-key-abc12345';
+    const first = await request(server).post('/api/sessions').send({ labId: 'lab-1-first-ipv4-ping', labKey }).expect(201);
+    expect(first.body.labKey).toBe(labKey);
+    // The API "restarted": the UI reopens with the same key; Eve still holds the key from its context block.
+    const second = await request(server).post('/api/sessions').send({ labId: 'lab-2-missing-gateway', labKey }).expect(201);
+    const st = await request(server).post('/api/eve/tools/get_lab_state').send({ labId: labKey }).expect(201);
+    expect(st.body.sessionId).toBe(second.body.sessionId);
+    expect(st.body.id).toBe('lab-2-missing-gateway');
+    for (let i = 0; i < 130; i++) {
+      await request(server).post('/api/eve/tools/confirm').send({ labId: labKey, purpose: 'apply_device_config' }).expect(201);
+    }
+    const tok = await request(server).post('/api/eve/tools/confirm').send({ labId: labKey, purpose: 'apply_device_config' }).expect(201);
+    const applied = await request(server)
+      .post('/api/eve/tools/apply_device_config')
+      .send({ labId: labKey, deviceId: 'PC1', commands: ['ip addr'], confirmToken: tok.body.confirmToken });
+    expect(applied.status, JSON.stringify(applied.body)).toBeLessThan(400);
+    const missing = await request(server).post('/api/eve/tools/confirm').send({ labId: 'gone-session', purpose: 'build_lab' });
+    expect(missing.status).toBe(404);
+    expect(String(missing.body.message)).toMatch(/not found.*latest \[NetBench context\]/);
+  });
+
   it('eve/tools/confirm mints a token Eve can use without a model-supplied token', async () => {
     const { sessionId } = await openLab('lab-1-first-ipv4-ping');
     const tok = await request(server).post('/api/eve/tools/confirm').send({ labId: sessionId, purpose: 'build_lab' }).expect(201);

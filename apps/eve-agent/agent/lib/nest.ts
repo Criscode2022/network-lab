@@ -67,7 +67,22 @@ export async function nestGet<T>(path: string): Promise<T> {
  * — it will invent "approve" / request ids. Resolves labId as either the Nest session UUID or the engine lab id.
  */
 export async function mintConfirm(labId: string, purpose: string): Promise<string> {
-  const r = await nest<{ confirmToken: string }>('/eve/tools/confirm', { labId, purpose });
+  let r: { confirmToken?: string };
+  try {
+    r = await nest<{ confirmToken?: string }>('/eve/tools/confirm', { labId, purpose });
+  } catch (e) {
+    const status = e instanceof NestError ? e.status : 0;
+    const detail = e instanceof Error ? e.message : String(e);
+    const hint =
+      status === 404
+        ? ' The lab session id is stale: re-read labSessionId from the newest [NetBench context] block and call the tool again with that exact value.'
+        : status === 429
+          ? ' Rate limited — wait for the number of seconds stated, then retry once.'
+          : status === 0
+            ? ` The NetBench API at ${API} is unreachable from the Eve host; tell the user the API is down (this is not a lab problem).`
+            : '';
+    throw new Error(`confirm for ${purpose} rejected (HTTP ${status || 'network'}): ${detail}.${hint}`);
+  }
   if (!r.confirmToken) throw new Error(`confirmToken mint failed for labId=${labId}`);
   return r.confirmToken;
 }

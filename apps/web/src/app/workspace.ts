@@ -536,6 +536,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   async ngOnInit() {
     this.api.onPackets = (events) => this.animate(events);
+    this.api.onRecovered = () => {
+      this.toast('The server restarted; your lab was restored from the last snapshot (ARP caches and history were reset).', 'warn', undefined, 7000);
+      this.writeAutosave();
+    };
     this.mq = window.matchMedia('(max-width: 767px)');
     this.onMq(this.mq);
     this.mq.addEventListener('change', this.onMq);
@@ -2519,8 +2523,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const pkt = this.selectedPkt();
     const lines = [
       '[NetBench context]',
-      `labSessionId=${this.api.sessionId()}`,
-      `labId=${this.api.sessionId()}`,
+      // The browser labKey is stable across API restarts; the host resolves it to the current engine session.
+      `labSessionId=${this.api.labKey}`,
+      `labId=${this.api.labKey}`,
+      `engineSession=${this.api.sessionId()}`,
       `labName=${st?.name ?? ''}`,
       st?.goal ? `goal=${st.goal}` : '',
       sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}` : 'selectedDevice=none',
@@ -2545,7 +2551,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       if (t && !t.ok) lines.push(`lastTrace=${t.label}: dropped at ${t.dropDevice ?? '?'} "${t.reason}"`);
     }
     lines.push(
-      'Use labId=labSessionId (UUID) on every tool. Never pass confirmToken; the host mints it and mutating tools run immediately. Eight device kinds only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
+      'Use labId=labSessionId (the value above, verbatim) on every tool. Never pass confirmToken; the host mints it and mutating tools run immediately. Eight device kinds only. OSPF area 0. No BGP/MPLS/VXLAN/802.1X.',
     );
     return lines.filter(Boolean).join('\n');
   }
