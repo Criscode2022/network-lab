@@ -435,7 +435,7 @@ Verified for that work: `ng build` clean; engine 41 / API 31 tests green (3 new:
 11. **No regex literals / arrow functions in templates** — Angular rejects them; use component methods (`isApproveOption`, `reachHasTarget`).
 12. **Terminal input** binds `[value]`/`(input)` to a signal on purpose: `ngModel` writes programmatic changes asynchronously, which breaks Tab completion and ↑/↓ history.
 13. **Hints are state, not simulation** — `hintsFor()` only reads engine facts (adminUp, status, peers, running-config, checks). Never add a hint that predicts forwarding.
-14. **`HTTP 404 — Cannot POST /api/eve/tools/confirm` from Eve** means the Railway API is an older build than the Eve host (the route exists in `http.ts` and is tested). Redeploy `apps/api`; `GET /api/health` must show `eveTools: true`. It is not a lab/session problem and Eve is instructed not to retry it.
+14. **`HTTP 404 — Cannot POST /api/eve/tools/confirm` from Eve** (usually together with `lab session not found` for the `labKey` the UI sends) means the Railway API is an older build than the Vercel web + Eve host: `/confirm` landed in `1f95015` and `labKey` session resolution in `65ba42a`; a stale API has neither. Check `GET https://api-production-caeb.up.railway.app/api/health` — the current build answers with `version` and `eveTools: true`; the old one only `{ok, service, engine, split}`. Fix = Railway → service → Deployments (look for failed builds or none triggered; Settings → Source must be this repo, branch `main`, auto-deploy on) → Redeploy. It is not a lab/session problem, reloading the lab does nothing, and Eve (`api_status`, `nest.ts` hints) is told to say so and not retry.
 
 ---
 

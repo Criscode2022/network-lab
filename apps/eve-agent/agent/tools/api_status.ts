@@ -27,15 +27,20 @@ export default defineTool({
       session = { ok: false, detail: 'skipped: API unhealthy' };
     }
     const idx = currentIndex();
+    // An API whose /api/health lacks the eveTools flag predates this agent: it has no /eve/tools/confirm route and
+    // cannot resolve the browser labKey the UI now sends as labSessionId, so mutations 404 and the session looks gone.
+    const outdated = health.ok && health.eveTools !== true;
     return {
       api: { url: API, ...health, retriesPerCall: RETRIES, timeoutMs: TIMEOUT_MS },
       session,
       model: { current: MODEL_CHAIN[idx], position: `${idx + 1}/${MODEL_CHAIN.length}`, chain: MODEL_CHAIN },
       verdict: !health.ok
         ? 'The NetBench API is down or unreachable — this is a platform problem, not a lab problem. Tell the user to retry in a minute.'
-        : labId && !session.ok
-          ? 'The API is up but this lab session is gone (expired or the API restarted). Re-read labSessionId from the newest [NetBench context] block; the UI recreates the session automatically.'
-          : 'Everything is reachable. If a tool still fails, the problem is in the request content (see the error message).',
+        : outdated
+          ? 'The NetBench API is up but running an older build than this Eve agent: it lacks /api/eve/tools/confirm and labKey session resolution, so every mutating tool returns 404 and the lab session reports "not found". This is one deployment problem — the operator must redeploy apps/api from main (then /api/health shows eveTools: true). Reloading the lab in the UI will not help; say exactly that and do not retry.'
+          : labId && !session.ok
+            ? 'The API is up but this lab session is gone (expired or the API restarted). Re-read labSessionId from the newest [NetBench context] block; the UI recreates the session automatically.'
+            : 'Everything is reachable. If a tool still fails, the problem is in the request content (see the error message).',
     };
   },
 });

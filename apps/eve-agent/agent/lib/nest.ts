@@ -40,6 +40,12 @@ const RETRYABLE: ReadonlySet<NestErrorKind> = new Set(['network', 'timeout', 'ra
 
 export const isRetryable = (e: unknown): boolean => e instanceof NestError && RETRYABLE.has(e.kind) && e.status !== 501;
 
+/**
+ * An API whose /api/health has no eveTools flag predates this agent: no /eve/tools/confirm route and no labKey session
+ * resolution, so every mutation 404s and the session the UI names looks "not found". One fix, on the operator's side.
+ */
+const OUTDATED_API_HINT = `The NetBench API at ${API} is running an older build than this Eve agent (its /api/health has no eveTools flag): it lacks /api/eve/tools/confirm and cannot resolve the lab session the UI sends. This is a single deployment problem — the operator must redeploy apps/api from main (afterwards /api/health shows eveTools: true). Reloading the lab will not help; tell the user exactly that and do not retry.`;
+
 /** One-line, model-facing guidance per failure kind. Appended to every NestError message so tools need no extra handling. */
 function hint(kind: NestErrorKind, detail: string, retryAfterMs?: number): string {
   switch (kind) {
@@ -93,7 +99,13 @@ async function parse<T>(r: Response): Promise<T> {
     const detail = raw || r.statusText || `HTTP ${r.status}`;
     const kind = classify(r.status, detail);
     const retryAfterMs = kind === 'rate-limit' || r.status === 503 ? parseRetryAfter(r, detail) : undefined;
-    throw new NestError(`HTTP ${r.status} — ${detail}. ${hint(kind, detail, retryAfterMs)}`.trim(), r.status, kind, retryAfterMs);
+    let guidance = hint(kind, detail, retryAfterMs);
+    if (kind === 'route-missing' || kind === 'stale-session') {
+      // Both 404 flavours are what an outdated API produces; one memoised health probe tells them apart from a real stale id.
+      const h = await apiHealth().catch(() => undefined);
+      if (h?.ok && h.eveTools !== true) guidance = OUTDATED_API_HINT;
+    }
+    throw new NestError(`HTTP ${r.status} — ${detail}. ${guidance}`.trim(), r.status, kind, retryAfterMs);
   }
   return json;
 }
@@ -200,7 +212,7 @@ export async function apiHealth(force = false): Promise<ApiHealth> {
         : body.ok === true
           ? body.eveTools === true
             ? 'healthy'
-            : 'healthy but an older build without the Eve tool routes — redeploy apps/api'
+            : 'healthy but an older build than this Eve agent (no eveTools flag): /eve/tools/confirm and labKey session resolution are missing — redeploy apps/api from main'
           : `${API} answered /api/health without ok:true — NETBENCH_API_URL points at something that is not the NetBench API`,
       checkedAt: Date.now(),
     };
