@@ -214,6 +214,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   focus = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_focus') === '1');
   focusTerm = signal(false);
   focusAddOpen = signal(false);
+  /** Focus-mode sidebars (kept apart from the normal-mode Eve preference so focus always starts canvas-only). */
+  focusEve = signal(false);
+  focusInspect = signal(false);
   basicSheet = signal(false);
   addOpen = signal(false);
   moreOpen = signal(false);
@@ -223,6 +226,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     { id: 'palette', label: 'Add', icon: 'layers' },
     { id: 'inspect', label: 'Inspect', icon: 'inspect' },
     { id: 'term', label: 'Terminal', icon: 'terminal' },
+    { id: 'eve', label: 'Eve', icon: 'sparkles' },
+  ];
+  /** Basic mode keeps the canvas front and centre but still gets Eve one tap away. */
+  readonly basicTabs: { id: MobileTab; label: string; icon: IconName }[] = [
+    { id: 'canvas', label: 'Canvas', icon: 'network' },
     { id: 'eve', label: 'Eve', icon: 'sparkles' },
   ];
   private mq: MediaQueryList | null = null;
@@ -910,10 +918,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // modes
   // ===========================================================================
 
+  /** Active state for the mobile tab bar (Basic mode folds every non-Eve tab into Canvas). */
+  showTab(tab: MobileTab) {
+    if (this.basicMode()) return tab === 'eve' ? this.mobileTab() === 'eve' : this.mobileTab() !== 'eve';
+    return this.mobileTab() === tab;
+  }
+
   setTab(tab: MobileTab) {
+    if (this.basicMode() && tab !== 'canvas' && tab !== 'eve') tab = 'canvas';
     this.mobileTab.set(tab);
     this.moreOpen.set(false);
     this.addOpen.set(false);
+    this.basicSheet.set(false);
     if (tab === 'eve') this.eveOpen.set(true);
     if (tab === 'canvas') {
       requestAnimationFrame(() => {
@@ -973,18 +989,33 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleEve() {
-    if (this.isNarrow()) this.setTab(this.mobileTab() === 'eve' ? 'canvas' : 'eve');
+    if (this.focusMode()) this.setFocusEve(!this.focusEve());
+    else if (this.isNarrow()) this.setTab(this.mobileTab() === 'eve' ? 'canvas' : 'eve');
     else this.setEveOpen(!this.eveOpen());
   }
 
   openEve() {
-    if (this.isNarrow()) this.setTab('eve');
+    if (this.focusMode()) this.setFocusEve(true);
+    else if (this.isNarrow()) this.setTab('eve');
     else this.setEveOpen(true);
+  }
+
+  closeEve() {
+    if (this.focusMode()) this.setFocusEve(false);
+    else if (this.isNarrow()) this.setTab('canvas');
+    else this.setEveOpen(false);
   }
 
   setEveOpen(open: boolean) {
     this.eveOpen.set(open);
     this.rememberEve(open);
+    requestAnimationFrame(() => this.fitToView());
+  }
+
+  /** Focus mode: Eve slides in as a right-hand sidebar; the canvas stays and refits. */
+  private setFocusEve(open: boolean) {
+    this.focusEve.set(open);
+    if (open) this.eveOpen.set(true);
     requestAnimationFrame(() => this.fitToView());
   }
 
@@ -1004,6 +1035,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.menuOpen.set(false);
     this.focusAddOpen.set(false);
     this.focusTerm.set(false);
+    this.focusEve.set(false);
+    this.focusInspect.set(false);
     this.placing.set(null);
     if (next) this.goalOpen.set(false);
     requestAnimationFrame(() => this.fitToView());
@@ -1015,10 +1048,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => this.fitToView());
   }
 
-  /** Leave focus mode and land on the full inspector for the selected device. */
+  /** Full inspector for the device. In focus mode it opens as a sidebar instead of leaving focus. */
   openDetails(d: DeviceState) {
     this.selectDevice(d);
-    if (this.focusMode()) this.toggleFocus();
+    if (this.focusMode()) {
+      this.focusInspect.set(true);
+      requestAnimationFrame(() => this.fitToView());
+    }
   }
 
   showPalette() {
@@ -1026,15 +1062,17 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return !this.isNarrow() || this.mobileTab() === 'palette';
   }
   showCanvas() {
-    if (this.basicMode()) return true;
+    if (this.basicMode()) return this.mobileTab() !== 'eve';
     return !this.isNarrow() || this.mobileTab() === 'canvas';
   }
   showInspect() {
-    if (this.basicMode() || this.focusMode()) return false;
+    if (this.basicMode()) return false;
+    if (this.focusMode()) return this.focusInspect() && !!this.selectedId();
     return !this.isNarrow() || this.mobileTab() === 'inspect';
   }
   showEve() {
-    if (this.basicMode() || this.focusMode()) return false;
+    if (this.focusMode()) return this.focusEve();
+    if (this.basicMode()) return this.mobileTab() === 'eve';
     return this.isNarrow() ? this.mobileTab() === 'eve' : this.eveOpen();
   }
   showTerm() {
@@ -1045,7 +1083,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   closeInspect() {
     if (this.isNarrow()) this.setTab('canvas');
-    else this.selectedId.set(null);
+    else if (this.focusMode()) {
+      this.focusInspect.set(false);
+      requestAnimationFrame(() => this.fitToView());
+    } else this.selectedId.set(null);
   }
 
   openHelp(id: HelpId | 'hub', ev?: Event) {
@@ -1669,7 +1710,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.termDevice.set(d.id);
     void this.loadVocab(d.kind);
     if (this.isNarrow()) this.setTab('term');
-    else requestAnimationFrame(() => this.terminal()?.focus());
+    else {
+      if (this.focusMode() && !this.focusTerm()) this.toggleFocusTerm();
+      requestAnimationFrame(() => this.terminal()?.focus());
+    }
   }
 
   private async loadVocab(kind: string) {

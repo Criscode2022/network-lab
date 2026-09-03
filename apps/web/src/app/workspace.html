@@ -197,9 +197,7 @@
               @if (diagBusy()) { <span class="spinner h-3 w-3 border-white/40 border-t-white"></span> } @else { <nb-icon name="stethoscope" [size]="12" /> }
               Troubleshoot
             </button>
-            @if (!basicMode()) {
-              <button type="button" class="btn btn-eve btn-sm" (click)="explainCheck()"><nb-icon name="sparkles" [size]="12" /> Ask Eve why</button>
-            }
+            <button type="button" class="btn btn-eve btn-sm" (click)="explainCheck()"><nb-icon name="sparkles" [size]="12" /> Ask Eve why</button>
           }
           <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close" (click)="checkOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
         </div>
@@ -264,7 +262,7 @@
 
     <!-- canvas -->
     @if (showCanvas()) {
-      <div class="relative min-h-0 min-w-0 flex-1">
+      <div class="@container relative min-h-0 min-w-0 flex-1">
         <!-- goal card -->
         @if (api.state(); as st) {
           <div class="absolute left-2 top-2 z-10 max-w-[min(100%-6rem,26rem)] md:left-3 md:top-3">
@@ -407,19 +405,24 @@
                   }
                 </div>
               }
-              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusAddOpen() || placing() }" (click)="focusAddOpen.set(!focusAddOpen())" title="Add a device">
-                <nb-icon name="plus" [size]="14" /> Add
+              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusAddOpen() || placing() }" (click)="focusAddOpen.set(!focusAddOpen())" title="Add a device" aria-label="Add a device">
+                <nb-icon name="plus" [size]="14" /> <span class="hidden @3xl:inline">Add</span>
               </button>
-              <button type="button" class="btn" [ngClass]="cableArmed() ? 'bg-warn-500 text-ink-950' : 'btn-ghost'" (click)="cableArmed() ? cancelCable() : armCable(effectiveCable())" title="Cable two devices (C)">
-                <nb-icon name="plug" [size]="14" /> {{ cableArmed() ? 'Cancel cable' : 'Cable' }}
+              <button type="button" class="btn" [ngClass]="cableArmed() ? 'bg-warn-500 text-ink-950' : 'btn-ghost'" (click)="cableArmed() ? cancelCable() : armCable(effectiveCable())" title="Cable two devices (C)" aria-label="Cable two devices">
+                <nb-icon name="plug" [size]="14" /> <span class="hidden @3xl:inline">{{ cableArmed() ? 'Cancel cable' : 'Cable' }}</span>
               </button>
               <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
-              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusTerm() }" (click)="toggleFocusTerm()" title="Show or hide the terminal (T)">
-                <nb-icon name="terminal" [size]="14" /> Terminal
+              <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusTerm() }" (click)="toggleFocusTerm()" title="Show or hide the terminal (T)" aria-label="Terminal">
+                <nb-icon name="terminal" [size]="14" /> <span class="hidden @3xl:inline">Terminal</span>
               </button>
-              <button type="button" class="btn btn-ghost" (click)="toggleEve(); toggleFocus()" title="Open Eve (leaves focus mode)">
-                <nb-icon name="sparkles" [size]="14" /> Eve
+              <button type="button" class="btn" [ngClass]="focusEve() ? 'btn-eve' : 'btn-ghost'" [attr.aria-pressed]="focusEve()" (click)="toggleEve()" title="Eve — lab instructor, opens as a sidebar (E)" aria-label="Eve">
+                <nb-icon name="sparkles" [size]="14" /> <span class="hidden @3xl:inline">Eve</span>
               </button>
+              <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
+              <button type="button" class="btn btn-ghost btn-icon" aria-label="Zoom out" title="Zoom out (−)" (click)="zoomBy(1 / 1.2)"><nb-icon name="minus" [size]="14" /></button>
+              <button type="button" class="btn btn-ghost min-w-12 px-1 font-mono text-[11px] text-ink-300" title="Reset zoom (0)" (click)="resetZoom()">{{ zoomPct() }}%</button>
+              <button type="button" class="btn btn-ghost btn-icon" aria-label="Zoom in" title="Zoom in (+)" (click)="zoomBy(1.2)"><nb-icon name="plus" [size]="14" /></button>
+              <button type="button" class="btn btn-ghost btn-icon" aria-label="Fit to view" title="Fit to view (F)" (click)="fitToView()"><nb-icon name="fit" [size]="14" /></button>
               <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
               <button type="button" class="btn btn-ghost btn-icon" (click)="openPalette()" title="Command palette (Ctrl+K)" aria-label="Command palette">
                 <nb-icon name="command" [size]="14" />
@@ -428,6 +431,7 @@
           </div>
 
           @if (selected(); as d) {
+            @if (!showInspect()) {
             <div class="absolute right-3 top-3 z-10 max-h-[calc(100%-5rem)] overflow-auto scroll-thin rounded-xl border border-ink-700 bg-ink-900/90 p-2.5 shadow-card backdrop-blur animate-pop" [ngClass]="reach() ? 'w-80' : 'w-72'">
               <div class="flex items-center gap-2">
                 <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="15" [ngClass]="kindAccent(d.kind)" /></span>
@@ -445,10 +449,10 @@
                 </div>
               }
               <div class="mt-2 grid grid-cols-5 gap-1">
-                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openTerminalFor(d); focusTerm() || toggleFocusTerm()" title="Terminal"><nb-icon name="terminal" [size]="13" /> Term</button>
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openTerminalFor(d)" title="Terminal"><nb-icon name="terminal" [size]="13" /> Term</button>
                 <button type="button" class="btn btn-sm flex-col gap-0 py-1 text-[9.5px]" [ngClass]="reach() ? 'bg-ink-750 text-brand-200' : 'btn-ghost'" (click)="reach() ? closeReach() : openReach(d)" title="Ping or trace"><nb-icon name="zap" [size]="13" /> Reach</button>
                 <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="startCable($event, d)" title="Cable"><nb-icon name="plug" [size]="13" /> Cable</button>
-                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openDetails(d)" title="Full inspector"><nb-icon name="inspect" [size]="13" /> Details</button>
+                <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px]" (click)="openDetails(d)" title="Full inspector as a sidebar"><nb-icon name="inspect" [size]="13" /> Details</button>
                 <button type="button" class="btn btn-sm btn-ghost flex-col gap-0 py-1 text-[9.5px] hover:text-danger-300" (click)="deleteDevice(d)" title="Delete"><nb-icon name="trash" [size]="13" /> Delete</button>
               </div>
               @if (reach()) {
@@ -457,11 +461,12 @@
                 </div>
               }
             </div>
+            }
           }
         }
 
-        <!-- zoom toolbar (desktop) -->
-        @if (!isNarrow()) {
+        <!-- zoom toolbar (desktop; focus mode folds it into the floating toolbar) -->
+        @if (!isNarrow() && !focusMode()) {
           <div class="absolute right-3 z-10 flex items-center gap-0.5 rounded-lg border border-ink-700 bg-ink-900/90 p-0.5 shadow-card backdrop-blur" [ngClass]="selectedLink() ? 'bottom-16' : 'bottom-3'">
             <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Zoom out" title="Zoom out (−)" (click)="zoomBy(1 / 1.2)"><nb-icon name="minus" [size]="14" /></button>
             <button type="button" class="btn btn-ghost h-7 min-w-12 px-1 font-mono text-[11px] text-ink-300" title="Reset zoom (0)" (click)="resetZoom()">{{ zoomPct() }}%</button>
@@ -656,6 +661,9 @@
                 <button type="button" class="seg-item px-2" [ngClass]="{ 'seg-item-on': advanced() }" (click)="setAdvanced(true)">Adv</button>
               </div>
             }
+            @if (focusMode()) {
+              <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-400" aria-label="Close inspector" title="Close inspector" (click)="closeInspect()"><nb-icon name="x" [size]="14" /></button>
+            }
           </div>
 
           <!-- quick actions -->
@@ -835,7 +843,7 @@
           </button>
           @if (eve.busy()) { <span class="spinner border-t-eve-400"></span> }
           @if (!isNarrow()) {
-            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Eve" (click)="eveOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Eve" (click)="closeEve()"><nb-icon name="x" [size]="14" /></button>
           }
         </div>
         <div class="scroll-thin flex gap-1.5 overflow-x-auto px-3 py-2">
@@ -999,17 +1007,15 @@
   </footer>
   }
 
-  <!-- ===================================================================== mobile nav -->
-  @if (!basicMode()) {
-    <nav class="flex shrink-0 border-t border-ink-800 bg-ink-900 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile workspace">
-      @for (t of mobileTabs; track t.id) {
-        <button type="button" class="flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors" [ngClass]="mobileTab() === t.id ? 'text-brand-300' : 'text-ink-500'" [attr.aria-current]="mobileTab() === t.id ? 'page' : null" (click)="setTab(t.id)">
-          <nb-icon [name]="t.icon" [size]="18" />
-          {{ t.label }}
-        </button>
-      }
-    </nav>
-  }
+  <!-- ===================================================================== mobile nav (Basic mode: Canvas | Eve) -->
+  <nav class="flex shrink-0 border-t border-ink-800 bg-ink-900 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile workspace">
+    @for (t of basicMode() ? basicTabs : mobileTabs; track t.id) {
+      <button type="button" class="flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors" [ngClass]="showTab(t.id) ? 'text-brand-300' : 'text-ink-500'" [attr.aria-current]="showTab(t.id) ? 'page' : null" (click)="setTab(t.id)">
+        <nb-icon [name]="t.icon" [size]="18" />
+        {{ t.label }}
+      </button>
+    }
+  </nav>
 </div>
 
 <!-- ======================================================================= shared: device panel (Simple inspector + Basic sheet) -->
@@ -1229,9 +1235,7 @@
           @if (!res.ok) {
             <div class="mt-2 flex flex-wrap gap-1.5">
               <button type="button" class="btn btn-sm btn-primary" (click)="troubleshootReach(d)"><nb-icon name="stethoscope" [size]="11" /> Explain the drop</button>
-              @if (!basicMode()) {
-                <button type="button" class="btn btn-sm btn-eve" (click)="openEve(); eve.send('Why does ' + d.name + ' fail to reach ' + r.target + '? Engine reason: ' + res.reason + '. Use get_path and get_lab_state, then propose the smallest fix.')"><nb-icon name="sparkles" [size]="11" /> Ask Eve</button>
-              }
+              <button type="button" class="btn btn-sm btn-eve" (click)="openEve(); eve.send('Why does ' + d.name + ' fail to reach ' + r.target + '? Engine reason: ' + res.reason + '. Use get_path and get_lab_state, then propose the smallest fix.')"><nb-icon name="sparkles" [size]="11" /> Ask Eve</button>
             </div>
           }
         </div>
@@ -1498,7 +1502,7 @@
       </div>
       <div class="flex flex-wrap items-center justify-end gap-2 border-t border-ink-800 px-5 py-3">
         @if (dg.device) { <button type="button" class="btn btn-secondary mr-auto" (click)="goToDevice(dg.device)"><nb-icon name="inspect" [size]="13" /> Go to {{ dg.device }}</button> }
-        @if (!basicMode() && !dg.reachable) { <button type="button" class="btn btn-eve" (click)="askEveDiag()"><nb-icon name="sparkles" [size]="13" /> Ask Eve</button> }
+        @if (!dg.reachable) { <button type="button" class="btn btn-eve" (click)="askEveDiag()"><nb-icon name="sparkles" [size]="13" /> Ask Eve</button> }
         @if (dg.fix; as f) { <button type="button" class="btn btn-ok" (click)="applyDiagFix()"><nb-icon name="wrench" [size]="13" /> {{ f.label }}</button> }
         @if (dg.reachable) { <button type="button" class="btn btn-primary" (click)="diagnosis.set(null); doCheck()"><nb-icon name="circle-check" [size]="13" /> Check again</button> }
       </div>
@@ -1700,4 +1704,4 @@
   </div>
 }
 
-<nb-toasts [items]="toasts()" [bottom]="isNarrow() ? (basicMode() ? '4.5rem' : '4rem') : '1rem'" (dismiss)="dismissToast($event)" />
+<nb-toasts [items]="toasts()" [bottom]="isNarrow() ? '4rem' : '1rem'" (dismiss)="dismissToast($event)" />
