@@ -11,6 +11,22 @@ export const DEVICE_KINDS = [
 
 export type DeviceKind = (typeof DEVICE_KINDS)[number];
 
+export const SWITCH_PROFILES = ['unmanaged', 'managed-l2', 'multilayer'] as const;
+export type SwitchProfile = (typeof SWITCH_PROFILES)[number];
+
+export function switchProfileOf(device: Pick<Device, 'kind' | 'switchProfile'>): SwitchProfile | undefined {
+  return device.kind === 'switch' ? (device.switchProfile ?? 'managed-l2') : undefined;
+}
+
+export function isManagedSwitch(device: Pick<Device, 'kind' | 'switchProfile'>): boolean {
+  const profile = switchProfileOf(device);
+  return profile === 'managed-l2' || profile === 'multilayer';
+}
+
+export function isMultilayerSwitch(device: Pick<Device, 'kind' | 'switchProfile'>): boolean {
+  return switchProfileOf(device) === 'multilayer';
+}
+
 export type Family = 'v4' | 'v6';
 
 export interface Ipv4Addr {
@@ -44,6 +60,8 @@ export interface Iface {
   raSuppress?: boolean;
   raPrefix?: { cidr: string; prefix: number } | null;
   dhcpClient?: boolean;
+  /** IPv4 DHCP relay target configured with `ip helper-address`. */
+  helperAddress?: string;
   /** Subinterface encapsulation. */
   encapVlan?: number;
 }
@@ -177,6 +195,8 @@ export interface Wlan {
 export interface Device {
   id: string;
   kind: DeviceKind;
+  /** Capability tier for switches; legacy switches default to managed-l2. */
+  switchProfile?: SwitchProfile;
   name: string;
   hostname: string;
   x: number;
@@ -190,6 +210,8 @@ export interface Device {
   vlans: number[];
   cli: CliState;
   forwarding: boolean;
+  /** Cisco `ip routing`; meaningful only for multilayer switches. */
+  ipRouting: boolean;
   sshEnabled: boolean;
   sshUser: string;
   hostsFile: Record<string, string>;
@@ -205,6 +227,7 @@ export interface Device {
   dhcpPools: DhcpPool[];
   dhcpBindings: DhcpBinding[];
   dhcpOffered: number;
+  dhcpExcluded: { start: string; end: string }[];
   acls: Record<string, AclRule[]>;
   natAcl?: string;
   natOverloadIface?: string;
@@ -288,6 +311,8 @@ export interface PacketEvent {
   srcIp?: string;
   dstIp?: string;
   proto: string;
+  sport?: number;
+  dport?: number;
   ttl?: number;
   reason: string;
   drop?: boolean;
@@ -364,6 +389,8 @@ export interface LabJson {
   devices: {
     id?: string;
     kind: DeviceKind;
+    /** Only valid on switches. Absent means managed-l2. */
+    switchProfile?: SwitchProfile;
     name: string;
     x: number;
     y: number;
@@ -417,7 +444,7 @@ export interface CheckResult {
 }
 
 export interface LabPatch {
-  addDevices?: { type: DeviceKind; name: string; x?: number; y?: number }[];
+  addDevices?: { type: DeviceKind; name: string; switchProfile?: SwitchProfile; x?: number; y?: number }[];
   removeDeviceIds?: string[];
   addLinks?: { a: string; b: string; cable?: CableMedia }[];
   removeLinks?: string[];

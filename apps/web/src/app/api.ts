@@ -8,6 +8,7 @@ const WS = LOCAL
   : 'wss://api-production-caeb.up.railway.app/ws';
 
 export type CableMedia = 'ethernet' | 'straight' | 'crossover' | 'fiber';
+export type SwitchProfile = 'unmanaged' | 'managed-l2' | 'multilayer';
 
 export interface IfacePeer {
   device: string;
@@ -28,6 +29,8 @@ export interface IfaceState {
   ipv6: { ip: string; prefix: number }[];
   mode: string;
   accessVlan: number;
+  nativeVlan?: number;
+  helperAddress?: string;
   isRadio?: boolean;
   zone?: string;
   peer?: IfacePeer | null;
@@ -38,6 +41,10 @@ export interface DeviceState {
   name: string;
   hostname: string;
   kind: string;
+  switchProfile?: SwitchProfile;
+  ipRouting?: boolean;
+  dhcpPools?: { name: string; network?: string; prefix?: number; gateway?: string; dns?: string }[];
+  dhcpBindings?: { mac: string; ip: string; iface: string }[];
   x: number;
   y: number;
   associatedSsid?: string;
@@ -116,7 +123,7 @@ export interface LabJson {
   description?: string;
   goal?: string;
   differsNote?: string;
-  devices: { id?: string; kind: string; name: string; x: number; y: number; hostname?: string; startup?: string[]; post?: string[] }[];
+  devices: { id?: string; kind: string; switchProfile?: SwitchProfile; name: string; x: number; y: number; hostname?: string; startup?: string[]; post?: string[] }[];
   links: { a: string; b: string; cable?: CableMedia }[];
   checks: LabCheck[];
 }
@@ -145,15 +152,25 @@ export interface LabSummary {
   custom?: boolean;
 }
 
-export const PALETTE: { kind: string; label: string; hint: string }[] = [
-  { kind: 'workstation', label: 'PC', hint: 'A computer to ping from' },
-  { kind: 'server', label: 'Server', hint: 'Linux host with a service' },
-  { kind: 'switch', label: 'Switch', hint: 'Plug Ethernet cables here' },
-  { kind: 'router', label: 'Router', hint: 'IPv4 between networks' },
-  { kind: 'firewall', label: 'Firewall', hint: 'Allow or block traffic' },
-  { kind: 'ap', label: 'Wi-Fi AP', hint: 'Wireless access point' },
-  { kind: 'wlc', label: 'WLC', hint: 'Wireless controller' },
-  { kind: 'cloud', label: 'Internet', hint: 'Outside network stub' },
+export interface PaletteItem {
+  id: string;
+  kind: string;
+  switchProfile?: SwitchProfile;
+  label: string;
+  hint: string;
+}
+
+export const PALETTE: PaletteItem[] = [
+  { id: 'workstation', kind: 'workstation', label: 'PC', hint: 'A computer to ping from' },
+  { id: 'server', kind: 'server', label: 'Server', hint: 'Linux host with a service' },
+  { id: 'switch-unmanaged', kind: 'switch', switchProfile: 'unmanaged', label: 'Unmanaged Switch', hint: 'Plug-and-play; no VLANs or CLI' },
+  { id: 'switch-managed-l2', kind: 'switch', switchProfile: 'managed-l2', label: 'Managed L2 Switch', hint: 'VLANs, trunks, STP and management SVI' },
+  { id: 'switch-multilayer', kind: 'switch', switchProfile: 'multilayer', label: 'Multilayer L3 Switch', hint: 'Inter-VLAN routing, static routes and DHCP' },
+  { id: 'router', kind: 'router', label: 'Router', hint: 'IPv4 between networks' },
+  { id: 'firewall', kind: 'firewall', label: 'Firewall', hint: 'Allow or block traffic' },
+  { id: 'ap', kind: 'ap', label: 'Wi-Fi AP', hint: 'Wireless access point' },
+  { id: 'wlc', kind: 'wlc', label: 'WLC', hint: 'Wireless controller' },
+  { id: 'cloud', kind: 'cloud', label: 'Internet', hint: 'Outside network stub' },
 ];
 
 export const CABLE_TYPES: { id: CableMedia; label: string; hint: string; advanced?: boolean }[] = [
@@ -617,8 +634,9 @@ export class Api {
     });
   }
 
-  commands(kind: string) {
-    return this.json<{ commands: { cmd: string; help: string }[] }>(`/commands/${kind}`);
+  commands(kind: string, switchProfile?: SwitchProfile) {
+    const query = switchProfile ? `?switchProfile=${encodeURIComponent(switchProfile)}` : '';
+    return this.json<{ commands: { cmd: string; help: string }[] }>(`/commands/${kind}${query}`);
   }
 
   eveTool(name: string, body: unknown) {

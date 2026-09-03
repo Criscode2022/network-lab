@@ -2,7 +2,7 @@
 
 Read this file before changing code. It is the continuation brief for another coding agent: product rules, architecture, how to run and deploy, UI modes, Eve, tests, recent work, and what not to break.
 
-Last updated: 2026-09-03 (Basic-mode tabs, Focus-mode sidebars). Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`.
+Last updated: 2026-09-03 (realistic switch profiles and 48-lab model/exercise curriculum). Repo: `https://github.com/Criscode2022/network-lab` (public). Default branch: `main`.
 
 ---
 
@@ -14,7 +14,7 @@ It is **not** Packet Tracer and **not** a CCIE catalog.
 
 ### Hard product constraints (do not violate)
 
-- **Exactly eight device kinds:** `workstation`, `server`, `switch`, `router`, `firewall`, `ap`, `wlc`, `cloud`.
+- **Exactly eight device kinds:** `workstation`, `server`, `switch`, `router`, `firewall`, `ap`, `wlc`, `cloud`. `switch` has three capability profiles; do not turn those into new kinds.
 - **No BGP, MPLS, VXLAN, or 802.1X.** Requests for those must fail honestly (HTTP 400 / CLI error). OSPF is **area 0 only**.
 - The **engine is source of truth**. Angular never invents forwarding. Eve tools call Nest, which calls `Engine`.
 - Drops must keep an **honest reason** (packet inspector + `get_path`). Do not fake success.
@@ -57,7 +57,7 @@ network-lab/
   README.md            short human overview
 ```
 
-npm workspaces. Node >= 20. Root `npm install`.
+npm workspaces. Use Node >= 24 (the Eve build rejects older Node). Root `npm install`.
 
 ---
 
@@ -86,17 +86,45 @@ Pure TypeScript. Import in tests: `@netbench/engine`.
 | `src/devices.ts` | `createDevice`, iface defaults (`adminUp` false on Cisco until no-shut) |
 | `src/types.ts` | `DeviceKind`, `KIND_PORTS`, `CableMedia`, `LabJson`, `LabPatch`, checks |
 | `src/cables.ts` | Cable types, like/unlike pairing, fiber SFP check |
-| `src/labs.ts` | Seventeen builtin labs (fault labs start broken; see the curriculum test) |
+| `src/labs.ts` | Registry and model/exercise helpers |
+| `src/labs-models.ts` | 22 complete reference labs; every one passes Check as shipped |
+| `src/labs-exercises.ts` | 26 intentionally broken labs with hints and official `LabPatch` solutions |
 | `src/build.ts` | `labFromSpec(spec)` for Eve Builder |
 | `src/patch.ts` | Validate/apply `LabPatch` |
 | `src/ip.ts` | IPv4/IPv6 helpers |
 | `src/commands.ts` | Per-kind `help` text |
 | `schema/lab.schema.json` | Lab JSON schema |
-| `test/engine.test.ts` | ~48 tests; run twice before calling engine “done” |
+| `test/engine.test.ts` | Engine, switch-profile, and curriculum invariants |
 
-### Builtin curriculum (17)
+### Builtin curriculum (48)
 
-Order = difficulty. **Fault labs** (`lab-0a-plug-the-cable`, `lab-0b-first-address`, `lab-0c-port-shutdown`, `lab-2b-wrong-mask`, `lab-9-static-routes`, `lab-10-ospf-three-routers`, `lab-11-nat-internet`, `lab-12-wlc-capwap`) ship with a failing Check and a goal that names the repair; the test `fault labs fail as shipped and pass after the documented fix` holds the fix commands — update it when you add a fault lab. Study labs (`lab-1` … `lab-8`, `lab-13-dual-stack-office`) pass as shipped. `LAB_CAPSTONE` reuses `dualStackOfficeLab()` from `build.ts` (labs.ts imports build.ts; build.ts must not import labs.ts). Device coordinates assume ~112×110 px cards: keep ≥ 140 px between rows.
+`MODEL_LABS` has 22 complete references; `EXERCISE_LABS` has 26 broken/incomplete labs. `BUILTIN_LABS` concatenates models first, then exercises. Every model must pass `Engine.check()` as shipped. Every exercise must fail as shipped, point to an existing `modelId`, carry progressive hints plus a `solution.patch`, and pass after `applySolution`. The curriculum tests enforce all of these invariants and stable unique IDs.
+
+Switch curriculum pairs:
+- `model-unmanaged-switch` / `ex-unmanaged-host-fault`
+- `model-managed-l2-switch` / `ex-managed-l2-trunk`
+- `model-multilayer-intervlan` / `ex-multilayer-ip-routing`
+- `model-multilayer-dhcp` / `ex-multilayer-dhcp-pool`
+- `model-multilayer-dhcp-relay` / `ex-multilayer-dhcp-helper`
+
+Device coordinates assume ~112×110 px cards: keep at least 140 px between rows.
+
+### Switch profiles
+
+All three choices remain `kind: "switch"` in JSON and runtime state. The optional `switchProfile` is `unmanaged`, `managed-l2`, or `multilayer`; absent means `managed-l2`, which preserves old labs and saved snapshots. The profile also exists on `LabPatch.addDevices`, is validated on full labs and patches, is returned by `getState`, and is saved by `toLab`. Reject it on non-switch devices.
+
+- **Unmanaged:** physical ports start up; transparent MAC learning and flood/unicast forwarding; no CLI, management IP, VLAN configuration, DHCP, or routing. It preserves tagged frames rather than interpreting them. All-unmanaged loops are contained deterministically and reported as a broadcast-loop warning; do not label this RSTP.
+- **Managed L2:** existing switch behavior—access/trunk ports, allowed and native VLAN, per-VLAN MAC learning, RSTP-lite, and management SVI/default gateway. `ip routing` and `no switchport` are rejected.
+- **Multilayer:** all managed-L2 behavior plus `ip routing` (off by default), SVI forwarding, routed physical ports (`no switchport`), IPv4/IPv6 static routes, DHCP pools/excluded ranges/bindings, and `ip helper-address` on client-facing SVIs or routed ports.
+
+Multilayer implementation details:
+- An SVI injects outbound ARP/IP frames into its VLAN rather than looking for a physical cable named `VlanN`.
+- DHCP pool selection matches the client-facing SVI or relay address; it must never use the first pool blindly in a multi-VLAN switch.
+- Relay adds client-side SVI metadata, unicasts discover/request to the helper, and rebroadcasts offer/ack only into the original client VLAN.
+- `no ip routing` disables forwarding but does not erase configured static routes.
+- The simulator intentionally keeps STP as deterministic RSTP-lite. STP priorities/roles, EtherChannel, DHCP snooping, BGP/MPLS/VXLAN/802.1X remain unsupported.
+
+UI palette entries are in `apps/web/src/app/api.ts`: Unmanaged Switch, Managed L2 Switch, Multilayer L3 Switch. They share the switch icon and `SW` naming sequence. Unmanaged switches expose no terminal or port power controls; managed L2 copy says the SVI is management-only; multilayer state shows whether `ip routing` is enabled. Eve context includes `switchProfile` and `ip-routing=on`.
 
 ### CLI additions (route / address removal)
 
@@ -118,7 +146,7 @@ cloud:       eth0
 ```
 
 Linux hosts (`workstation`, `server`, plus firewall/cloud CLI): `ip addr add`, `ip link set`, `ping`, `nmcli wifi connect`, `dhclient`, `ssh`, …
-Cisco-like (`switch`, `router`, `ap`, `wlc`): start at **user** exec; need `enable` then `conf t`. `operUp` requires `adminUp` **and** a peer (or radio assoc).
+Cisco-like (managed/multilayer `switch`, `router`, `ap`, `wlc`): start at **user** exec; need `enable` then `conf t`. Unmanaged switches have no CLI. `operUp` requires `adminUp` **and** a peer (or radio assoc).
 
 **Important:** `Engine.addLink` now sets `adminUp = true` on both ends. The first lab only `no shut`s Gi0/1 and Gi0/2 in startup; a third PC used to land on Gi0/3 still shutdown. Do not revert that without replacing it.
 
@@ -275,7 +303,7 @@ Local: `cd apps/web && npx ng serve --host 127.0.0.1 --port 4200 --proxy-config 
 
 ### Add IP
 
-When a device has no IPv4 (`canAddIpv4`: not a switch): suggest next host on the busiest lab subnet (after the highest used host, e.g. .10 and .20 → **.21**). Apply via CLI:
+When a device has no IPv4 (`canAddIpv4`: hosts/routers/firewalls and multilayer switches; never unmanaged or managed-L2 physical ports): suggest the next host on the busiest lab subnet (after the highest used host, e.g. .10 and .20 → **.21**). Apply via CLI:
 
 - Linux: `ip addr add CIDR dev IF` then `ip link set IF up`
 - Cisco: `enable`, `conf t`, `interface IF`, `ip address A.B.C.D MASK`, `no shutdown`, `end`
@@ -466,14 +494,15 @@ Symptoms of a stale API build, so you recognise it fast: health JSON without `ve
 | `3d8b0b5` | Help dialogs in Basic; click to toggle ports |
 | (uncommitted) | UI overhaul: design tokens + components, Focus mode, session recovery, Reach (ping/trace) with canvas hop replay, hints with one-click fixes, check panel + checklist + Next lab, undo delete/unplug, tidy-up, share links, saved labs + proper sign-in/out, terminal history/completion/quick commands, packets filter + log, keyboard shortcuts, welcome tour |
 | (uncommitted) | Learning tools: Troubleshoot assistant (layered reading of engine drop reasons), Watch monitor, checkpoints with config diff/restore, lab editor (name/goal/checks), command palette, subnet/VLAN overlays, packet capture per device, Markdown lab report |
-| (uncommitted) | Engine: `ip route del/replace`, `ip addr del/flush`, `no ip route`, `no ip address`, `no ip default-gateway`, AP/WLC `int` + per-port shutdown (fixes the `% Unknown command` lines behind labs 7/8); 9 new labs (17 total) with a curriculum test; UI change-gateway / change-address flows, wrong-mask and NAT diagnoses, expected policy drops shown as “denied” |
+| (uncommitted) | Engine: `ip route del/replace`, `ip addr del/flush`, `no ip route`, `no ip address`, `no ip default-gateway`, AP/WLC `int` + per-port shutdown; UI change-gateway / change-address flows, wrong-mask and NAT diagnoses, expected policy drops shown as “denied” |
 | (uncommitted) | Eve: shared model config with a longer cheap fallback chain + env overrides, no session token caps, compaction at 0.8; mutating tools auto-run (`EVE_REQUIRE_APPROVAL=1` restores HITL); Nest calls retried 2×; `build_lab` accepts full lab JSON (`validateLab`, startup-line feedback, immediate check) and the spec builder scales to 12 PCs over trunked switches; drawer auto-approve switch, 2× auto-retry + manual Retry, full-topology context block |
 | `79d346c`…`e58d5d6` | Eve resilience: dynamic multi-provider model chain with a durable per-session fallback hook (root + subagents), `EVE_APPROVAL` modes, input guards, `idempotencyKey` on mutating tools, `nest.ts` timeouts/jitter/`Retry-After`/error kinds (route-missing vs stale-session), `api_status` tool, outage guidance in `instructions.md`; API idempotent replay + `Retry-After` + health `version`/`eveTools`/`idempotency`; drawer: HITL by kind (questions to the user, everything else auto), freeform answers, 3× same-session retries, stream reconnect |
 | `469b424` | `api_status` + `nest.ts` recognise an outdated API build (health without `eveTools`) and give one "redeploy apps/api" message instead of "reload the lab" |
 | (uncommitted) | Modes: Basic mobile gets a Canvas / Eve tab bar (`basicTabs`, `showTab`) and its Ask-Eve buttons back; desktop Focus opens Eve and the inspector (“Details”) as right sidebars instead of leaving focus (`focusEve`, `focusInspect`, `closeEve`), zoom controls folded into the floating toolbar with container-query label collapse |
 | `ede0ec3` | `apps/api/Dockerfile` → `node:24-slim` (eve needs Node ≥ 24; every Railway build had failed at `npx eve build`). Deployed manually via `serviceInstanceDeployV2`; live API now `version ede0ec3ff8da`, `eveTools: true`. Railway GitHub trigger still missing — §11.1 |
+| (uncommitted) | Realistic switches: optional backward-compatible `switchProfile`; unmanaged bridging, managed L2/native VLAN/RSTP-lite, and multilayer SVI/routed-port/static routing/DHCP/relay; profile-aware API, Angular palette/inspector, and Eve schemas/coaching; curriculum expanded to 22 passing models + 26 broken exercises with official solutions. |
 
-Verified for that work: `ng build` clean; engine 41 / API 31 tests green (3 new: idempotent replay ×2, `Retry-After`); `npx eve build` bundles the four `hooks/model-fallback.ts` files; Playwright captures at 1280×800 (desktop, Focus, check pass/fail, ping/trace, troubleshoot, checkpoint diff, monitor turning green, lab editor apply, palette, hints, menu, auth) and 390×844 (Basic, Basic sheet + ping, full-mobile Canvas/Inspect/Terminal).
+Latest verification: engine 62 tests green; API 36 tests green; Angular production build green; Eve production build green; edited-file diagnostics clean.
 
 ### Known pitfalls
 

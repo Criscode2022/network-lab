@@ -1,10 +1,12 @@
 import { allocMac, linkLocalFromMac } from './ip.ts';
 import {
   HOST_KINDS,
+  isManagedSwitch,
   KIND_PORTS,
   type Device,
   type DeviceKind,
   type Iface,
+  type SwitchProfile,
 } from './types.ts';
 
 export function newIface(name: string, kind: DeviceKind): Iface {
@@ -45,8 +47,13 @@ export function createDevice(
   x: number,
   y: number,
   id?: string,
+  switchProfile?: SwitchProfile,
 ): Device {
   const ifaces = KIND_PORTS[kind].map((n) => newIface(n, kind));
+  const profile = kind === 'switch' ? (switchProfile ?? 'managed-l2') : undefined;
+  if (profile === 'unmanaged') {
+    for (const iface of ifaces) iface.adminUp = true;
+  }
   if (kind === 'cloud') {
     const eth0 = ifaces[0];
     eth0.ipv4 = { ip: '203.0.113.1', prefix: 24 };
@@ -56,6 +63,7 @@ export function createDevice(
   return {
     id: id ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     kind,
+    ...(profile ? { switchProfile: profile } : {}),
     name,
     hostname: name,
     x,
@@ -69,6 +77,7 @@ export function createDevice(
     vlans: kind === 'switch' ? [1] : [],
     cli: { level: HOST_KINDS.includes(kind) || kind === 'firewall' || kind === 'cloud' ? 'priv' : 'user' },
     forwarding,
+    ipRouting: false,
     sshEnabled: kind === 'server' || kind === 'workstation',
     sshUser: 'root',
     hostsFile: {},
@@ -84,6 +93,7 @@ export function createDevice(
     dhcpPools: [],
     dhcpBindings: [],
     dhcpOffered: 0,
+    dhcpExcluded: [],
     acls: {},
     fwRules: [
       { action: 'allow', proto: 'any', family: 'any' },
@@ -107,6 +117,7 @@ export function findIface(dev: Device, name: string): Iface | undefined {
 }
 
 export function ensureSvi(dev: Device, vlan: number): Iface {
+  if (!isManagedSwitch(dev)) throw new Error(`${dev.name} is unmanaged and has no VLAN interfaces`);
   const name = `Vlan${vlan}`;
   let iface = findIface(dev, name);
   if (!iface) {
@@ -115,6 +126,7 @@ export function ensureSvi(dev: Device, vlan: number): Iface {
     iface.vlanId = vlan;
     iface.mode = 'routed';
     iface.adminUp = false;
+    if (dev.switchProfile === 'multilayer') iface.ipv6.push({ ip: linkLocalFromMac(iface.mac), prefix: 64 });
     dev.ifaces.push(iface);
   }
   if (!dev.vlans.includes(vlan)) dev.vlans.push(vlan);

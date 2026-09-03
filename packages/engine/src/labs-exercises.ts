@@ -1165,17 +1165,199 @@ export const EX_CAMPUS_SERVER_UNREACHABLE: LabJson = {
   },
 };
 
+export const EX_UNMANAGED_HOST_FAULT: LabJson = {
+  schemaVersion: 1,
+  id: 'ex-unmanaged-host-fault',
+  kind: 'exercise',
+  level: 'beginner',
+  topics: ['switching', 'ipv4', 'subnet-mask'],
+  modelId: 'model-unmanaged-switch',
+  name: 'Unmanaged switch: fix the hosts',
+  goal: 'PC1 cannot ping PC2 through a plug-and-play unmanaged switch. Repair the endpoint configuration without trying to configure the switch.',
+  description: 'The switch has no CLI and both cables are up. One host has the wrong prefix length.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 100, y: 220, startup: linuxHost('192.168.10.10/24') },
+    { kind: 'workstation', name: 'PC2', x: 500, y: 220, startup: linuxHost('192.168.10.200/25') },
+    { kind: 'switch', switchProfile: 'unmanaged', name: 'USW1', x: 300, y: 80, startup: [] },
+  ],
+  links: [{ a: 'PC1:eth0', b: 'USW1:Gi0/1' }, { a: 'PC2:eth0', b: 'USW1:Gi0/2' }],
+  checks: [{ type: 'ping', src: 'PC1', dst: '192.168.10.200', family: 'v4' }],
+  solution: {
+    summary: 'An unmanaged switch was already forwarding correctly. PC2’s /25 placed PC1 outside its local subnet, so the reply had no route. Changing PC2 to /24 makes both hosts agree on the LAN boundary.',
+    hints: [
+      'An unmanaged switch has no configuration to inspect. Verify cables, then compare the two endpoint prefixes.',
+      'PC1 is 192.168.10.10/24 while PC2 is 192.168.10.200/25. Does PC2 consider .10 local?',
+      'On PC2, remove 192.168.10.200/25 and add 192.168.10.200/24.',
+    ],
+    patch: { configs: [{ device: 'PC2', commands: ['ip addr del 192.168.10.200/25 dev eth0', 'ip addr add 192.168.10.200/24 dev eth0'] }] },
+  },
+};
+
+export const EX_MANAGED_TRUNK_PROFILE: LabJson = {
+  schemaVersion: 1,
+  id: 'ex-managed-l2-trunk',
+  kind: 'exercise',
+  level: 'intermediate',
+  topics: ['switching', 'vlan', 'trunk'],
+  modelId: 'model-managed-l2-switch',
+  name: 'Managed L2: VLAN missing from trunk',
+  goal: 'Restore VLAN 10 connectivity between PC1 and PC2 across the managed-switch trunk.',
+  description: 'Access ports are correct, but SW2’s trunk allow-list excludes the user VLAN.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 80, y: 260, startup: linuxHost('10.10.10.10/24') },
+    { kind: 'workstation', name: 'PC2', x: 620, y: 260, startup: linuxHost('10.10.10.20/24') },
+    { kind: 'switch', switchProfile: 'managed-l2', name: 'SW1', x: 220, y: 80, startup: cisco('vlan 10', ...access('Gi0/1', 10), ...trunk('Gi0/8', [10])) },
+    { kind: 'switch', switchProfile: 'managed-l2', name: 'SW2', x: 480, y: 80, startup: cisco('vlan 10', ...access('Gi0/1', 10), ...trunk('Gi0/8', [20])) },
+  ],
+  links: [{ a: 'PC1:eth0', b: 'SW1:Gi0/1' }, { a: 'SW1:Gi0/8', b: 'SW2:Gi0/8' }, { a: 'PC2:eth0', b: 'SW2:Gi0/1' }],
+  checks: [{ type: 'ping', src: 'PC1', dst: '10.10.10.20', family: 'v4' }],
+  solution: {
+    summary: 'SW2 discarded tagged VLAN 10 frames because Gi0/8 allowed only VLAN 20. Matching the trunk allow-list on both ends restores the Layer 2 path.',
+    hints: [
+      'Both PCs use VLAN 10 access ports. Compare show interface trunk on SW1 and SW2.',
+      'A VLAN must be allowed on both ends of a trunk.',
+      'Set SW2 Gi0/8 to switchport trunk allowed vlan 10.',
+    ],
+    patch: { configs: [{ device: 'SW2', commands: cisco('int Gi0/8', 'switchport trunk allowed vlan 10') }] },
+  },
+};
+
+export const EX_MULTILAYER_IP_ROUTING: LabJson = {
+  schemaVersion: 1,
+  id: 'ex-multilayer-ip-routing',
+  kind: 'exercise',
+  level: 'advanced',
+  topics: ['switching', 'vlan', 'routing', 'svi'],
+  modelId: 'model-multilayer-intervlan',
+  name: 'Multilayer switch: enable routing',
+  goal: 'The VLAN 10 and VLAN 20 gateways answer locally, but the PCs cannot cross VLANs. Enable the missing Layer 3 function.',
+  description: 'Both SVIs and access ports are correct. Cisco multilayer switching still requires one global command.',
+  devices: [
+    { kind: 'workstation', name: 'PC10', x: 100, y: 260, startup: linuxHost('10.10.10.10/24', '10.10.10.1') },
+    { kind: 'workstation', name: 'PC20', x: 500, y: 260, startup: linuxHost('10.10.20.10/24', '10.10.20.1') },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 300, y: 80,
+      startup: cisco(
+        'vlan 10', 'vlan 20', ...access('Gi0/1', 10), ...access('Gi0/2', 20),
+        'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'no shut',
+        'int Vlan20', 'ip address 10.10.20.1 255.255.255.0', 'no shut',
+      ),
+    },
+  ],
+  links: [{ a: 'PC10:eth0', b: 'DSW1:Gi0/1' }, { a: 'PC20:eth0', b: 'DSW1:Gi0/2' }],
+  checks: [{ type: 'ping', src: 'PC10', dst: '10.10.20.10', family: 'v4' }],
+  solution: {
+    summary: 'Addressed SVIs do not automatically enable transit forwarding. The global ip routing command turns DSW1 into the gateway between its connected VLAN networks.',
+    hints: [
+      'Each PC can reach its own SVI, so Layer 2 and addressing are correct.',
+      'Inspect DSW1’s profile and running-config. Is Layer 3 forwarding enabled?',
+      'On DSW1 in global configuration mode, enter ip routing.',
+    ],
+    patch: { configs: [{ device: 'DSW1', commands: cisco('ip routing') }] },
+  },
+};
+
+export const EX_MULTILAYER_DHCP_POOL: LabJson = {
+  schemaVersion: 1,
+  id: 'ex-multilayer-dhcp-pool',
+  kind: 'exercise',
+  level: 'advanced',
+  topics: ['switching', 'vlan', 'dhcp'],
+  modelId: 'model-multilayer-dhcp',
+  name: 'Multilayer switch: repair DHCP pool',
+  goal: 'PC20 is in VLAN 20 but receives no DHCP offer. Correct the pool and obtain a lease.',
+  description: 'The SVI and access VLAN are operational; the pool describes a different subnet.',
+  devices: [
+    { kind: 'workstation', name: 'PC20', x: 500, y: 260, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 300, y: 80,
+      startup: cisco(
+        'vlan 20', ...access('Gi0/2', 20),
+        'int Vlan20', 'ip address 10.10.20.1 255.255.255.0', 'no shut', 'ip routing',
+        'ip dhcp pool USERS20', 'network 10.10.30.0 255.255.255.0', 'default-router 10.10.20.1',
+      ),
+    },
+  ],
+  links: [{ a: 'PC20:eth0', b: 'DSW1:Gi0/2' }],
+  checks: [{ type: 'dhcp-bound', device: 'PC20' }, { type: 'ping', src: 'PC20', dst: '10.10.20.1', family: 'v4' }],
+  solution: {
+    summary: 'A DHCP server selects a pool matching the receiving SVI. USERS20 described 10.10.30.0/24, so it could not serve VLAN 20. Correcting the network and retrying dhclient produces a valid lease.',
+    hints: [
+      'Compare interface Vlan20 with the network line inside ip dhcp pool USERS20.',
+      'The pool network must be 10.10.20.0/24, matching the client-facing SVI.',
+      'Re-enter USERS20, set network 10.10.20.0 255.255.255.0, then run dhclient eth0 on PC20.',
+    ],
+    patch: {
+      configs: [
+        { device: 'DSW1', commands: cisco('ip dhcp pool USERS20', 'network 10.10.20.0 255.255.255.0') },
+        { device: 'PC20', commands: ['dhclient eth0'] },
+      ],
+    },
+  },
+};
+
+export const EX_MULTILAYER_DHCP_HELPER: LabJson = {
+  schemaVersion: 1,
+  id: 'ex-multilayer-dhcp-helper',
+  kind: 'exercise',
+  level: 'expert',
+  topics: ['switching', 'dhcp', 'dhcp-relay', 'routing'],
+  modelId: 'model-multilayer-dhcp-relay',
+  name: 'Multilayer switch: missing DHCP relay',
+  goal: 'PC1 must obtain a VLAN 10 lease from DHCP1 across the routed uplink.',
+  description: 'IP routing and the server route are correct, but client broadcasts are not yet relayed.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 80, y: 280, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 260, y: 100,
+      startup: cisco(
+        'vlan 10', ...access('Gi0/1', 10),
+        'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'no shut',
+        'int Gi0/8', 'no switchport', 'ip address 10.0.12.1 255.255.255.252', 'no shut', 'ip routing',
+      ),
+    },
+    {
+      kind: 'router', name: 'DHCP1', x: 540, y: 100,
+      startup: cisco(
+        'int Gi0/0', 'ip address 10.0.12.2 255.255.255.252', 'no shut',
+        'ip route 10.10.10.0 255.255.255.0 10.0.12.1',
+        'ip dhcp pool VLAN10', 'network 10.10.10.0 255.255.255.0', 'default-router 10.10.10.1',
+      ),
+    },
+  ],
+  links: [{ a: 'PC1:eth0', b: 'DSW1:Gi0/1' }, { a: 'DSW1:Gi0/8', b: 'DHCP1:Gi0/0' }],
+  checks: [{ type: 'dhcp-bound', device: 'PC1' }, { type: 'ping', src: 'PC1', dst: '10.0.12.2', family: 'v4' }],
+  solution: {
+    summary: 'DHCP discovery is broadcast and routers do not forward broadcasts. ip helper-address on the client-facing SVI converts the exchange to routed unicast and returns the server response to VLAN 10.',
+    hints: [
+      'PC1’s discover reaches Vlan10, but DHCP1 is in another IP network.',
+      'Configure DHCP relay on the interface where client broadcasts arrive, not on the routed uplink.',
+      'On DSW1 interface Vlan10, configure ip helper-address 10.0.12.2, then retry dhclient on PC1.',
+    ],
+    patch: {
+      configs: [
+        { device: 'DSW1', commands: cisco('int Vlan10', 'ip helper-address 10.0.12.2') },
+        { device: 'PC1', commands: ['dhclient eth0'] },
+      ],
+    },
+  },
+};
+
 /** In display order (level, then story). */
 export const EXERCISE_LABS: LabJson[] = [
   EX_PLUG_CABLE,
+  EX_UNMANAGED_HOST_FAULT,
   EX_FIRST_ADDRESS,
   EX_PORT_SHUTDOWN,
   EX_WRONG_MASK,
   EX_WRONG_GATEWAY,
   EX_WRONG_ACCESS_VLAN,
   EX_TRUNK_ALLOWED_VLAN,
+  EX_MANAGED_TRUNK_PROFILE,
   EX_SUBIF_WRONG_ENCAP,
   EX_DHCP_POOL_NETWORK,
+  EX_MULTILAYER_IP_ROUTING,
+  EX_MULTILAYER_DHCP_POOL,
   EX_RA_SUPPRESSED,
   EX_STATIC_ROUTES,
   EX_STATIC_ROUTE_TYPO,
@@ -1188,4 +1370,5 @@ export const EXERCISE_LABS: LabJson[] = [
   EX_WLC,
   EX_OFFICE_THREE_FAULTS,
   EX_CAMPUS_SERVER_UNREACHABLE,
+  EX_MULTILAYER_DHCP_HELPER,
 ];

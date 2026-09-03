@@ -22,6 +22,10 @@
           "kind": {
             "enum": ["workstation", "server", "switch", "router", "firewall", "ap", "wlc", "cloud"]
           },
+          "switchProfile": {
+            "enum": ["unmanaged", "managed-l2", "multilayer"],
+            "description": "Only for kind=switch. Absent means managed-l2."
+          },
           "name": { "type": "string" },
           "x": { "type": "number" },
           "y": { "type": "number" },

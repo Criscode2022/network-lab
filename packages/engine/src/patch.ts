@@ -1,5 +1,5 @@
 import { CABLE_MEDIA } from './cables.ts';
-import { DEVICE_KINDS, type CableMedia, type DeviceKind, type LabPatch } from './types.ts';
+import { DEVICE_KINDS, SWITCH_PROFILES, type CableMedia, type DeviceKind, type LabPatch, type SwitchProfile } from './types.ts';
 
 export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | { ok: false; error: string } {
   if (!input || typeof input !== 'object') return { ok: false, error: 'patch must be an object' };
@@ -17,10 +17,16 @@ export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | {
       const rec = d as Record<string, unknown>;
       const type = rec.type as DeviceKind;
       if (!DEVICE_KINDS.includes(type)) return { ok: false, error: `unknown device type ${String(rec.type)}` };
+      if (rec.switchProfile !== undefined && type !== 'switch') return { ok: false, error: 'switchProfile is only valid for switches' };
+      const switchProfile = rec.switchProfile as SwitchProfile | undefined;
+      if (type === 'switch' && switchProfile !== undefined && !SWITCH_PROFILES.includes(switchProfile)) {
+        return { ok: false, error: `unknown switchProfile ${String(rec.switchProfile)}` };
+      }
       if (typeof rec.name !== 'string' || !rec.name) return { ok: false, error: 'device name required' };
       patch.addDevices.push({
         type,
         name: rec.name,
+        ...(switchProfile ? { switchProfile } : {}),
         x: typeof rec.x === 'number' ? rec.x : 80,
         y: typeof rec.y === 'number' ? rec.y : 80,
       });

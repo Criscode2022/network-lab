@@ -5,10 +5,12 @@ import {
   Engine,
   labFromSpec,
   listCommands,
+  SWITCH_PROFILES,
   validatePatch,
   type DeviceKind,
   type LabJson,
   type LabPatch,
+  type SwitchProfile,
 } from '@netbench/engine';
 import { randomBytes, randomUUID } from 'node:crypto';
 
@@ -151,8 +153,9 @@ export class SimService {
     }
   }
 
-  commands(kind: string) {
-    return listCommands(kind as DeviceKind);
+  commands(kind: string, switchProfile?: string) {
+    const profile = SWITCH_PROFILES.includes(switchProfile as SwitchProfile) ? (switchProfile as SwitchProfile) : undefined;
+    return listCommands(kind as DeviceKind, profile);
   }
 
   buildOffice(): LabJson {

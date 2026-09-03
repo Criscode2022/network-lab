@@ -117,7 +117,7 @@ import { Icon } from './icons';
                     <nb-icon name="play" [size]="11" /> Show on canvas
                   </button>
                   <button type="button" class="btn btn-sm btn-eve" (click)="explain.emit(p)">
-                    <nb-icon name="sparkles" [size]="11" /> Ask Eve why
+                    <nb-icon name="sparkles" [size]="11" /> Ask Agent why
                   </button>
                 </div>
               </div>

@@ -83,6 +83,7 @@ export class EveClient {
   /** Requests still waiting on the user, including `hitl()`. */
   pendingCount = signal(0);
   busy = signal(false);
+  stopping = signal(false);
   error = signal<string | null>(null);
   /** Approve Eve's tool calls without a click (the host still mints a confirmToken per call). Default on. */
   autoApprove = signal(typeof localStorage === 'undefined' || localStorage.getItem(AUTO_KEY) !== '0');
@@ -107,6 +108,8 @@ export class EveClient {
   private queue: EveHitl[] = [];
   private retries = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Covers the short race where Stop is clicked before a new session has returned its id. */
+  private cancelRequested = false;
   /** step.failed seen in the current turn with no assistant text after it → the turn "completed" empty. */
   private stepFailure: string | null = null;
   private sawTextThisTurn = false;
@@ -175,6 +178,7 @@ export class EveClient {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (!opts.retry) {
+      this.cancelRequested = false;
       this.msgs.update((m) => [...m, { role: 'user', text: trimmed }]);
       this.lastSent.set(trimmed);
       this.retries = 0;
@@ -192,24 +196,30 @@ export class EveClient {
       if (!id) {
         const created = await this.postJson('/eve/v1/session', { message: this.wrap(trimmed) });
         id = String(created.sessionId ?? '');
-        if (!id) throw new Error('Eve did not return a sessionId');
+        if (!id) throw new Error('Agent did not return a session ID');
         this.sessionId.set(id);
         this.streamIndex = 0;
         this.streamReconnects = 0;
         this.persist();
         this.openStream();
+        if (this.cancelRequested) await this.cancelSession(id);
         return;
       }
       this.openStream();
       const r = await this.postJson(`/eve/v1/session/${id}`, { message: this.wrap(trimmed) });
       if (r.status === 409 || r.status === 404 || r.status === 410 || r.code === 'session_not_active') {
         // The durable session is gone (reset, expired, host storage changed): start a fresh one, once.
-        if (opts.fresh) throw new Error('Eve session is no longer active and a fresh one could not be started');
+        if (opts.fresh) throw new Error('Agent session is no longer active and a fresh one could not be started');
         this.forgetSession();
-        this.note('Eve session expired — starting a new one.');
+        this.note('Agent session expired — starting a new one.');
         return this.send(trimmed, { retry: true, fresh: true });
       }
     } catch (e) {
+      if (this.cancelRequested) {
+        this.cancelRequested = false;
+        this.busy.set(false);
+        return;
+      }
       this.fail(e instanceof Error ? e.message : String(e));
     }
   }
@@ -226,7 +236,7 @@ export class EveClient {
       this.retries++;
       this.retrying.set(this.retries);
       this.retryAt.set(Date.now() + delay);
-      const why = MODEL_FAILURE_RE.test(msg) ? 'Eve’s model call failed; the host switches model and retries' : `Eve hit an error (${msg}). Retrying`;
+      const why = MODEL_FAILURE_RE.test(msg) ? 'The Agent’s model call failed; the host switches model and retries' : `The Agent hit an error (${msg}). Retrying`;
       this.note(`${why} ${this.retries}/${MAX_RETRIES} in ${Math.round(delay / 1000)} s…`);
       if (this.retryTimer) clearTimeout(this.retryTimer);
       this.retryTimer = setTimeout(() => {
@@ -259,6 +269,50 @@ export class EveClient {
     const err = this.error() ?? '';
     if (/session failed|session_not_active|no longer active|not found|\b(404|409|410)\b/i.test(err)) this.forgetSession();
     await this.send(last, { retry: true });
+  }
+
+  /** Cooperatively cancels the active server-side turn and suppresses any queued browser retry. */
+  async cancelTurn(): Promise<void> {
+    if (this.stopping()) return;
+    this.cancelRequested = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retries = 0;
+    this.retrying.set(0);
+    this.retryAt.set(null);
+
+    const id = this.sessionId();
+    if (!id) {
+      this.busy.set(false);
+      return;
+    }
+
+    await this.cancelSession(id);
+  }
+
+  private async cancelSession(id: string): Promise<void> {
+    this.stopping.set(true);
+    try {
+      const response = await fetch(`${this.host}/eve/v1/session/${encodeURIComponent(id)}/cancel`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+        signal: AbortSignal.timeout(15_000),
+      });
+      const result = (await response.json().catch(() => ({}))) as { status?: string; message?: string; error?: string };
+      if (!response.ok) throw new Error(result.message || result.error || `HTTP ${response.status}`);
+
+      this.queue = [];
+      this.showNext();
+      this.busy.set(false);
+      this.error.set(null);
+      this.note(result.status === 'accepted' ? 'Request stopped.' : 'There is no active request to stop.');
+    } catch (e) {
+      this.error.set(`Could not stop the request: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.cancelRequested = false;
+      this.stopping.set(false);
+    }
   }
 
   /** Answer the current request with an option id (buttons). */
@@ -366,7 +420,7 @@ export class EveClient {
       message?: string;
     };
     if (!r.ok && ![404, 409, 410].includes(r.status)) {
-      throw new Error(json.message || json.error || `Eve HTTP ${r.status}`);
+      throw new Error(json.message || json.error || `Agent HTTP ${r.status}`);
     }
     return { ...json, status: r.status };
   }
@@ -388,13 +442,13 @@ export class EveClient {
     const msg = err instanceof Error ? err.message : err ? String(err) : '';
     if (/HTTP (404|409|410)/.test(msg)) {
       this.reconnecting.set(0);
-      this.fail(`Eve session is no longer active (${msg})`);
+      this.fail(`Agent session is no longer active (${msg})`);
       return;
     }
     if (!this.busy() && !err) return;
     if (this.streamReconnects >= MAX_STREAM_RECONNECTS) {
       this.reconnecting.set(0);
-      this.fail(msg || 'Lost the connection to Eve');
+      this.fail(msg || 'Lost the connection to Agent');
       return;
     }
     const delay = STREAM_BACKOFF[Math.min(this.streamReconnects, STREAM_BACKOFF.length - 1)];
@@ -408,7 +462,7 @@ export class EveClient {
   private async consumeStream(id: string, startIndex: number, ac: AbortController): Promise<void> {
     const r = await fetch(`${this.host}/eve/v1/session/${id}/stream?startIndex=${startIndex}`, { signal: ac.signal });
     if (!r.ok || !r.body) {
-      throw new Error(`Eve stream HTTP ${r.status}`);
+      throw new Error(`Agent stream HTTP ${r.status}`);
     }
     const reader = r.body.getReader();
     const dec = new TextDecoder();
@@ -522,13 +576,19 @@ export class EveClient {
       this.error.set(null);
     }
     if (t === 'turn.cancelled') {
+      this.cancelRequested = false;
+      this.queue = [];
+      this.showNext();
       this.busy.set(false);
+      this.retrying.set(0);
+      this.retryAt.set(null);
+      this.error.set(null);
     }
     if (t === 'step.failed' || t === 'turn.failed' || t === 'session.failed') {
       const rec = data as Record<string, unknown>;
       const err = data.error;
       const nested = typeof err === 'string' ? err : err?.message;
-      const raw = nested || (typeof rec['message'] === 'string' ? rec['message'] : '') || 'Eve turn failed';
+      const raw = nested || (typeof rec['message'] === 'string' ? rec['message'] : '') || 'Agent request failed';
       const code = typeof rec['code'] === 'string' ? rec['code'] : '';
       const msg = code && !raw.startsWith(code) ? `${code}: ${raw}` : raw;
       if (t === 'step.failed') {

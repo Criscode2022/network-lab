@@ -42,8 +42,9 @@ import type {
   PingResult,
   RouteV4,
   RouteV6,
+  SwitchProfile,
 } from './types.ts';
-import { DEVICE_KINDS, HOST_KINDS } from './types.ts';
+import { DEVICE_KINDS, HOST_KINDS, isManagedSwitch, isMultilayerSwitch, switchProfileOf } from './types.ts';
 
 let pktSeq = 1;
 function nid(p: string): string {
@@ -108,7 +109,7 @@ export class Engine {
     if (json.differsNote) e.differsNote = json.differsNote;
     e.checks = json.checks ?? [];
     for (const d of json.devices) {
-      const dev = createDevice(d.kind, d.name, d.x, d.y, d.id);
+      const dev = createDevice(d.kind, d.name, d.x, d.y, d.id, d.switchProfile);
       if (d.hostname) dev.hostname = d.hostname;
       dev.startupLines = [...(d.startup ?? [])];
       (dev as Device & { postLines?: string[] }).postLines = [...(d.post ?? [])];
@@ -146,6 +147,7 @@ export class Engine {
         return {
           id: d.id,
           kind: d.kind,
+          ...(d.kind === 'switch' ? { switchProfile: d.switchProfile ?? 'managed-l2' } : {}),
           name: d.name,
           x: d.x,
           y: d.y,
@@ -181,8 +183,10 @@ export class Engine {
       if (d.sshListen) L.push('systemctl start ssh');
       return L;
     }
+    if (d.kind === 'switch' && d.switchProfile === 'unmanaged') return [];
     const L: string[] = ['enable', 'conf t'];
     if (d.hostname) L.push(`hostname ${d.hostname}`);
+    if (isMultilayerSwitch(d) && d.ipRouting) L.push('ip routing');
     if (d.kind === 'switch') {
       for (const v of d.vlans.filter((x) => x !== 1)) L.push(`vlan ${v}`);
     }
@@ -192,15 +196,18 @@ export class Engine {
         L.push('switchport mode access');
         L.push(`switchport access vlan ${i.accessVlan}`);
       }
+      if (i.mode === 'routed' && d.kind === 'switch' && i.vlanId === undefined) L.push('no switchport');
       if (i.mode === 'trunk') {
         L.push('switchport mode trunk');
         L.push(`switchport trunk allowed vlan ${i.allowedVlans === 'all' ? 'all' : i.allowedVlans.join(',')}`);
+        if (i.nativeVlan !== 1) L.push(`switchport trunk native vlan ${i.nativeVlan}`);
       }
       if (i.encapVlan) L.push(`encapsulation dot1Q ${i.encapVlan}`);
       if (i.ipv4) L.push(`ip address ${i.ipv4.ip} ${formatIPv4(prefixToMask(i.ipv4.prefix))}`);
       for (const v of i.ipv6.filter((x) => !x.ip.toLowerCase().startsWith('fe80'))) {
         L.push(`ipv6 address ${v.ip}/${v.prefix}`);
       }
+      if (i.helperAddress) L.push(`ip helper-address ${i.helperAddress}`);
       L.push(i.adminUp ? 'no shutdown' : 'shutdown');
     }
     if (d.defaultGw4 && d.kind === 'switch') L.push(`ip default-gateway ${d.defaultGw4}`);
@@ -216,6 +223,9 @@ export class Engine {
       L.push(`ip dhcp pool ${p.name}`);
       if (p.network) L.push(`network ${p.network} ${formatIPv4(prefixToMask(p.prefix ?? 24))}`);
       if (p.gateway) L.push(`default-router ${p.gateway}`);
+    }
+    for (const range of d.dhcpExcluded) {
+      L.push(`ip dhcp excluded-address ${range.start}${range.end !== range.start ? ` ${range.end}` : ''}`);
     }
     for (const w of d.wifi) {
       L.push(`ssid ${w.ssid}`);
@@ -257,9 +267,9 @@ export class Engine {
     return undefined;
   }
 
-  addDevice(kind: DeviceKind, name: string, x = 120, y = 120): Device {
+  addDevice(kind: DeviceKind, name: string, x = 120, y = 120, switchProfile?: SwitchProfile): Device {
     if (this.find(name)) throw new Error(`device ${name} exists`);
-    const d = createDevice(kind, name, x, y);
+    const d = createDevice(kind, name, x, y, undefined, switchProfile);
     this.devices.set(d.id, d);
     this.logActivity(`add device ${name} (${kind})`);
     return d;
@@ -395,8 +405,11 @@ export class Engine {
   }
 
   recomputeStp(): void {
-    this.warnings = this.warnings.filter((w) => !w.startsWith('RSTP-lite'));
-    for (const d of this.devices.values()) d.blockedPorts = [];
+    this.warnings = this.warnings.filter((w) => !w.startsWith('RSTP-lite') && !w.startsWith('Broadcast loop'));
+    for (const d of this.devices.values()) {
+      d.blockedPorts = [];
+      d.loopWarning = undefined;
+    }
     const switches = [...this.devices.values()].filter((d) => d.kind === 'switch' || d.kind === 'ap');
     const vlans = new Set<number>([1]);
     for (const d of switches) for (const v of d.vlans) vlans.add(v);
@@ -433,10 +446,15 @@ export class Engine {
       edges.sort((e1, e2) => (e1.a.name + e1.ai).localeCompare(e2.a.name + e2.ai));
       for (const e of edges) {
         if (!union(e.a.id, e.b.id)) {
-          const blocker = e.a.name >= e.b.name ? e.a : e.b;
+          const managedA = e.a.kind === 'ap' || isManagedSwitch(e.a);
+          const managedB = e.b.kind === 'ap' || isManagedSwitch(e.b);
+          const blocker = managedA !== managedB ? (managedA ? e.a : e.b) : e.a.name >= e.b.name ? e.a : e.b;
           const port = blocker === e.a ? e.ai : e.bi;
           if (!blocker.blockedPorts.includes(port)) blocker.blockedPorts.push(port);
-          const w = `RSTP-lite blocked ${blocker.name} ${port} to break a loop on VLAN ${vlan}`;
+          const noStp = !managedA && !managedB;
+          const w = noStp
+            ? `Broadcast loop detected between unmanaged switches; ${blocker.name} ${port} was suppressed because unmanaged switches do not run STP`
+            : `RSTP-lite blocked ${blocker.name} ${port} to break a loop on VLAN ${vlan}`;
           if (!this.warnings.includes(w)) this.warnings.push(w);
           blocker.loopWarning = w;
         }
@@ -447,6 +465,7 @@ export class Engine {
   portCarries(dev: Device, ifaceName: string, vlan: number): boolean {
     const i = findIface(dev, ifaceName);
     if (!i) return false;
+    if (switchProfileOf(dev) === 'unmanaged') return true;
     if (i.mode === 'access') return i.accessVlan === vlan;
     if (i.mode === 'trunk') return i.allowedVlans === 'all' || i.allowedVlans.includes(vlan);
     return true;
@@ -467,6 +486,25 @@ export class Engine {
         reason: `Interface ${fromIface.name} is administratively down`,
         drop: true,
       });
+      return;
+    }
+    if (from.kind === 'switch' && fromIface.vlanId !== undefined) {
+      const injected = { ...frame, vlan: fromIface.vlanId };
+      this.emitEvent({
+        from: { device: from.name, iface: fromIface.name },
+        srcMac: frame.srcMac,
+        dstMac: frame.dstMac,
+        vlan: fromIface.vlanId,
+        srcIp: frame.l3?.src ?? frame.arp?.spa,
+        dstIp: frame.l3?.dst ?? frame.arp?.tpa,
+        proto: frame.arp ? 'ARP' : (frame.l3?.proto ?? frame.ethertype),
+        ttl: frame.l3?.ttl,
+        reason: `${reason}; injected into VLAN ${fromIface.vlanId}`,
+      });
+      for (const out of from.ifaces) {
+        if (out.parent || out.vlanId !== undefined) continue;
+        this.switchEgress(from, out.name, injected, fromIface.name);
+      }
       return;
     }
     const physName = fromIface.parent ?? fromIface.name;
@@ -530,7 +568,8 @@ export class Engine {
       });
       return;
     }
-    if (dev.kind === 'switch') this.handleSwitch(dev, iface, frame);
+    if (dev.kind === 'switch' && isMultilayerSwitch(dev) && iface.mode === 'routed') this.handleEnd(dev, iface, frame);
+    else if (dev.kind === 'switch') this.handleSwitch(dev, iface, frame);
     else if (dev.kind === 'ap') this.handleAp(dev, iface, frame);
     else this.handleEnd(dev, iface, frame);
   }
@@ -549,6 +588,10 @@ export class Engine {
   }
 
   private handleSwitch(dev: Device, inIf: Iface, frame: Frame): void {
+    if (switchProfileOf(dev) === 'unmanaged') {
+      this.handleUnmanagedSwitch(dev, inIf, frame);
+      return;
+    }
     const vlan = this.classifyVlan(inIf, frame);
     if (vlan === null) {
       this.emitEvent({
@@ -585,6 +628,23 @@ export class Engine {
     }
     if (svi?.adminUp && (frame.dstMac === MAC_BCAST || this.macIsLocal(dev, frame.dstMac))) {
       this.handleEnd(dev, svi, inner);
+    }
+  }
+
+  private handleUnmanagedSwitch(dev: Device, inIf: Iface, frame: Frame): void {
+    const vlanKey = frame.vlan ?? 1;
+    dev.macTable = dev.macTable.filter((m) => !(m.mac === frame.srcMac && m.vlan === vlanKey));
+    dev.macTable.push({ mac: frame.srcMac, iface: inIf.name, vlan: vlanKey });
+    const hit =
+      frame.dstMac !== MAC_BCAST && !frame.dstMac.startsWith('01:') && !frame.dstMac.startsWith('33:33')
+        ? dev.macTable.find((m) => m.mac === frame.dstMac && m.vlan === vlanKey)
+        : undefined;
+    const outputs = hit && hit.iface !== inIf.name
+      ? dev.ifaces.filter((i) => i.name === hit.iface)
+      : dev.ifaces.filter((i) => i.name !== inIf.name && !i.parent && i.vlanId === undefined);
+    for (const out of outputs) {
+      if (!out.adminUp || dev.blockedPorts.includes(out.name)) continue;
+      this.sendFrame(dev, out, { ...frame }, `Unmanaged switch ${dev.name} ${hit ? 'forward' : 'flood'} out ${out.name}`);
     }
   }
 
@@ -1010,7 +1070,9 @@ export class Engine {
         ttl: pkt.ttl,
         srcMac: '',
         dstMac: '',
-        reason: `${dev.name} is not a router (no L3 forwarding)`,
+        reason: isMultilayerSwitch(dev)
+          ? `IP routing is disabled on ${dev.name} (configure "ip routing")`
+          : `${dev.name} is not a router (no L3 forwarding)`,
         drop: true,
       });
       return;
@@ -1182,7 +1244,9 @@ export class Engine {
         proto: pkt.proto,
         srcMac: '',
         dstMac: '',
-        reason: `${dev.name} is not a router`,
+        reason: isMultilayerSwitch(dev)
+          ? `IP routing is disabled on ${dev.name} (configure "ip routing")`
+          : `${dev.name} is not a router`,
         drop: true,
       });
       return;
@@ -1333,7 +1397,6 @@ export class Engine {
       local4 ||
       local6 ||
       pkt.proto === 'ospf' ||
-      pkt.proto === 'dhcp' ||
       pkt.dst.toLowerCase() === '255.255.255.255' ||
       pkt.dst === '224.0.0.5' ||
       pkt.dst.endsWith('.255')
@@ -1463,16 +1526,52 @@ export class Engine {
   handleDhcp(dev: Device, inIf: Iface, pkt: L3Packet): void {
     const msg = String(pkt.payload?.['msg'] ?? '');
     const mac = String(pkt.payload?.['mac'] ?? '');
+    const relayIp = String(pkt.payload?.['relayIp'] ?? '');
+    const relayIface = String(pkt.payload?.['relayIface'] ?? '');
+
+    // A relay receives the server's unicast response and rebroadcasts it in the client VLAN.
+    if ((msg === 'offer' || msg === 'ack') && relayIp && this.hasIpv4(dev, relayIp)) {
+      const clientSide = findIface(dev, relayIface) ?? this.hasIpv4(dev, relayIp);
+      if (clientSide) {
+        this.sendL3On(
+          dev,
+          clientSide,
+          { ...pkt, id: nid('p'), src: relayIp, dst: '255.255.255.255' },
+          MAC_BCAST,
+        );
+      }
+      return;
+    }
+
+    if (
+      (msg === 'discover' || msg === 'request') &&
+      inIf.helperAddress &&
+      inIf.ipv4 &&
+      !this.dhcpPoolFor(dev, inIf, relayIp)
+    ) {
+      this.emitL3(dev, {
+        ...pkt,
+        id: nid('p'),
+        src: inIf.ipv4.ip,
+        dst: inIf.helperAddress,
+        payload: { ...pkt.payload, relayIp: inIf.ipv4.ip, relayIface: inIf.name },
+      });
+      return;
+    }
+
     if (msg === 'discover' && dev.dhcpPools.length) {
-      const pool = dev.dhcpPools[0];
+      const pool = this.dhcpPoolFor(dev, inIf, relayIp);
       if (!pool?.network || pool.prefix === undefined) return;
-      const ipn = this.nextDhcp(dev, pool);
+      const ipn = this.nextDhcp(dev, { network: pool.network, prefix: pool.prefix });
       if (!ipn) return;
+      const responseDst = relayIp || '255.255.255.255';
+      const serverSource = (relayIp ? this.pickSrc4(dev, relayIp)?.ip : inIf.ipv4?.ip) ??
+        formatIPv4(networkAddr(parseIPv4(pool.network)!, pool.prefix) + 1);
       const offer: L3Packet = {
         id: nid('p'),
         family: 'v4',
-        src: inIf.ipv4?.ip ?? formatIPv4(networkAddr(parseIPv4(pool.network)!, pool.prefix) + 1),
-        dst: '255.255.255.255',
+        src: serverSource,
+        dst: responseDst,
         proto: 'dhcp',
         ttl: 64,
         sport: 67,
@@ -1485,22 +1584,44 @@ export class Engine {
           dns: pool.dns,
           mac,
           iface: pkt.payload?.['iface'],
+          ...(relayIp ? { relayIp, relayIface } : {}),
         },
       };
-      this.sendL3On(dev, inIf, offer, MAC_BCAST);
+      if (relayIp) this.emitL3(dev, offer);
+      else this.sendL3On(dev, inIf, offer, MAC_BCAST);
       return;
     }
     if (msg === 'request' && dev.dhcpPools.length) {
+      const pool = this.dhcpPoolFor(dev, inIf, relayIp);
+      if (!pool) return;
+      const responseDst = relayIp || '255.255.255.255';
       const ack: L3Packet = {
         ...pkt,
         id: nid('p'),
-        src: inIf.ipv4?.ip ?? pkt.src,
-        dst: '255.255.255.255',
+        src: (relayIp ? this.pickSrc4(dev, relayIp)?.ip : inIf.ipv4?.ip) ?? pkt.src,
+        dst: responseDst,
         dport: 68,
         sport: 67,
         payload: { ...pkt.payload, msg: 'ack' },
       };
-      this.sendL3On(dev, inIf, ack, MAC_BCAST);
+      const leased = String(pkt.payload?.['ip'] ?? '');
+      if (leased && mac) {
+        dev.dhcpBindings = dev.dhcpBindings.filter((b) => b.mac !== mac);
+        dev.dhcpBindings.push({ mac, ip: leased, iface: relayIface || inIf.name });
+      }
+      if (relayIp) this.emitL3(dev, ack);
+      else this.sendL3On(dev, inIf, ack, MAC_BCAST);
+      return;
+    }
+    if ((msg === 'discover' || msg === 'request') && inIf.helperAddress && inIf.ipv4) {
+      const relayed: L3Packet = {
+        ...pkt,
+        id: nid('p'),
+        src: inIf.ipv4.ip,
+        dst: inIf.helperAddress,
+        payload: { ...pkt.payload, relayIp: inIf.ipv4.ip, relayIface: inIf.name },
+      };
+      this.emitL3(dev, relayed);
       return;
     }
     if (msg === 'offer') {
@@ -1539,6 +1660,18 @@ export class Engine {
     return dev.dhcpPools.length > 0;
   }
 
+  private dhcpPoolFor(dev: Device, inIf: Iface, relayIp?: string) {
+    const target = parseIPv4(relayIp || inIf.ipv4?.ip || '');
+    if (target !== null) {
+      const matched = dev.dhcpPools.find((pool) => {
+        const network = pool.network ? parseIPv4(pool.network) : null;
+        return network !== null && pool.prefix !== undefined && inSubnet(target, network, pool.prefix);
+      });
+      if (matched) return matched;
+    }
+    return dev.dhcpPools.length === 1 ? dev.dhcpPools[0] : undefined;
+  }
+
   private implicitPool(dev: Device, inIf: Iface): { network: string; prefix: number; gateway?: string } | undefined {
     if (!inIf.ipv4) return undefined;
     return {
@@ -1558,7 +1691,12 @@ export class Engine {
     }
     for (let n = start; n <= end; n++) {
       const ip = formatIPv4(n);
-      if (!used.has(ip)) return ip;
+      const excluded = dev.dhcpExcluded.some((range) => {
+        const a = parseIPv4(range.start);
+        const b = parseIPv4(range.end);
+        return a !== null && b !== null && n >= a && n <= b;
+      });
+      if (!used.has(ip) && !excluded) return ip;
     }
     return undefined;
   }
@@ -2079,11 +2217,14 @@ export class Engine {
 
   dispatchCli(d: Device, raw: string): CliResult {
     const linux = d.kind === 'workstation' || d.kind === 'server' || d.kind === 'cloud' || d.kind === 'firewall';
+    if (d.kind === 'switch' && switchProfileOf(d) === 'unmanaged') {
+      return err('% Unmanaged switch: no management interface or CLI. Configure the connected hosts instead.');
+    }
     if (raw === 'help' || raw === '?') {
-      return out(helpText(d.kind) + (linux ? '' : '\n  Also: enable, conf t, end, write, show run'));
+      return out(helpText(d.kind, d.switchProfile) + (linux ? '' : '\n  Also: enable, conf t, end, write, show run'));
     }
     if (linux) return this.linuxCli(d, raw);
-    if (d.kind === 'switch') return this.ciscoSwitch(d, raw);
+    if (d.kind === 'switch') return isMultilayerSwitch(d) ? this.ciscoMultilayerSwitch(d, raw) : this.ciscoSwitch(d, raw);
     if (d.kind === 'router') return this.ciscoRouter(d, raw);
     if (d.kind === 'ap') return this.apCli(d, raw);
     if (d.kind === 'wlc') return this.wlcCli(d, raw);
@@ -2432,6 +2573,17 @@ export class Engine {
         iface.mode = 'trunk';
         return out('');
       }
+      if (c === 'no switchport') {
+        if (!isMultilayerSwitch(d)) return err('% Routed ports require a multilayer switch');
+        iface.mode = 'routed';
+        iface.accessVlan = 1;
+        return out('');
+      }
+      if (c === 'switchport') {
+        iface.mode = 'access';
+        iface.accessVlan = 1;
+        return out('');
+      }
       if (t[0] === 'switchport' && t[1] === 'access' && t[2] === 'vlan') {
         iface.mode = 'access';
         iface.accessVlan = Number(t[3]);
@@ -2442,6 +2594,24 @@ export class Engine {
         iface.mode = 'trunk';
         if (t[4] === 'all') iface.allowedVlans = 'all';
         else iface.allowedVlans = t[4].split(',').map(Number);
+        return out('');
+      }
+      if (t[0] === 'switchport' && t[1] === 'trunk' && t[2] === 'native' && t[3] === 'vlan') {
+        const native = Number(t[4]);
+        if (!Number.isInteger(native) || native < 1 || native > 4094) return err('% Invalid native VLAN');
+        iface.mode = 'trunk';
+        iface.nativeVlan = native;
+        if (!d.vlans.includes(native)) d.vlans.push(native);
+        return out('');
+      }
+      if (t[0] === 'ip' && t[1] === 'helper-address') {
+        if (!isMultilayerSwitch(d)) return err('% DHCP relay requires a multilayer switch');
+        if (parseIPv4(t[2]) === null) return err('% Invalid helper address');
+        iface.helperAddress = t[2];
+        return out('');
+      }
+      if (t[0] === 'no' && t[1] === 'ip' && t[2] === 'helper-address') {
+        iface.helperAddress = undefined;
         return out('');
       }
       if (t[0] === 'ip' && t[1] === 'address') {
@@ -2481,6 +2651,31 @@ export class Engine {
     return err(`% Unknown command: ${raw}`);
   }
 
+  ciscoMultilayerSwitch(d: Device, raw: string): CliResult {
+    const t = tokenize(raw);
+    const c = t.join(' ');
+    if (c === 'ip routing') {
+      d.ipRouting = true;
+      d.forwarding = true;
+      this.rebuildConnected(d);
+      return out('');
+    }
+    if (c === 'no ip routing') {
+      d.ipRouting = false;
+      d.forwarding = false;
+      this.rebuildConnected(d);
+      return out('');
+    }
+    const routerCommand =
+      d.cli.level === 'dhcp' ||
+      (t[0] === 'ip' && t[1] === 'route') ||
+      (t[0] === 'no' && t[1] === 'ip' && t[2] === 'route') ||
+      (t[0] === 'ipv6' && t[1] === 'route') ||
+      (t[0] === 'ip' && t[1] === 'dhcp');
+    if (routerCommand) return this.ciscoRouter(d, raw);
+    return this.ciscoSwitch(d, raw);
+  }
+
   ciscoRouter(d: Device, raw: string): CliResult {
     const t = tokenize(raw);
     const c = t.join(' ');
@@ -2515,6 +2710,19 @@ export class Engine {
         d.cli.level = t[0] === 'end' ? 'priv' : 'config';
         return out('');
       }
+    }
+    if (t[0] === 'ip' && t[1] === 'dhcp' && t[2] === 'excluded-address') {
+      if (parseIPv4(t[3]) === null) return err('% Invalid excluded address');
+      const end = t[4] ?? t[3];
+      if (parseIPv4(end) === null) return err('% Invalid excluded address range');
+      d.dhcpExcluded.push({ start: t[3], end });
+      return out('');
+    }
+    if (t[0] === 'no' && t[1] === 'ip' && t[2] === 'dhcp' && t[3] === 'excluded-address') {
+      const start = t[4];
+      const end = t[5] ?? start;
+      d.dhcpExcluded = d.dhcpExcluded.filter((range) => range.start !== start || range.end !== end);
+      return out('');
     }
     if (t[0] === 'ip' && t[1] === 'dhcp' && t[2] === 'pool') {
       if (!t[3]) return err('% Incomplete command');
@@ -2831,6 +3039,11 @@ export class Engine {
       this.rebuildConnected(d);
       return out(d.routesV4.map((r) => `${r.proto === 'ospf' ? 'O' : r.proto === 'connected' ? 'C' : 'S'} ${r.dest}/${r.prefix} ${r.nexthop ? 'via ' + r.nexthop : 'is directly connected'} ${r.iface ?? ''}`).join('\n'));
     }
+    if (t[0] === 'ip' && t[1] === 'dhcp' && t[2] === 'binding') {
+      return out(
+        ['IP address       Client MAC         Interface', ...d.dhcpBindings.map((b) => `${b.ip.padEnd(16)} ${b.mac.padEnd(18)} ${b.iface}`)].join('\n'),
+      );
+    }
     if (t[0] === 'ipv6' && t[1] === 'route') {
       this.rebuildConnected(d);
       return out(d.routesV6.map((r) => `${r.proto} ${r.dest}/${r.prefix} ${r.nexthop ?? r.iface ?? ''}`).join('\n'));
@@ -2847,7 +3060,11 @@ export class Engine {
   }
 
   runningConfig(d: Device): string {
+    if (d.kind === 'switch' && switchProfileOf(d) === 'unmanaged') {
+      return `! ${d.hostname}: unmanaged switch\n! No configurable operating system or management plane`;
+    }
     const L: string[] = [`hostname ${d.hostname}`];
+    if (isMultilayerSwitch(d)) L.push(d.ipRouting ? 'ip routing' : 'no ip routing');
     if (d.kind === 'switch') {
       for (const v of d.vlans.filter((x) => x !== 1)) L.push(`vlan ${v}`);
     }
@@ -2857,15 +3074,18 @@ export class Engine {
         L.push(` switchport mode access`);
         L.push(` switchport access vlan ${i.accessVlan}`);
       }
+      if (i.mode === 'routed' && d.kind === 'switch' && i.vlanId === undefined) L.push(` no switchport`);
       if (i.mode === 'trunk') {
         L.push(` switchport mode trunk`);
         L.push(` switchport trunk allowed vlan ${i.allowedVlans === 'all' ? 'all' : i.allowedVlans.join(',')}`);
+        if (i.nativeVlan !== 1) L.push(` switchport trunk native vlan ${i.nativeVlan}`);
       }
       if (i.encapVlan) L.push(` encapsulation dot1Q ${i.encapVlan}`);
       if (i.ipv4) L.push(` ip address ${i.ipv4.ip} ${formatIPv4(prefixToMask(i.ipv4.prefix))}`);
       for (const v of i.ipv6.filter((x) => !x.ip.toLowerCase().startsWith('fe80'))) L.push(` ipv6 address ${v.ip}/${v.prefix}`);
       if (i.nat) L.push(` ip nat ${i.nat}`);
       if (i.zone) L.push(` zone ${i.zone}`);
+      if (i.helperAddress) L.push(` ip helper-address ${i.helperAddress}`);
       L.push(i.adminUp ? ' no shutdown' : ' shutdown');
     }
     if (d.defaultGw4 && d.kind === 'switch') L.push(`ip default-gateway ${d.defaultGw4}`);
@@ -2885,6 +3105,9 @@ export class Engine {
       if (p.network) L.push(` network ${p.network} ${formatIPv4(prefixToMask(p.prefix ?? 24))}`);
       if (p.gateway) L.push(` default-router ${p.gateway}`);
       if (p.dns) L.push(` dns-server ${p.dns}`);
+    }
+    for (const range of d.dhcpExcluded) {
+      L.push(`ip dhcp excluded-address ${range.start}${range.end !== range.start ? ` ${range.end}` : ''}`);
     }
     for (const w of d.wifi) {
       L.push(`ssid ${w.ssid}`);
@@ -2919,7 +3142,7 @@ export class Engine {
     const y = d.y;
     const id = d.id;
     const startup = [...d.startupLines];
-    const fresh = createDevice(kind, name, x, y, id);
+    const fresh = createDevice(kind, name, x, y, id, d.switchProfile);
     fresh.startupLines = startup;
     this.devices.set(id, fresh);
     for (const line of startup) this.exec(id, line);
@@ -2975,7 +3198,7 @@ export class Engine {
     try {
       for (const d of patch.addDevices ?? []) {
         if (!DEVICE_KINDS.includes(d.type)) throw new Error(`unknown device type ${d.type}`);
-        this.addDevice(d.type, d.name, d.x ?? 80, d.y ?? 80);
+        this.addDevice(d.type, d.name, d.x ?? 80, d.y ?? 80, d.switchProfile);
         applied.push(`add ${d.name}`);
       }
       for (const id of patch.removeDeviceIds ?? []) {
@@ -3018,6 +3241,10 @@ export class Engine {
         name: d.name,
         hostname: d.hostname,
         kind: d.kind,
+        switchProfile: d.switchProfile,
+        ipRouting: d.ipRouting,
+        dhcpPools: d.dhcpPools,
+        dhcpBindings: d.dhcpBindings,
         x: d.x,
         y: d.y,
         associatedSsid: d.associatedSsid,
@@ -3039,6 +3266,8 @@ export class Engine {
             ipv6: i.ipv6,
             mode: i.mode,
             accessVlan: i.accessVlan,
+            nativeVlan: i.nativeVlan,
+            helperAddress: i.helperAddress,
             isRadio: i.isRadio,
             zone: i.zone,
             peer: p

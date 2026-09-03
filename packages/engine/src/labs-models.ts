@@ -24,14 +24,33 @@ export const MODEL_FIRST_PING: LabJson = {
   id: 'lab-1-first-ipv4-ping',
   kind: 'model',
   level: 'beginner',
-  topics: ['ipv4', 'switching', 'arp'],
-  name: 'First IPv4 ping',
-  goal: 'Two PCs on one switch, same /24. Watch ARP resolve the MAC, then ICMP echo and reply. Everything is configured — press Check, then read each device.',
-  description: 'The smallest working network: two Linux workstations, an L2 switch, one subnet. Try: break it (ip addr del on PC2) and repair it.',
+  topics: ['ipv4', 'switching', 'arp', 'dhcp'],
+  name: 'First IPv4 ping with DHCP',
+  goal: 'Two PCs obtain addresses from a managed multilayer switch, then communicate in the same /24. Watch DHCP run first, ARP resolve the MAC, and ICMP echo and reply.',
+  description: 'A small working network: two Linux workstations and a DHCP-capable managed switch. PC1 receives 10.0.0.10 and PC2 receives 10.0.0.20.',
   devices: [
-    { kind: 'workstation', name: 'PC1', x: 120, y: 200, startup: linuxHost('10.0.0.10/24') },
-    { kind: 'workstation', name: 'PC2', x: 520, y: 200, startup: linuxHost('10.0.0.20/24') },
-    { kind: 'switch', name: 'SW1', x: 320, y: 80, startup: SW_TWO_PORTS },
+    { kind: 'workstation', name: 'PC1', x: 120, y: 200, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    { kind: 'workstation', name: 'PC2', x: 520, y: 200, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    {
+      kind: 'switch',
+      switchProfile: 'multilayer',
+      name: 'SW1',
+      x: 320,
+      y: 80,
+      startup: cisco(
+        ...access('Gi0/1', 1),
+        ...access('Gi0/2', 1),
+        'int Vlan1',
+        'ip address 10.0.0.1 255.255.255.0',
+        'no shut',
+        'ip dhcp excluded-address 10.0.0.1 10.0.0.9',
+        'ip dhcp excluded-address 10.0.0.11 10.0.0.19',
+        'ip dhcp pool LAN',
+        'network 10.0.0.0 255.255.255.0',
+        'default-router 10.0.0.1',
+        'dns-server 1.1.1.1',
+      ),
+    },
   ],
   links: [
     { a: 'PC1:eth0', b: 'SW1:Gi0/1' },
@@ -520,6 +539,164 @@ export const MODEL_DUAL_STACK_ROUTED: LabJson = {
   ],
 };
 
+export const MODEL_UNMANAGED_SWITCH: LabJson = {
+  schemaVersion: 1,
+  id: 'model-unmanaged-switch',
+  kind: 'model',
+  level: 'beginner',
+  topics: ['switching', 'arp', 'cabling'],
+  name: 'Unmanaged switch: plug and play',
+  goal: 'PC1 and PC2 communicate through a switch with no configuration or management interface.',
+  description: 'A realistic unmanaged switch learns source MAC addresses and forwards Ethernet frames, but has no terminal, VLANs, IP address, DHCP service, or routing.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 100, y: 220, startup: linuxHost('192.168.10.10/24') },
+    { kind: 'workstation', name: 'PC2', x: 500, y: 220, startup: linuxHost('192.168.10.20/24') },
+    { kind: 'switch', switchProfile: 'unmanaged', name: 'USW1', x: 300, y: 80, startup: [] },
+  ],
+  links: [{ a: 'PC1:eth0', b: 'USW1:Gi0/1' }, { a: 'PC2:eth0', b: 'USW1:Gi0/2' }],
+  checks: [{ type: 'ping', src: 'PC1', dst: '192.168.10.20', family: 'v4' }],
+};
+
+export const MODEL_MANAGED_L2_SWITCH: LabJson = {
+  schemaVersion: 1,
+  id: 'model-managed-l2-switch',
+  kind: 'model',
+  level: 'intermediate',
+  topics: ['switching', 'vlan', 'trunk', 'management'],
+  name: 'Managed L2: VLAN trunk and management SVI',
+  goal: 'Two managed switches carry VLAN 10 over an 802.1Q trunk; PC1 reaches PC2 and SW2’s management SVI.',
+  description: 'The switches segment and trunk Layer 2 traffic. Their VLAN 10 SVIs are management endpoints only and do not route between VLANs.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 80, y: 260, startup: linuxHost('10.10.10.10/24') },
+    { kind: 'workstation', name: 'PC2', x: 620, y: 260, startup: linuxHost('10.10.10.20/24') },
+    {
+      kind: 'switch', switchProfile: 'managed-l2', name: 'SW1', x: 220, y: 80,
+      startup: cisco(
+        'vlan 10', ...access('Gi0/1', 10), ...trunk('Gi0/8', [10]),
+        'int Vlan10', 'ip address 10.10.10.2 255.255.255.0', 'no shut',
+      ),
+    },
+    {
+      kind: 'switch', switchProfile: 'managed-l2', name: 'SW2', x: 480, y: 80,
+      startup: cisco(
+        'vlan 10', ...access('Gi0/1', 10), ...trunk('Gi0/8', [10]),
+        'int Vlan10', 'ip address 10.10.10.3 255.255.255.0', 'no shut',
+      ),
+    },
+  ],
+  links: [
+    { a: 'PC1:eth0', b: 'SW1:Gi0/1' },
+    { a: 'SW1:Gi0/8', b: 'SW2:Gi0/8' },
+    { a: 'PC2:eth0', b: 'SW2:Gi0/1' },
+  ],
+  checks: [
+    { type: 'ping', src: 'PC1', dst: '10.10.10.20', family: 'v4' },
+    { type: 'ping', src: 'PC1', dst: '10.10.10.3', family: 'v4' },
+  ],
+};
+
+export const MODEL_MULTILAYER_INTERVLAN: LabJson = {
+  schemaVersion: 1,
+  id: 'model-multilayer-intervlan',
+  kind: 'model',
+  level: 'advanced',
+  topics: ['switching', 'vlan', 'routing', 'svi'],
+  name: 'Multilayer switch: inter-VLAN routing',
+  goal: 'PC10 in VLAN 10 reaches PC20 in VLAN 20 through two routed SVIs on DSW1, without router-on-a-stick.',
+  description: 'The distribution switch remains a Layer 2 switch on access ports and becomes the Layer 3 gateway on its SVIs after ip routing is enabled.',
+  devices: [
+    { kind: 'workstation', name: 'PC10', x: 100, y: 260, startup: linuxHost('10.10.10.10/24', '10.10.10.1') },
+    { kind: 'workstation', name: 'PC20', x: 500, y: 260, startup: linuxHost('10.10.20.10/24', '10.10.20.1') },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 300, y: 80,
+      startup: cisco(
+        'vlan 10', 'vlan 20',
+        ...access('Gi0/1', 10), ...access('Gi0/2', 20),
+        'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'no shut',
+        'int Vlan20', 'ip address 10.10.20.1 255.255.255.0', 'no shut',
+        'ip routing',
+      ),
+    },
+  ],
+  links: [{ a: 'PC10:eth0', b: 'DSW1:Gi0/1' }, { a: 'PC20:eth0', b: 'DSW1:Gi0/2' }],
+  checks: [
+    { type: 'ping', src: 'PC10', dst: '10.10.20.10', family: 'v4' },
+    { type: 'ping', src: 'PC20', dst: '10.10.10.10', family: 'v4' },
+  ],
+};
+
+export const MODEL_MULTILAYER_DHCP: LabJson = {
+  schemaVersion: 1,
+  id: 'model-multilayer-dhcp',
+  kind: 'model',
+  level: 'advanced',
+  topics: ['switching', 'vlan', 'dhcp', 'routing'],
+  name: 'Multilayer switch: local DHCP',
+  goal: 'DSW1 routes VLANs 10 and 20 and leases the correct subnet, gateway and DNS option to one client in each VLAN.',
+  description: 'Two DHCP pools are selected by the SVI that received each broadcast. Excluded gateway and infrastructure addresses are never leased.',
+  devices: [
+    { kind: 'workstation', name: 'PC10', x: 100, y: 280, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    { kind: 'workstation', name: 'PC20', x: 500, y: 280, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 300, y: 80,
+      startup: cisco(
+        'vlan 10', 'vlan 20',
+        ...access('Gi0/1', 10), ...access('Gi0/2', 20),
+        'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'no shut',
+        'int Vlan20', 'ip address 10.10.20.1 255.255.255.0', 'no shut',
+        'ip routing',
+        'ip dhcp excluded-address 10.10.10.1 10.10.10.15',
+        'ip dhcp excluded-address 10.10.20.1 10.10.20.15',
+        'ip dhcp pool USERS10', 'network 10.10.10.0 255.255.255.0', 'default-router 10.10.10.1', 'dns-server 1.1.1.1',
+        'ip dhcp pool USERS20', 'network 10.10.20.0 255.255.255.0', 'default-router 10.10.20.1', 'dns-server 1.1.1.1',
+      ),
+    },
+  ],
+  links: [{ a: 'PC10:eth0', b: 'DSW1:Gi0/1' }, { a: 'PC20:eth0', b: 'DSW1:Gi0/2' }],
+  checks: [
+    { type: 'dhcp-bound', device: 'PC10' },
+    { type: 'dhcp-bound', device: 'PC20' },
+    { type: 'ping', src: 'PC10', dst: 'PC20', family: 'v4' },
+  ],
+};
+
+export const MODEL_MULTILAYER_DHCP_RELAY: LabJson = {
+  schemaVersion: 1,
+  id: 'model-multilayer-dhcp-relay',
+  kind: 'model',
+  level: 'expert',
+  topics: ['switching', 'dhcp', 'dhcp-relay', 'routing'],
+  name: 'Multilayer switch: remote DHCP relay',
+  goal: 'PC1 receives a VLAN 10 lease from the remote DHCP router across DSW1’s routed uplink.',
+  description: 'The client broadcast stops at the VLAN boundary. The helper address relays it as routed unicast and the server selects a pool using the relay SVI address.',
+  devices: [
+    { kind: 'workstation', name: 'PC1', x: 80, y: 280, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+    {
+      kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 260, y: 100,
+      startup: cisco(
+        'vlan 10', ...access('Gi0/1', 10),
+        'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'ip helper-address 10.0.12.2', 'no shut',
+        'int Gi0/8', 'no switchport', 'ip address 10.0.12.1 255.255.255.252', 'no shut',
+        'ip routing',
+      ),
+    },
+    {
+      kind: 'router', name: 'DHCP1', x: 540, y: 100,
+      startup: cisco(
+        'int Gi0/0', 'ip address 10.0.12.2 255.255.255.252', 'no shut',
+        'ip route 10.10.10.0 255.255.255.0 10.0.12.1',
+        'ip dhcp excluded-address 10.10.10.1 10.10.10.15',
+        'ip dhcp pool VLAN10', 'network 10.10.10.0 255.255.255.0', 'default-router 10.10.10.1', 'dns-server 1.1.1.1',
+      ),
+    },
+  ],
+  links: [{ a: 'PC1:eth0', b: 'DSW1:Gi0/1' }, { a: 'DSW1:Gi0/8', b: 'DHCP1:Gi0/0' }],
+  checks: [
+    { type: 'dhcp-bound', device: 'PC1' },
+    { type: 'ping', src: 'PC1', dst: '10.0.12.2', family: 'v4' },
+  ],
+};
+
 /** Capstone: the builder's dual-stack office, shipped working (read it, break it, fix it). */
 export const MODEL_CAPSTONE: LabJson = (() => {
   const lab = dualStackOfficeLab();
@@ -539,10 +716,12 @@ export const MODEL_CAPSTONE: LabJson = (() => {
 /** In display order (level, then story). */
 export const MODEL_LABS: LabJson[] = [
   MODEL_FIRST_PING,
+  MODEL_UNMANAGED_SWITCH,
   MODEL_TWO_SUBNETS,
   MODEL_STATIC_ROUTES,
   MODEL_ROAS,
   MODEL_TWO_SWITCHES_TRUNK,
+  MODEL_MANAGED_L2_SWITCH,
   MODEL_DHCP,
   MODEL_SLAAC,
   MODEL_OSPF,
@@ -552,7 +731,10 @@ export const MODEL_LABS: LabJson[] = [
   MODEL_WLC,
   MODEL_FIREWALL,
   MODEL_OFFICE_THREE_DEPARTMENTS,
+  MODEL_MULTILAYER_INTERVLAN,
+  MODEL_MULTILAYER_DHCP,
   MODEL_CAMPUS,
+  MODEL_MULTILAYER_DHCP_RELAY,
   MODEL_DUAL_STACK_ROUTED,
   MODEL_CAPSTONE,
 ];

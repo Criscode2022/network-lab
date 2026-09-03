@@ -5,6 +5,7 @@ import {
   KIND_PORTS,
   LAB_KINDS,
   LAB_LEVELS,
+  SWITCH_PROFILES,
   type CableMedia,
   type DeviceKind,
   type LabCheck,
@@ -13,6 +14,7 @@ import {
   type LabLevel,
   type LabPatch,
   type LabSolution,
+  type SwitchProfile,
 } from './types.ts';
 
 export const MAX_LAB_DEVICES = 40;
@@ -54,6 +56,11 @@ export function validateLab(input: unknown): Ok | Bad {
     const rec = d as Record<string, unknown>;
     const kind = rec.kind as DeviceKind;
     if (!DEVICE_KINDS.includes(kind)) return { ok: false, error: `unknown device kind "${String(rec.kind)}" (allowed: ${DEVICE_KINDS.join(', ')})` };
+    const switchProfile = rec.switchProfile as SwitchProfile | undefined;
+    if (switchProfile !== undefined && kind !== 'switch') return { ok: false, error: `${rec.name}: switchProfile is only valid for switches` };
+    if (kind === 'switch' && switchProfile !== undefined && !SWITCH_PROFILES.includes(switchProfile)) {
+      return { ok: false, error: `${rec.name}: unknown switchProfile "${String(rec.switchProfile)}" (allowed: ${SWITCH_PROFILES.join(', ')})` };
+    }
     if (typeof rec.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/.test(rec.name)) return { ok: false, error: `device name "${String(rec.name)}" must be 1-24 letters, digits, - or _` };
     if (names.has(rec.name.toLowerCase())) return { ok: false, error: `duplicate device name ${rec.name}` };
     names.add(rec.name.toLowerCase());
@@ -67,6 +74,7 @@ export function validateLab(input: unknown): Ok | Bad {
     devices.push({
       ...(typeof rec.id === 'string' ? { id: rec.id } : {}),
       kind,
+      ...(switchProfile ? { switchProfile } : {}),
       name: rec.name,
       x: typeof rec.x === 'number' && Number.isFinite(rec.x) ? rec.x : 80 + (devices.length % 5) * 180,
       y: typeof rec.y === 'number' && Number.isFinite(rec.y) ? rec.y : 60 + Math.floor(devices.length / 5) * 160,
@@ -215,12 +223,19 @@ function validateSolution(input: unknown, byName: Map<string, LabJson['devices']
     for (const d of p.addDevices as unknown[]) {
       const rec = (d ?? {}) as Record<string, unknown>;
       if (!DEVICE_KINDS.includes(rec.type as DeviceKind)) return { ok: false, error: `solution adds a device of unknown type "${String(rec.type)}"` };
+      if (rec.switchProfile !== undefined && rec.type !== 'switch') return { ok: false, error: 'solution switchProfile is only valid for switches' };
+      if (rec.type === 'switch' && rec.switchProfile !== undefined && !SWITCH_PROFILES.includes(rec.switchProfile as SwitchProfile)) {
+        return { ok: false, error: `solution adds a switch with unknown profile "${String(rec.switchProfile)}"` };
+      }
       if (typeof rec.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/.test(rec.name)) return { ok: false, error: 'solution.patch.addDevices entries need a valid name' };
       if (names.has(rec.name.toLowerCase())) return { ok: false, error: `solution adds ${rec.name}, which already exists` };
       names.add(rec.name.toLowerCase());
       patch.addDevices.push({
         type: rec.type as DeviceKind,
         name: rec.name,
+        ...(rec.type === 'switch' && SWITCH_PROFILES.includes(rec.switchProfile as SwitchProfile)
+          ? { switchProfile: rec.switchProfile as SwitchProfile }
+          : {}),
         ...(typeof rec.x === 'number' ? { x: rec.x } : {}),
         ...(typeof rec.y === 'number' ? { y: rec.y } : {}),
       });

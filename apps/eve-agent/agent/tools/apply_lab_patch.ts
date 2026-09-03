@@ -12,7 +12,13 @@ export default defineTool({
     labId: z.string(),
     patch: z.object({
       addDevices: z
-        .array(z.object({ type: z.enum(['workstation', 'server', 'switch', 'router', 'firewall', 'ap', 'wlc', 'cloud']), name: z.string(), x: z.number().optional(), y: z.number().optional() }))
+        .array(z.object({
+          type: z.enum(['workstation', 'server', 'switch', 'router', 'firewall', 'ap', 'wlc', 'cloud']),
+          switchProfile: z.enum(['unmanaged', 'managed-l2', 'multilayer']).optional(),
+          name: z.string(),
+          x: z.number().optional(),
+          y: z.number().optional(),
+        }))
         .optional(),
       removeDeviceIds: z.array(z.string()).optional(),
       addLinks: z

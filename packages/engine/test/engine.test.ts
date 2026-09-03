@@ -84,6 +84,126 @@ describe('IPv4 ping + Linux/switch CLI', () => {
   });
 });
 
+describe('realistic switch profiles', () => {
+  it('unmanaged switches bridge immediately and expose no CLI', () => {
+    const lab = twoPcSwitch({
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip addr add 10.0.0.10/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'workstation', name: 'PC2', x: 200, y: 0, startup: ['ip addr add 10.0.0.20/24 dev eth0', 'ip link set eth0 up'] },
+        { kind: 'switch', switchProfile: 'unmanaged', name: 'USW1', x: 100, y: 0, startup: [] },
+      ],
+      links: [
+        { a: 'PC1:eth0', b: 'USW1:Gi0/1' },
+        { a: 'PC2:eth0', b: 'USW1:Gi0/2' },
+      ],
+    });
+    const e = Engine.fromLab(lab);
+    expect(e.ping('PC1', '10.0.0.20', { count: 1 }).ok).toBe(true);
+    expect(e.exec('USW1', 'enable').error).toBe(true);
+    expect(e.toLab().devices.find((d) => d.name === 'USW1')?.switchProfile).toBe('unmanaged');
+  });
+
+  it('validates profiles on labs and patches and keeps managed L2 capability boundaries', () => {
+    const badHost = structuredClone(twoPcSwitch());
+    badHost.devices[0].switchProfile = 'unmanaged';
+    expect(validateLab(badHost)).toMatchObject({ ok: false });
+    const badProfile = structuredClone(twoPcSwitch()) as unknown as { devices: { switchProfile?: string }[] };
+    badProfile.devices[2].switchProfile = 'magic';
+    expect(validateLab(badProfile)).toMatchObject({ ok: false });
+    expect(validatePatch({ addDevices: [{ type: 'switch', name: 'USW2', switchProfile: 'unmanaged' }] })).toMatchObject({ ok: true });
+    expect(validatePatch({ addDevices: [{ type: 'router', name: 'R9', switchProfile: 'multilayer' }] })).toMatchObject({ ok: false });
+
+    const e = Engine.fromLab(twoPcSwitch());
+    expect(e.exec('SW1', 'enable').error).not.toBe(true);
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'ip routing').error).toBe(true);
+    expect(e.exec('SW1', 'int Gi0/1').error).not.toBe(true);
+    expect(e.exec('SW1', 'no switchport').error).toBe(true);
+  });
+
+  it('multilayer switches route between SVIs only after ip routing', () => {
+    const lab: LabJson = {
+      schemaVersion: 1,
+      id: 't-multilayer',
+      name: 'multilayer',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip addr add 10.10.10.10/24 dev eth0', 'ip link set eth0 up', 'ip route add default via 10.10.10.1'] },
+        { kind: 'workstation', name: 'PC2', x: 200, y: 0, startup: ['ip addr add 10.10.20.10/24 dev eth0', 'ip link set eth0 up', 'ip route add default via 10.10.20.1'] },
+        {
+          kind: 'switch',
+          switchProfile: 'multilayer',
+          name: 'DSW1',
+          x: 100,
+          y: 0,
+          startup: [
+            'enable', 'conf t', 'vlan 10', 'vlan 20',
+            'int Gi0/1', 'switchport access vlan 10', 'no shut',
+            'int Gi0/2', 'switchport access vlan 20', 'no shut',
+            'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'no shut',
+            'int Vlan20', 'ip address 10.10.20.1 255.255.255.0', 'no shut',
+            'end',
+          ],
+        },
+      ],
+      links: [{ a: 'PC1:eth0', b: 'DSW1:Gi0/1' }, { a: 'PC2:eth0', b: 'DSW1:Gi0/2' }],
+      checks: [],
+    };
+    const e = Engine.fromLab(lab);
+    expect(e.ping('PC1', '10.10.20.10', { count: 1 }).ok).toBe(false);
+    for (const line of ['enable', 'conf t', 'ip routing', 'end']) expect(e.exec('DSW1', line).error).not.toBe(true);
+    expect(e.ping('PC1', '10.10.20.10', { count: 1 }).ok).toBe(true);
+    for (const line of [
+      'conf t', 'int Gi0/3', 'no switchport', 'ip address 10.0.12.1 255.255.255.252', 'no shut',
+      'ip route 10.30.0.0 255.255.0.0 10.0.12.2', 'ipv6 route 2001:db8:30::/64 2001:db8:12::2', 'end',
+    ]) expect(e.exec('DSW1', line).error).not.toBe(true);
+    expect(e.find('DSW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.mode).toBe('routed');
+    expect(e.find('DSW1')?.routesV4.some((route) => route.dest === '10.30.0.0' && route.prefix === 16)).toBe(true);
+    expect(e.find('DSW1')?.routesV6.some((route) => route.dest === '2001:db8:30::' && route.prefix === 64)).toBe(true);
+  });
+
+  it('multilayer switches relay DHCP to a remote server and honor excluded ranges', () => {
+    const lab: LabJson = {
+      schemaVersion: 1,
+      id: 't-dhcp-relay',
+      name: 'relay',
+      devices: [
+        { kind: 'workstation', name: 'PC1', x: 0, y: 0, startup: ['ip link set eth0 up'], post: ['dhclient eth0'] },
+        {
+          kind: 'switch', switchProfile: 'multilayer', name: 'DSW1', x: 100, y: 0,
+          startup: [
+            'enable', 'conf t', 'vlan 10',
+            'int Gi0/1', 'switchport access vlan 10', 'no shut',
+            'int Vlan10', 'ip address 10.10.10.1 255.255.255.0', 'ip helper-address 10.0.12.2', 'no shut',
+            'int Gi0/3', 'no switchport', 'ip address 10.0.12.1 255.255.255.252', 'no shut',
+            'ip routing', 'end',
+          ],
+        },
+        {
+          kind: 'router', name: 'R1', x: 220, y: 0,
+          startup: [
+            'enable', 'conf t', 'int Gi0/0', 'ip address 10.0.12.2 255.255.255.252', 'no shut',
+            'ip route 10.10.10.0 255.255.255.0 10.0.12.1',
+            'ip dhcp excluded-address 10.10.10.10 10.10.10.15',
+            'ip dhcp pool USERS', 'network 10.10.10.0 255.255.255.0', 'default-router 10.10.10.1', 'end',
+          ],
+        },
+      ],
+      links: [{ a: 'PC1:eth0', b: 'DSW1:Gi0/1' }, { a: 'DSW1:Gi0/3', b: 'R1:Gi0/0' }],
+      checks: [],
+    };
+    const e = Engine.fromLab(lab);
+    expect(e.find('PC1')?.ifaces[0].ipv4?.ip).toBe('10.10.10.16');
+    expect(e.ping('PC1', '10.10.10.1', { count: 1 }).ok).toBe(true);
+  });
+
+  it('selects local DHCP pools by client SVI instead of declaration order', () => {
+    const e = Engine.fromLab(labById('model-multilayer-dhcp')!);
+    expect(e.find('PC10')?.ifaces[0].ipv4?.ip.startsWith('10.10.10.')).toBe(true);
+    expect(e.find('PC20')?.ifaces[0].ipv4?.ip.startsWith('10.10.20.')).toBe(true);
+    expect(e.find('DSW1')?.dhcpBindings).toHaveLength(2);
+  });
+});
+
 describe('VLANs and static routing', () => {
   it('isolates access VLANs', () => {
     const lab: LabJson = {
@@ -286,9 +406,9 @@ describe('DHCP, wifi, firewall, NAT, TTL, loop', () => {
 describe('built-in labs Check', () => {
   const failing = (chk: { results: { ok: boolean; reason: string }[] }) => chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ');
 
-  it('is a curriculum of 17 models + 21 exercises with unique, stable ids', () => {
-    expect(MODEL_LABS).toHaveLength(17);
-    expect(EXERCISE_LABS).toHaveLength(21);
+  it('is a curriculum of 22 models + 26 exercises with unique, stable ids', () => {
+    expect(MODEL_LABS).toHaveLength(22);
+    expect(EXERCISE_LABS).toHaveLength(26);
     expect(BUILTIN_LABS).toHaveLength(MODEL_LABS.length + EXERCISE_LABS.length);
     expect(new Set(BUILTIN_LABS.map((l) => l.id)).size).toBe(BUILTIN_LABS.length);
     expect(BUILTIN_LABS[0].id).toBe('lab-1-first-ipv4-ping');

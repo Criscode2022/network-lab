@@ -4,7 +4,7 @@ Browser network lab for a junior network and systems administrator — plus **Ev
 
 **Continuing this repo (coding agents):** read [`HANDOFF.md`](./HANDOFF.md) first. It covers architecture, UI modes (Basic / mobile / desktop), Eve, deploy URLs, and what not to regress.
 
-Not Packet Tracer. Not a CCIE catalog. Eight device types, dual-stack IPv4/IPv6, honest drops.
+Not Packet Tracer. Not a CCIE catalog. Eight stable device kinds, three realistic switch profiles, dual-stack IPv4/IPv6, honest drops.
 
 ## Apps
 
@@ -17,7 +17,12 @@ Not Packet Tracer. Not a CCIE catalog. Eight device types, dual-stack IPv4/IPv6,
 
 ## Device palette
 
-Workstation (eth0+wlan0), Server, L2 Switch (8×Gi), Router (4-port), Firewall (4-port), Access Point, thin WLC, Cloud/Internet stub.
+Workstation (eth0+wlan0), Server, Switch (8×Gi), Router (4-port), Firewall (4-port), Access Point, thin WLC, Cloud/Internet stub.
+
+Switch has three palette profiles while remaining one backward-compatible `switch` kind:
+- **Unmanaged** — plug-and-play MAC learning and forwarding; no CLI, VLANs, IP, DHCP, or routing.
+- **Managed L2** — access/trunk VLANs, native VLAN, RSTP-lite, MAC table, and management SVI.
+- **Multilayer L3** — managed-L2 features plus `ip routing`, routed ports, SVI routing, static routes, DHCP pools/exclusions, and `ip helper-address`.
 
 ## Local run
 
@@ -42,31 +47,17 @@ Guest mode works without an account; the lab is saved in this browser and restor
 
 ## Built-in labs
 
-Fault labs (★) start broken and tell you what to repair; study labs work as shipped.
+The curriculum has **48 labs** in two groups:
+- **22 Models** are complete reference networks that pass Check as shipped.
+- **26 Exercises** are intentionally broken or incomplete, expose progressive hints, and carry an official solution patch that makes Check pass.
 
-1. ★ Plug in the cable  
-2. ★ Give PC2 an address  
-3. ★ Turn the port on  
-4. First IPv4 ping  
-5. Missing gateway / wrong mask  
-6. ★ Find the fault: wrong subnet mask  
-7. VLANs + router-on-a-stick  
-8. DHCPv4  
-9. Dual-stack SLAAC + ping6  
-10. OSPF area 0  
-11. Wi-Fi associate + DHCP + ping wired server  
-12. Firewall: block SSH from wifi VLAN, allow from wired jump host  
-13. ★ Two routers, static routes  
-14. ★ OSPF across three routers  
-15. ★ Out to the Internet with NAT  
-16. ★ Wi-Fi with a controller (WLC)  
-17. Capstone: dual-stack office  
+Switch-specific models cover unmanaged bridging, managed-L2 VLAN trunks and management SVIs, multilayer inter-VLAN routing, local DHCP, and remote DHCP relay. Paired exercises cover endpoint faults behind an unmanaged switch, trunk allow-lists, missing `ip routing`, a wrong DHCP pool network, and a missing helper address.
 
-Each has a **Check** with exact fail reasons, and **Troubleshoot** explains where and why a packet is dropped.
+Every lab has a **Check** with exact failure reasons, and **Troubleshoot** explains where and why a packet was dropped.
 
 ## Command cheat sheet
 
-Open **Command reference** in the UI, or `help` in a node terminal. Linux: `ip addr add|del`, `ip route add|del|replace`, `ping`/`ping6`, `traceroute`, `nmcli wifi connect`, `dhclient`, `ssh`, `dig`. Switch/router: tiny Cisco-like subset (`show run`, VLANs, trunks, `ip route` / `no ip route`, OSPF area 0, NAT overload, DHCP pool). Unknown commands fail honestly.
+Open **Command reference** in the UI, or `help` in a node terminal. Linux: `ip addr add|del`, `ip route add|del|replace`, `ping`/`ping6`, `traceroute`, `nmcli wifi connect`, `dhclient`, `ssh`, `dig`. Managed switches and routers use a small Cisco-like subset. Multilayer switches add `ip routing`, `no switchport`, static routes, DHCP pools/exclusions and DHCP relay. Unknown or profile-inappropriate commands fail honestly.
 
 ## Simulator overview
 

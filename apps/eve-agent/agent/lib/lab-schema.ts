@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const deviceKind = z.enum(['workstation', 'server', 'switch', 'router', 'firewall', 'ap', 'wlc', 'cloud']);
+const switchProfile = z.enum(['unmanaged', 'managed-l2', 'multilayer']);
 
 const check = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ping'), src: z.string(), dst: z.string(), family: z.enum(['v4', 'v6']).optional() }),
@@ -14,7 +15,7 @@ const deviceName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/);
 
 /** Same shape as apply_lab_patch: what to add/remove/configure to fix an exercise. */
 const solutionPatch = z.object({
-  addDevices: z.array(z.object({ type: deviceKind, name: deviceName, x: z.number().optional(), y: z.number().optional() })).max(10).optional(),
+  addDevices: z.array(z.object({ type: deviceKind, switchProfile: switchProfile.optional(), name: deviceName, x: z.number().optional(), y: z.number().optional() })).max(10).optional(),
   removeDeviceIds: z.array(z.string()).max(10).optional(),
   addLinks: z.array(z.object({ a: z.string(), b: z.string(), cable: z.enum(['ethernet', 'straight', 'crossover', 'fiber']).optional() })).max(20).optional(),
   removeLinks: z.array(z.string()).max(20).optional(),
@@ -45,6 +46,8 @@ export const labJsonSchema = z.object({
     .array(
       z.object({
         kind: deviceKind,
+        /** Only for kind=switch. Absent keeps backward-compatible managed Layer 2 behavior. */
+        switchProfile: switchProfile.optional(),
         name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/),
         x: z.number().optional(),
         y: z.number().optional(),

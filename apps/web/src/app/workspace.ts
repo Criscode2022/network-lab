@@ -30,7 +30,9 @@ import {
   type LabSummary,
   type LinkState,
   type PacketEvent,
+  type PaletteItem as DevicePaletteItem,
   type SavedLab,
+  type SwitchProfile,
 } from './api';
 import { EveClient } from './eve-client';
 import { Icon, KIND_ICON, type IconName } from './icons';
@@ -226,12 +228,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     { id: 'palette', label: 'Add', icon: 'layers' },
     { id: 'inspect', label: 'Inspect', icon: 'inspect' },
     { id: 'term', label: 'Terminal', icon: 'terminal' },
-    { id: 'eve', label: 'Eve', icon: 'sparkles' },
+    { id: 'eve', label: 'Agent', icon: 'sparkles' },
   ];
   /** Basic mode keeps the canvas front and centre but still gets Eve one tap away. */
   readonly basicTabs: { id: MobileTab; label: string; icon: IconName }[] = [
     { id: 'canvas', label: 'Canvas', icon: 'network' },
-    { id: 'eve', label: 'Eve', icon: 'sparkles' },
+    { id: 'eve', label: 'Agent', icon: 'sparkles' },
   ];
   private mq: MediaQueryList | null = null;
 
@@ -330,7 +332,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       body: [
         'This is the simple phone view: a drawing of the network, nothing else.',
         'Tap a box to see its cables, IP and a Ping button. Use Cable to plug two devices. Use + Add for a new PC or switch. Check tests the lab goal.',
-        'Turn Basic off in the header if you want the full editor with a terminal, packets and Eve.',
+        'Turn Basic off in the header if you want the full editor with a terminal, packets and the Agent.',
       ],
     },
     lab: {
@@ -459,7 +461,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     { keys: ['Del'], what: 'Delete selected device' },
     { keys: ['C'], what: 'Arm an Ethernet cable' },
     { keys: ['T'], what: 'Focus the terminal' },
-    { keys: ['E'], what: 'Toggle Eve' },
+    { keys: ['E'], what: 'Toggle Agent' },
     { keys: ['F'], what: 'Fit topology to view' },
     { keys: ['Shift', 'F'], what: 'Focus mode — canvas only' },
     { keys: ['+', '−', '0'], what: 'Zoom in / out / reset' },
@@ -667,7 +669,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.cancelCable();
     this.bindEve();
     this.writeAutosave();
-    void this.loadVocab(first?.kind ?? 'workstation');
+    void this.loadVocab(first?.kind ?? 'workstation', first?.switchProfile);
     requestAnimationFrame(() => (this.isNarrow() ? this.fitIfNarrow() : this.fitToView()));
   }
 
@@ -1043,6 +1045,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleFocusTerm() {
+    const target = this.api.state()?.devices.find((d) => d.id === this.termDevice());
+    if (!this.focusTerm() && target && this.isUnmanagedSwitch(target)) {
+      this.toast(`${target.name} is unmanaged: it has no terminal.`, 'info');
+      return;
+    }
     this.focusTerm.set(!this.focusTerm());
     if (this.focusTerm()) requestAnimationFrame(() => this.terminal()?.focus());
     requestAnimationFrame(() => this.fitToView());
@@ -1122,11 +1129,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // labels / device helpers
   // ===========================================================================
 
-  kindLabel(k: string) {
+  kindLabel(k: string, switchProfile?: SwitchProfile) {
+    if (k === 'switch') {
+      if (switchProfile === 'unmanaged') return 'Unmanaged Switch';
+      if (switchProfile === 'multilayer') return 'Multilayer L3 Switch';
+      return 'Managed L2 Switch';
+    }
     const m: Record<string, string> = {
       workstation: 'PC',
       server: 'Server',
-      switch: 'Switch',
       router: 'Router',
       firewall: 'Firewall',
       ap: 'Wi-Fi AP',
@@ -1134,6 +1145,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       cloud: 'Internet',
     };
     return m[k] ?? k;
+  }
+
+  switchProfile(d: DeviceState): SwitchProfile | undefined {
+    return d.kind === 'switch' ? (d.switchProfile ?? 'managed-l2') : undefined;
+  }
+
+  isUnmanagedSwitch(d: DeviceState): boolean {
+    return this.switchProfile(d) === 'unmanaged';
+  }
+
+  isMultilayerSwitch(d: DeviceState): boolean {
+    return this.switchProfile(d) === 'multilayer';
   }
 
   kindIcon(k: string): IconName {
@@ -1192,7 +1215,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   canAddIpv4(d: DeviceState) {
-    return d.kind !== 'switch' && this.ipv4Rows(d).length === 0;
+    return (d.kind !== 'switch' || this.isMultilayerSwitch(d)) && this.ipv4Rows(d).length === 0;
   }
 
   ipIface(d: DeviceState) {
@@ -1484,6 +1507,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const st = this.api.state();
     if (!st) return out;
     const used = this.usedPortRows(d);
+    if (this.isUnmanagedSwitch(d)) {
+      out.push({ id: 'switch-profile', level: 'info', text: 'Unmanaged switch: one plug-and-play broadcast domain, automatic MAC learning, no VLANs, IP address, CLI, or DHCP service.' });
+    } else if (d.kind === 'switch' && !this.isMultilayerSwitch(d)) {
+      out.push({ id: 'switch-profile', level: 'info', text: 'Managed Layer 2 switch: VLANs, trunks and a management SVI are supported, but inter-VLAN routing is not.' });
+    } else if (this.isMultilayerSwitch(d)) {
+      out.push({
+        id: 'switch-profile',
+        level: d.ipRouting ? 'info' : 'warn',
+        text: d.ipRouting
+          ? 'Multilayer switch: Layer 3 forwarding is enabled; SVIs and routed ports can route and serve or relay DHCP.'
+          : 'Multilayer switch: routing is disabled by default. Configure “ip routing” before using SVIs as VLAN gateways.',
+      });
+    }
     const reported = new Set<string>();
     for (const p of used) {
       if (!p.adminUp) {
@@ -1703,12 +1739,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   selectTermDevice(id: string) {
     this.termDevice.set(id);
     const d = this.api.state()?.devices.find((x) => x.id === id);
-    if (d) void this.loadVocab(d.kind);
+    if (d) void this.loadVocab(d.kind, d.switchProfile);
   }
 
   openTerminalFor(d: DeviceState) {
+    if (this.isUnmanagedSwitch(d)) {
+      this.toast(`${d.name} is unmanaged: it has no CLI or management interface.`, 'info');
+      return;
+    }
     this.termDevice.set(d.id);
-    void this.loadVocab(d.kind);
+    void this.loadVocab(d.kind, d.switchProfile);
     if (this.isNarrow()) this.setTab('term');
     else {
       if (this.focusMode() && !this.focusTerm()) this.toggleFocusTerm();
@@ -1716,14 +1756,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  private async loadVocab(kind: string) {
-    const cached = this.vocabCache.get(kind);
+  private async loadVocab(kind: string, switchProfile?: SwitchProfile) {
+    const cacheKey = switchProfile ? `${kind}:${switchProfile}` : kind;
+    const cached = this.vocabCache.get(cacheKey);
     if (cached) {
       this.vocab.set(cached);
       return;
     }
     try {
-      const r = await this.api.commands(kind);
+      const r = await this.api.commands(kind, switchProfile);
       const words = new Set<string>();
       for (const c of r.commands) {
         for (const w of c.cmd.split(/[\s|/[\]]+/)) {
@@ -1731,7 +1772,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         }
       }
       const list = [...words];
-      this.vocabCache.set(kind, list);
+      this.vocabCache.set(cacheKey, list);
       this.vocab.set(list);
     } catch {
       this.vocab.set([]);
@@ -1747,16 +1788,22 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async openCheat() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
-    const kind = this.selected()?.kind ?? 'workstation';
+    const selected = this.selected();
+    const kind =
+      selected?.kind === 'switch'
+        ? `switch-${selected.switchProfile ?? 'managed-l2'}`
+        : (selected?.kind ?? 'workstation');
     this.showCheat.set(true);
     await this.setCheatKind(kind);
   }
 
-  async setCheatKind(kind: string) {
-    this.cheatKind.set(kind);
+  async setCheatKind(id: string) {
+    const item = PALETTE.find((entry) => entry.id === id) ?? PALETTE.find((entry) => entry.kind === id);
+    if (!item) return;
+    this.cheatKind.set(item.id);
     this.cheatLoading.set(true);
     try {
-      const r = await this.api.commands(kind);
+      const r = await this.api.commands(item.kind, item.switchProfile);
       this.cheatRows.set(r.commands);
     } catch (e) {
       this.cheatRows.set([]);
@@ -1780,7 +1827,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const iface = this.ipIface(d);
     const cmds = this.isLinux(d)
       ? [`ip addr add ${ip}/${prefix} dev ${iface}`, `ip link set ${iface} up`]
-      : ['enable', 'conf t', `interface ${iface}`, `ip address ${ip} ${this.prefixMask(prefix)}`, 'no shutdown', 'end'];
+      : [
+          'enable',
+          'conf t',
+          `interface ${iface}`,
+          ...(this.isMultilayerSwitch(d) ? ['no switchport'] : []),
+          `ip address ${ip} ${this.prefixMask(prefix)}`,
+          'no shutdown',
+          'end',
+        ];
     this.ipBusy.set(true);
     try {
       await this.runCommands(d, cmds, `${d.name} is now ${ip}/${prefix}`);
@@ -1797,9 +1852,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const current = this.gatewayOf(d);
+    if (this.isUnmanagedSwitch(d)) {
+      this.toast(`${d.name} has no management interface or default gateway.`, 'info');
+      return;
+    }
     const cmds = this.isLinux(d)
       ? [current ? `ip route replace default via ${target}` : `ip route add default via ${target}`]
-      : d.kind === 'switch'
+      : d.kind === 'switch' && !this.isMultilayerSwitch(d)
         ? ['enable', 'conf t', `ip default-gateway ${target}`, 'end']
         : ['enable', 'conf t', ...(current ? [`no ip route 0.0.0.0 0.0.0.0 ${current}`] : []), `ip route 0.0.0.0 0.0.0.0 ${target}`, 'end'];
     this.gwBusy.set(true);
@@ -1816,7 +1875,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (!current) return;
     const cmds = this.isLinux(d)
       ? ['ip route del default']
-      : d.kind === 'switch'
+      : d.kind === 'switch' && !this.isMultilayerSwitch(d)
         ? ['enable', 'conf t', 'no ip default-gateway', 'end']
         : ['enable', 'conf t', `no ip route 0.0.0.0 0.0.0.0 ${current}`, 'end'];
     await this.runCommands(d, cmds, `${d.name} default gateway removed`);
@@ -1825,6 +1884,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   /** Re-addresses one interface: Linux del + add (routes via the old subnet go with it), Cisco overwrites. */
   async changeIpv4(d: DeviceState, iface: string, ip?: string, prefix?: number) {
+    if (this.isUnmanagedSwitch(d)) {
+      this.toast(`${d.name} has no configurable IP interfaces.`, 'info');
+      return;
+    }
     const newIp = (ip ?? this.ipEditValue).trim();
     const newPrefix = prefix ?? this.ipEditPrefix ?? 24;
     if (this.parseV4(newIp) == null || newPrefix < 1 || newPrefix > 32) {
@@ -1858,6 +1921,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async toggleIface(d: DeviceState, iface: string, ev?: Event) {
     ev?.stopPropagation();
     ev?.preventDefault();
+    if (this.isUnmanagedSwitch(d)) {
+      this.toast(`${d.name} is unmanaged: its ports are always enabled and cannot be configured.`, 'info');
+      return;
+    }
     const i = d.ifaces.find((x) => x.name === iface);
     if (!i) return;
     const enable = !i.adminUp;
@@ -2135,24 +2202,28 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { x, y };
   }
 
-  place(kind: string) {
+  placingItem(): DevicePaletteItem | undefined {
+    return PALETTE.find((item) => item.id === this.placing());
+  }
+
+  place(item: DevicePaletteItem) {
     this.addOpen.set(false);
     this.focusAddOpen.set(false);
     if (this.isNarrow()) {
       this.placing.set(null);
       this.mobileTab.set('canvas');
-      requestAnimationFrame(() => requestAnimationFrame(() => void this.addDevice(kind)));
+      requestAnimationFrame(() => requestAnimationFrame(() => void this.addDevice(item.kind, undefined, item.switchProfile)));
       return;
     }
-    this.placing.set(this.placing() === kind ? null : kind);
+    this.placing.set(this.placing() === item.id ? null : item.id);
     this.cancelCable();
   }
 
-  async addDevice(kind: string, at?: { x: number; y: number }) {
+  async addDevice(kind: string, at?: { x: number; y: number }, switchProfile?: SwitchProfile) {
     const name = this.nameFor(kind);
     const pos = at ?? this.dropPoint();
     try {
-      await this.api.edit({ addDevices: [{ type: kind, name, x: pos.x, y: pos.y }] });
+      await this.api.edit({ addDevices: [{ type: kind, name, ...(switchProfile ? { switchProfile } : {}), x: pos.x, y: pos.y }] });
     } catch (e) {
       this.fail(e);
       return;
@@ -2161,10 +2232,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (d) {
       this.selectedId.set(d.id);
       this.termDevice.set(d.id);
-      void this.loadVocab(d.kind);
+      void this.loadVocab(d.kind, d.switchProfile);
     }
     this.toast(
-      this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind)} ${name} added. Drag to move; Cable to connect.`,
+      this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind, switchProfile)} ${name} added. Drag to move; Cable to connect.`,
       'success',
     );
     if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
@@ -2572,7 +2643,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       `engineSession=${this.api.sessionId()}`,
       `labName=${st?.name ?? ''}`,
       st?.goal ? `goal=${st.goal}` : '',
-      sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}` : 'selectedDevice=none',
+      sel ? `selectedDevice=${sel.name} id=${sel.id} kind=${sel.kind}${sel.switchProfile ? ` switchProfile=${sel.switchProfile}` : ''}` : 'selectedDevice=none',
       pkt ? `selectedPacket=${pkt.proto} ${pkt.srcIp ?? ''} → ${pkt.dstIp ?? ''} reason=${pkt.reason}` : 'selectedPacket=none',
     ];
     if (st) {
@@ -2583,7 +2654,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         const ports = this.usedPortRows(d)
           .map((p) => `${p.name}→${p.peer?.device}${p.up ? '' : `(${p.status})`}`)
           .join(',');
-        lines.push(`- ${d.name} ${d.kind} id=${d.id}${ips ? ` ip:${ips}` : ''}${gw ? ` gw:${gw}` : ''}${d.associatedSsid ? ` wifi:${d.associatedSsid}` : ''}${ports ? ` ports:${ports}` : ' ports:none'}`);
+        lines.push(`- ${d.name} ${d.kind}${d.switchProfile ? ` profile=${d.switchProfile}${d.ipRouting ? ' ip-routing=on' : ''}` : ''} id=${d.id}${ips ? ` ip:${ips}` : ''}${gw ? ` gw:${gw}` : ''}${d.associatedSsid ? ` wifi:${d.associatedSsid}` : ''}${ports ? ` ports:${ports}` : ' ports:none'}`);
       }
       const last = this.checkResult() ?? st.lastCheck;
       if (last) lines.push(`lastCheck=${last.ok ? 'PASS' : 'FAIL'} ${last.results.map((r) => `${r.ok ? 'ok' : 'FAIL'}:${this.checkLabel(r.check)}${r.ok ? '' : ` (${r.reason})`}`).join('; ')}`);
@@ -2692,9 +2763,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   hitlTitle(h: { kind: string; toolName?: string }) {
-    if (h.kind === 'question') return 'Eve has a question';
-    if (h.kind === 'session-limit') return 'Eve reached a session budget';
-    return 'Eve wants to change the lab';
+    if (h.kind === 'question') return 'Agent has a question';
+    if (h.kind === 'session-limit') return 'Agent reached a session budget';
+    return 'Agent wants to change the lab';
   }
 
   /** Seconds until the next automatic retry (0 when none is scheduled). */
@@ -2925,6 +2996,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         detail: `A route to ${m[1]} exists on ${m[2]} but the interface it points at is missing or has no address. Check the route’s exit interface.`,
         lookAt: [`${m[2]} routes and interface addresses`],
         commands: [{ device: m[2], cmd: 'show ip route' }],
+      };
+    }
+    if ((m = reason.match(/^IP routing is disabled on (\S+)/))) {
+      const sw = this.devByName(m[1]);
+      return {
+        ...base,
+        layer: 'Addressing & routing (L3)',
+        title: `Layer 3 forwarding is disabled on ${m[1]}`,
+        detail: `${m[1]} is a multilayer switch with routed interfaces or SVIs, but Cisco switches do not route until the global “ip routing” command is enabled.`,
+        lookAt: [`${m[1]} running-config`, 'SVI addresses and VLAN membership'],
+        commands: [{ device: m[1], cmd: 'show ip route' }, { device: m[1], cmd: 'show run' }],
+        fix: sw ? { label: `Enable ip routing on ${m[1]}`, run: () => void this.runCommands(sw, ['enable', 'conf t', 'ip routing', 'end']) } : undefined,
       };
     }
     if ((m = reason.match(/^(\S+) is not a router/))) {
@@ -3357,7 +3440,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     act('fit', 'Fit topology to view', 'fit', () => this.fitToView(), 'F');
     if (!this.isNarrow()) act('focus', this.focus() ? 'Exit focus mode' : 'Focus mode (canvas only)', this.focus() ? 'collapse' : 'expand', () => this.toggleFocus(), 'Shift+F');
     act('adv', this.advanced() ? 'Switch to Simple view' : 'Switch to Advanced view', 'inspect', () => this.toggleAdvanced());
-    act('eve', this.showEve() ? 'Hide Eve' : 'Open Eve', 'sparkles', () => this.toggleEve(), 'E');
+    act('eve', this.showEve() ? 'Hide Agent' : 'Open Agent', 'sparkles', () => this.toggleEve(), 'E');
     act('ckpt', 'Save checkpoint', 'bookmark', () => this.saveCheckpoint());
     act('ckpts', 'Checkpoints: restore or diff…', 'clock', () => this.checkpointsOpen.set(true));
     act('edit', 'Edit lab name, goal and checks…', 'pencil', () => this.openLabEditor());
@@ -3372,10 +3455,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     act('view-subnet', `${this.view().subnet ? 'Hide' : 'Show'} subnet colours`, 'palette', () => this.toggleView('subnet'));
     act('view-vlan', `${this.view().vlan ? 'Hide' : 'Show'} VLAN labels on cables`, 'layers', () => this.toggleView('vlan'));
     for (const p of PALETTE) {
-      items.push({ id: `add-${p.kind}`, group: 'Add device', label: `Add ${p.label}`, hint: p.hint, icon: this.kindIcon(p.kind), run: () => (this.isNarrow() ? this.place(p.kind) : this.addDevice(p.kind)) });
+      items.push({ id: `add-${p.id}`, group: 'Add device', label: `Add ${p.label}`, hint: p.hint, icon: this.kindIcon(p.kind), run: () => (this.isNarrow() ? this.place(p) : this.addDevice(p.kind, undefined, p.switchProfile)) });
     }
     for (const d of st?.devices ?? []) {
-      items.push({ id: `sel-${d.id}`, group: 'Devices', label: `Select ${d.name}`, hint: `${this.kindLabel(d.kind)} · ${this.primaryIpv4(d) ?? 'no IPv4'}`, icon: this.kindIcon(d.kind), run: () => this.goToDevice(d.name) });
+      items.push({ id: `sel-${d.id}`, group: 'Devices', label: `Select ${d.name}`, hint: `${this.kindLabel(d.kind, d.switchProfile)} · ${this.primaryIpv4(d) ?? 'no IPv4'}`, icon: this.kindIcon(d.kind), run: () => this.goToDevice(d.name) });
       items.push({ id: `term-${d.id}`, group: 'Devices', label: `Terminal on ${d.name}`, icon: 'terminal', run: () => this.openTerminalFor(d) });
     }
     for (const l of this.labs()) items.push({ id: `lab-${l.id}`, group: 'Labs', label: `Open lab: ${l.name}`, hint: l.goal, icon: 'flag', run: () => this.loadLab(l.id) });
@@ -3460,7 +3543,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     for (const d of st.devices) {
       const ips = this.ipv4Rows(d).map((r) => `${r.ip} (${r.name})`).join(', ') || '—';
       const up = this.usedPortRows(d).filter((p) => p.up).length;
-      L.push(`| ${d.name} | ${this.kindLabel(d.kind)} | ${ips} | ${this.gatewayOf(d) ?? '—'} | ${up}/${this.usedPortRows(d).length} |`);
+      L.push(`| ${d.name} | ${this.kindLabel(d.kind, d.switchProfile)} | ${ips} | ${this.gatewayOf(d) ?? '—'} | ${up}/${this.usedPortRows(d).length} |`);
     }
     L.push('', '## Cables', '');
     for (const l of st.links) L.push(`- ${l.a.device}:${l.a.iface} — ${l.b.device}:${l.b.iface} (${this.cableLabel(l.kind === 'radio' ? 'radio' : l.cable)}${this.linkIsDown(l) ? ', no link' : ''})`);
@@ -3661,10 +3744,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     if (this.placing()) {
       const w = this.worldFromEvent(ev, el);
-      const kind = this.placing()!;
+      const item = this.placingItem();
       this.placing.set(null);
       this.pointers.delete(ev.pointerId);
-      void this.addDevice(kind, { x: Math.round(w.x / GRID) * GRID - this.cardW() / 2, y: Math.round(w.y / GRID) * GRID - ANCHOR_Y });
+      if (item) {
+        void this.addDevice(
+          item.kind,
+          { x: Math.round(w.x / GRID) * GRID - this.cardW() / 2, y: Math.round(w.y / GRID) * GRID - ANCHOR_Y },
+          item.switchProfile,
+        );
+      }
       return;
     }
     if (this.pointers.size >= 2) {
@@ -3793,7 +3882,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.selectedId.set(d.id);
     this.termDevice.set(d.id);
     this.selectedLinkId.set(null);
-    void this.loadVocab(d.kind);
+    void this.loadVocab(d.kind, d.switchProfile);
   }
 
   private beginGesture(cx: number, cy: number) {

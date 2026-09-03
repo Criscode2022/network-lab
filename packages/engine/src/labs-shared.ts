@@ -40,7 +40,14 @@ export function modelFromExercise(
   if (patch.removeDeviceIds?.length || patch.removeLinks?.length) throw new Error(`${exercise.id}: derive only supports additive solutions`);
   const devices = exercise.devices.map((d) => ({ ...d, startup: [...(d.startup ?? [])], ...(d.post ? { post: [...d.post] } : {}) }));
   for (const add of patch.addDevices ?? []) {
-    devices.push({ kind: add.type, name: add.name, x: add.x ?? 80, y: add.y ?? 80, startup: [] });
+    devices.push({
+      kind: add.type,
+      ...(add.switchProfile ? { switchProfile: add.switchProfile } : {}),
+      name: add.name,
+      x: add.x ?? 80,
+      y: add.y ?? 80,
+      startup: [],
+    });
   }
   for (const cfg of patch.configs ?? []) {
     const dev = devices.find((d) => d.name.toLowerCase() === cfg.device.toLowerCase());

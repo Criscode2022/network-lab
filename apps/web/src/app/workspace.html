@@ -111,8 +111,8 @@
           <span class="truncate">{{ api.guest() ? 'Guest' : api.email() }}</span>
         </button>
 
-        <button type="button" class="btn" [ngClass]="eveOpen() ? 'btn-eve ring-1 ring-eve-500/40' : 'btn-secondary'" [attr.aria-pressed]="eveOpen()" (click)="toggleEve()" title="Eve — lab instructor (E)">
-          <nb-icon name="sparkles" [size]="14" /> Eve
+        <button type="button" class="btn" [ngClass]="eveOpen() ? 'btn-eve ring-1 ring-eve-500/40' : 'btn-secondary'" [attr.aria-pressed]="eveOpen()" (click)="toggleEve()" title="Agent — lab instructor (E)">
+          <nb-icon name="sparkles" [size]="14" /> Agent
         </button>
       } @else if (basicMode()) {
         <button type="button" class="btn min-h-9 bg-brand-800 text-white" (click)="toggleBasic()" title="Leave Basic mode for the full editor">
@@ -197,7 +197,7 @@
               @if (diagBusy()) { <span class="spinner h-3 w-3 border-white/40 border-t-white"></span> } @else { <nb-icon name="stethoscope" [size]="12" /> }
               Troubleshoot
             </button>
-            <button type="button" class="btn btn-eve btn-sm" (click)="explainCheck()"><nb-icon name="sparkles" [size]="12" /> Ask Eve why</button>
+            <button type="button" class="btn btn-eve btn-sm" (click)="explainCheck()"><nb-icon name="sparkles" [size]="12" /> Ask Agent why</button>
           }
           <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close" (click)="checkOpen.set(false)"><nb-icon name="x" [size]="14" /></button>
         </div>
@@ -235,13 +235,13 @@
         <div class="section-title px-3 pt-2 pb-1.5">Devices</div>
         <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400 md:hidden">Tap a type — it lands in the middle of the canvas. Drag it, then Cable.</p>
         <div class="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-1">
-          @for (p of PALETTE; track p.kind) {
+          @for (p of PALETTE; track p.id) {
             <button
               type="button"
               class="flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
-              [ngClass]="placing() === p.kind ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
-              [attr.aria-pressed]="placing() === p.kind"
-              (click)="place(p.kind)"
+              [ngClass]="placing() === p.id ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
+              [attr.aria-pressed]="placing() === p.id"
+              (click)="place(p)"
             >
               <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)">
                 <nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" />
@@ -310,9 +310,9 @@
         @if (placing() || cableFrom() || cableArmed()) {
           <div class="absolute inset-x-0 top-2 z-10 flex justify-center px-2 md:top-3">
             <div class="flex max-w-full items-center gap-2 rounded-full border border-brand-500/40 bg-ink-900/95 px-3 py-1.5 text-[11.5px] text-brand-100 shadow-pop animate-pop">
-              @if (placing(); as k) {
-                <nb-icon [name]="kindIcon(k)" [size]="14" class="text-brand-300" />
-                <span class="truncate">Click the canvas to place a {{ kindLabel(k) }}</span>
+              @if (placingItem(); as p) {
+                <nb-icon [name]="kindIcon(p.kind)" [size]="14" class="text-brand-300" />
+                <span class="truncate">Click the canvas to place a {{ p.label }}</span>
                 <button type="button" class="btn btn-sm btn-ghost text-brand-200" (click)="placing.set(null)">Cancel</button>
               } @else if (cableFrom(); as c) {
                 <nb-icon name="plug" [size]="14" class="text-warn-300" />
@@ -388,8 +388,8 @@
                 <div class="card absolute bottom-full left-0 z-40 mb-2 w-72 p-1.5 animate-pop" role="menu">
                   <div class="section-title px-2.5 pt-1 pb-1">Add a device</div>
                   <div class="grid grid-cols-2 gap-1">
-                    @for (p of PALETTE; track p.kind) {
-                      <button type="button" class="menu-item" role="menuitem" (click)="place(p.kind)">
+                    @for (p of PALETTE; track p.id) {
+                      <button type="button" class="menu-item" role="menuitem" (click)="place(p)">
                         <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
                         <span class="min-w-0"><span class="block truncate text-xs font-medium text-ink-50">{{ p.label }}</span></span>
                       </button>
@@ -415,8 +415,8 @@
               <button type="button" class="btn btn-ghost" [ngClass]="{ 'bg-ink-750 text-ink-50': focusTerm() }" (click)="toggleFocusTerm()" title="Show or hide the terminal (T)" aria-label="Terminal">
                 <nb-icon name="terminal" [size]="14" /> <span class="hidden @3xl:inline">Terminal</span>
               </button>
-              <button type="button" class="btn" [ngClass]="focusEve() ? 'btn-eve' : 'btn-ghost'" [attr.aria-pressed]="focusEve()" (click)="toggleEve()" title="Eve — lab instructor, opens as a sidebar (E)" aria-label="Eve">
-                <nb-icon name="sparkles" [size]="14" /> <span class="hidden @3xl:inline">Eve</span>
+              <button type="button" class="btn" [ngClass]="focusEve() ? 'btn-eve' : 'btn-ghost'" [attr.aria-pressed]="focusEve()" (click)="toggleEve()" title="Agent — lab instructor, opens as a sidebar (E)" aria-label="Agent">
+                <nb-icon name="sparkles" [size]="14" /> <span class="hidden @3xl:inline">Agent</span>
               </button>
               <span class="mx-0.5 h-5 w-px bg-ink-700"></span>
               <button type="button" class="btn btn-ghost btn-icon" aria-label="Zoom out" title="Zoom out (−)" (click)="zoomBy(1 / 1.2)"><nb-icon name="minus" [size]="14" /></button>
@@ -437,7 +437,7 @@
                 <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="15" [ngClass]="kindAccent(d.kind)" /></span>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5 text-xs font-semibold text-ink-50"><span class="truncate">{{ d.name }}</span><span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span></div>
-                  <div class="truncate text-[10.5px] text-ink-400">{{ kindLabel(d.kind) }}@if (primaryIpv4(d); as ip) { · <span class="font-mono text-ok-300">{{ ip }}</span> }</div>
+                  <div class="truncate text-[10.5px] text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }}@if (primaryIpv4(d); as ip) { · <span class="font-mono text-ok-300">{{ ip }}</span> }</div>
                 </div>
                 <button type="button" class="btn btn-ghost btn-icon h-7 w-7 text-ink-400" aria-label="Deselect" (click)="selectedId.set(null)"><nb-icon name="x" [size]="13" /></button>
               </div>
@@ -584,7 +584,7 @@
                 >
                   <div class="flex items-center gap-1.5">
                     <nb-icon [name]="kindIcon(d.kind)" [size]="14" [ngClass]="kindAccent(d.kind)" />
-                    <span class="min-w-0 flex-1 truncate text-[9px] font-medium tracking-wider text-ink-300 uppercase">{{ kindLabel(d.kind) }}</span>
+                    <span class="min-w-0 flex-1 truncate text-[9px] font-medium tracking-wider text-ink-300 uppercase">{{ kindLabel(d.kind, d.switchProfile) }}</span>
                     <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }" [title]="deviceLed(d) === 'up' ? 'link up' : deviceLed(d) === 'warn' ? 'cabled but down' : 'not connected'"></span>
                   </div>
                   <div class="mt-0.5 truncate text-[12.5px] leading-tight font-semibold text-ink-50">{{ d.name }}</div>
@@ -653,7 +653,7 @@
                 <span class="truncate text-sm font-semibold text-ink-50">{{ d.name }}</span>
                 <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span>
               </div>
-              <div class="truncate text-[11px] text-ink-400">{{ kindLabel(d.kind) }} · <span class="font-mono">{{ d.hostname }}</span></div>
+              <div class="truncate text-[11px] text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }} · <span class="font-mono">{{ d.hostname }}</span></div>
             </div>
             @if (!isNarrow()) {
               <div class="seg">
@@ -668,16 +668,22 @@
 
           <!-- quick actions -->
           <div class="grid grid-cols-5 gap-1 border-b border-ink-800 px-2 py-1.5">
-            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openTerminalFor(d)" title="Open the terminal on this device (T)">
-              <nb-icon name="terminal" [size]="15" /> Terminal
-            </button>
+            @if (!isUnmanagedSwitch(d)) {
+              <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openTerminalFor(d)" title="Open the terminal on this device (T)">
+                <nb-icon name="terminal" [size]="15" /> Terminal
+              </button>
+            } @else {
+              <span class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-600" title="Unmanaged switches have no terminal">
+                <nb-icon name="terminal" [size]="15" /> No CLI
+              </span>
+            }
             <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] transition-colors hover:bg-ink-800" [ngClass]="reach() ? 'bg-ink-800 text-brand-200' : 'text-ink-300 hover:text-ink-50'" (click)="reach() ? closeReach() : openReach(d)" title="Ping or trace from this device">
               <nb-icon name="zap" [size]="15" /> Reach
             </button>
             <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="startCable($event, d)" title="Start a cable from this device">
               <nb-icon name="plug" [size]="15" /> Cable
             </button>
-            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openEve(); explain()" title="Ask Eve to explain this device">
+            <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-ink-800 hover:text-ink-50" (click)="openEve(); explain()" title="Ask Agent to explain this device">
               <nb-icon name="sparkles" [size]="15" /> Explain
             </button>
             <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] text-ink-300 transition-colors hover:bg-danger-500/10 hover:text-danger-300" (click)="deleteDevice(d)" title="Delete device (Del)">
@@ -714,7 +720,7 @@
                       <span class="led" [ngClass]="i.operUp ? 'led-up' : i.peer ? 'led-warn' : i.adminUp ? 'led-off' : 'led-off'"></span>
                       <span class="font-mono font-medium text-ink-50">{{ i.name }}</span>
                       @if (i.isRadio) { <nb-icon name="wifi" [size]="11" class="text-violet-300" /> }
-                      <button type="button" class="chip ml-auto cursor-pointer hover:ring-1 hover:ring-brand-400/60" [ngClass]="statusChipClass(i)" [title]="statusToggleTitle(d, i.name)" (click)="toggleIface(d, i.name, $event)">
+                      <button type="button" class="chip ml-auto hover:ring-1 hover:ring-brand-400/60" [class.cursor-pointer]="!isUnmanagedSwitch(d)" [disabled]="isUnmanagedSwitch(d)" [ngClass]="statusChipClass(i)" [title]="isUnmanagedSwitch(d) ? 'Unmanaged ports are always enabled' : statusToggleTitle(d, i.name)" (click)="toggleIface(d, i.name, $event)">
                         <nb-icon name="power" [size]="10" /> {{ linkStatus(i) }}
                       </button>
                     </div>
@@ -748,9 +754,14 @@
                 @for (row of ipv4Rows(d); track row.name) {
                   <div class="flex items-center gap-2"><span class="font-mono text-ok-300">{{ row.ip }}</span><span class="text-ink-500">{{ row.name }}</span><span class="chip ml-auto" [ngClass]="row.up ? 'chip-ok' : 'chip-warn'">{{ row.status }}</span></div>
                 } @empty {
-                  <div class="text-ink-500">{{ d.kind === 'switch' ? 'No IPv4 (layer 2 switch).' : 'No IPv4 yet.' }}</div>
+                  <div class="text-ink-500">
+                    {{ isUnmanagedSwitch(d) ? 'No management IP: unmanaged switches have no management plane.' : d.kind === 'switch' && !isMultilayerSwitch(d) ? 'No management SVI configured.' : 'No IPv4 yet.' }}
+                  </div>
                 }
                 @if (primaryIpv6(d); as ip6) { <div class="font-mono text-ok-300/90">{{ ip6 }}</div> }
+                @if (isMultilayerSwitch(d)) {
+                  <div class="mt-2 flex items-center gap-2"><span class="text-ink-400">Layer 3 forwarding</span><span class="chip" [ngClass]="d.ipRouting ? 'chip-ok' : 'chip-warn'">{{ d.ipRouting ? 'ip routing enabled' : 'ip routing disabled' }}</span></div>
+                }
                 <div class="section-title mt-3 mb-1">Default gateway</div>
                 @if (gatewayOf(d); as gw) {
                   <div class="flex items-center gap-2 font-mono text-ink-100">
@@ -818,13 +829,13 @@
       </aside>
     }
 
-    <!-- Eve -->
+    <!-- Agent UI (powered by Eve) -->
     @if (showEve()) {
       <aside class="flex min-h-0 w-full flex-1 flex-col border-ink-800 bg-ink-950 md:w-80 md:flex-none md:border-l">
         <div class="flex items-center gap-2 border-b border-ink-800 px-3 py-2">
           <span class="grid h-7 w-7 place-items-center rounded-lg bg-eve-500/15 text-eve-300 ring-1 ring-eve-500/30"><nb-icon name="sparkles" [size]="14" /></span>
           <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold text-ink-50">Eve</div>
+            <div class="text-xs font-semibold text-ink-50">Agent</div>
             <div class="text-[10px] text-ink-500">Lab instructor · {{ eve.autoApprove() ? 'applies fixes directly' : 'asks before changing the lab' }}</div>
           </div>
           <button
@@ -834,7 +845,7 @@
             role="switch"
             [attr.aria-checked]="eve.autoApprove()"
             (click)="eve.setAutoApprove(!eve.autoApprove())"
-            title="When on, Eve's changes run without an Approve click (each still needs a host-minted token)"
+            title="When on, the Agent's changes run without an Approve click (each still needs a host-minted token)"
           >
             <span class="relative inline-block h-3 w-5 rounded-full transition-colors" [ngClass]="eve.autoApprove() ? 'bg-eve-500' : 'bg-ink-600'">
               <span class="absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all" [ngClass]="eve.autoApprove() ? 'left-2.5' : 'left-0.5'"></span>
@@ -842,8 +853,13 @@
             Auto-approve
           </button>
           @if (eve.busy()) { <span class="spinner border-t-eve-400"></span> }
+          @if (eve.busy() || eve.retrying() || eve.hitl()) {
+            <button type="button" class="btn btn-sm border-danger-500/40 bg-danger-500/10 text-danger-200 hover:bg-danger-500/20" [disabled]="eve.stopping()" (click)="eve.cancelTurn()" aria-label="Stop Agent request">
+              <nb-icon name="x" [size]="11" /> {{ eve.stopping() ? 'Stopping…' : 'Stop' }}
+            </button>
+          }
           @if (!isNarrow()) {
-            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Eve" (click)="closeEve()"><nb-icon name="x" [size]="14" /></button>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7" aria-label="Close Agent" (click)="closeEve()"><nb-icon name="x" [size]="14" /></button>
           }
         </div>
         <div class="scroll-thin flex gap-1.5 overflow-x-auto px-3 py-2">
@@ -854,7 +870,7 @@
         <div class="scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-xs leading-5">
           @if (!eve.msgs().length) {
             <div class="rounded-xl border border-ink-800 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-ink-300">
-              Ask why a ping fails, what a running-config line does, or describe a lab to build. Eve reads the engine — it never invents forwarding — and only stops to ask you a question; switch Auto-approve off to confirm each change yourself.
+              Ask why a ping fails, what a running-config line does, or describe a lab to build. The Agent reads the engine—it never invents forwarding—and only pauses to ask you a question; switch Auto-approve off to confirm each change yourself.
             </div>
           }
           @for (m of eve.msgs(); track $index) {
@@ -948,7 +964,7 @@
               rows="1"
               [(ngModel)]="eveInput"
               name="eve"
-              [placeholder]="eve.hitl()?.kind === 'question' ? 'Answer Eve…' : eveMode() === 'build' ? 'Describe the lab to build…' : 'Ask Eve…'"
+              [placeholder]="eve.hitl()?.kind === 'question' ? 'Answer Agent…' : eveMode() === 'build' ? 'Describe the lab to build…' : 'Ask Agent…'"
               (keydown.enter)="$event.preventDefault(); sendEve()"
             ></textarea>
             <button type="submit" class="btn btn-icon h-9 w-9" [ngClass]="eveMode() === 'build' ? 'btn-eve' : 'btn-primary'" aria-label="Send" [disabled]="eve.busy()"><nb-icon name="send" [size]="14" /></button>
@@ -1092,13 +1108,15 @@
         <span class="font-mono text-ok-300" [ngClass]="big ? 'text-base' : 'text-xs'">{{ row.ip }}</span>
         <span class="text-ink-500" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">{{ row.name }}</span>
         <span class="chip ml-auto" [ngClass]="row.up ? 'chip-ok' : 'chip-warn'">{{ row.status }}</span>
-        @if (d.kind !== 'switch') {
+        @if (d.kind !== 'switch' || isMultilayerSwitch(d)) {
           <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-brand-200" title="Change this address or mask" aria-label="Change address" (click)="startIpEdit(d, row.name)"><nb-icon name="pencil" [size]="12" /></button>
         }
       </div>
     }
   } @empty {
-    <p class="mt-1 text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">{{ d.kind === 'switch' ? 'No IPv4 on this switch — normal for layer 2.' : 'No IPv4 address yet.' }}</p>
+    <p class="mt-1 text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">
+      {{ isUnmanagedSwitch(d) ? 'Unmanaged switches have no IP or management plane.' : d.kind === 'switch' && !isMultilayerSwitch(d) ? 'No management SVI configured.' : 'No IPv4 address yet.' }}
+    </p>
     @if (canAddIpv4(d)) {
       <form class="mt-2 flex items-center gap-2" (submit)="$event.preventDefault(); applyIpv4(d)">
         <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="ipInput" [name]="big ? 'newip' : 'inspectip'" inputmode="decimal" placeholder="10.0.0.30" (focus)="prepareIpv4Form(d)" />
@@ -1111,7 +1129,7 @@
     }
   }
 
-  @if ((d.kind === 'workstation' || d.kind === 'server' || d.kind === 'router' || d.kind === 'firewall') && ipv4Rows(d).length) {
+  @if ((d.kind === 'workstation' || d.kind === 'server' || d.kind === 'router' || d.kind === 'firewall' || (d.kind === 'switch' && !isUnmanagedSwitch(d))) && ipv4Rows(d).length) {
     <div class="mt-3 flex items-center gap-1">
       <span class="section-title">Default gateway</span>
       @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: gateway" (click)="openHelp('gateway', $event)"><nb-icon name="help" [size]="13" /></button> }
@@ -1235,7 +1253,7 @@
           @if (!res.ok) {
             <div class="mt-2 flex flex-wrap gap-1.5">
               <button type="button" class="btn btn-sm btn-primary" (click)="troubleshootReach(d)"><nb-icon name="stethoscope" [size]="11" /> Explain the drop</button>
-              <button type="button" class="btn btn-sm btn-eve" (click)="openEve(); eve.send('Why does ' + d.name + ' fail to reach ' + r.target + '? Engine reason: ' + res.reason + '. Use get_path and get_lab_state, then propose the smallest fix.')"><nb-icon name="sparkles" [size]="11" /> Ask Eve</button>
+              <button type="button" class="btn btn-sm btn-eve" (click)="openEve(); eve.send('Why does ' + d.name + ' fail to reach ' + r.target + '? Engine reason: ' + res.reason + '. Use get_path and get_lab_state, then propose the smallest fix.')"><nb-icon name="sparkles" [size]="11" /> Ask Agent</button>
             </div>
           }
         </div>
@@ -1255,7 +1273,7 @@
         <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="22" [ngClass]="kindAccent(d.kind)" /></span>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 text-lg font-semibold text-ink-50">{{ d.name }} <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span></div>
-          <div class="text-sm text-ink-400">{{ kindLabel(d.kind) }}</div>
+          <div class="text-sm text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }}</div>
         </div>
         <button type="button" class="btn btn-ghost btn-icon h-9 w-9" aria-label="Help: this device" (click)="openHelp('add', $event)"><nb-icon name="help" [size]="16" /></button>
       </div>
@@ -1284,8 +1302,8 @@
       </button>
       <div class="section-title mb-2">Add a device</div>
       <div class="grid grid-cols-2 gap-2">
-        @for (p of PALETTE; track p.kind) {
-          <button type="button" class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800" (click)="place(p.kind)">
+        @for (p of PALETTE; track p.id) {
+          <button type="button" class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800" (click)="place(p)">
             <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" /></span>
             <span class="min-w-0"><span class="block text-xs font-medium text-ink-50">{{ p.label }}</span><span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span></span>
           </button>
@@ -1456,7 +1474,7 @@
       <div class="grid gap-3 px-6 py-5 sm:grid-cols-3">
         <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">1</span> Pick a lab</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Eight scenarios, easiest first. Each has a goal and a checklist.</p></div>
         <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">2</span> Fix it</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Select a device for hints, ports, IPs and a Ping/Trace tool — or type real commands in the terminal.</p></div>
-        <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">3</span> Check</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Honest pass/fail with the exact reason. Stuck? Eve explains or fixes, with your approval.</p></div>
+        <div><div class="flex items-center gap-2 text-xs font-semibold text-ink-50"><span class="grid h-6 w-6 place-items-center rounded-full bg-brand-500/20 text-brand-300">3</span> Check</div><p class="mt-1.5 text-[11.5px] leading-relaxed text-ink-400">Honest pass/fail with the exact reason. Stuck? The Agent explains or fixes, with your approval.</p></div>
       </div>
       <div class="flex flex-wrap items-center justify-end gap-2 border-t border-ink-800 px-6 py-4">
         @if (!isNarrow()) { <span class="mr-auto text-[11px] text-ink-500">Press <span class="kbd">?</span> anytime for shortcuts</span> }
@@ -1502,7 +1520,7 @@
       </div>
       <div class="flex flex-wrap items-center justify-end gap-2 border-t border-ink-800 px-5 py-3">
         @if (dg.device) { <button type="button" class="btn btn-secondary mr-auto" (click)="goToDevice(dg.device)"><nb-icon name="inspect" [size]="13" /> Go to {{ dg.device }}</button> }
-        @if (!dg.reachable) { <button type="button" class="btn btn-eve" (click)="askEveDiag()"><nb-icon name="sparkles" [size]="13" /> Ask Eve</button> }
+        @if (!dg.reachable) { <button type="button" class="btn btn-eve" (click)="askEveDiag()"><nb-icon name="sparkles" [size]="13" /> Ask Agent</button> }
         @if (dg.fix; as f) { <button type="button" class="btn btn-ok" (click)="applyDiagFix()"><nb-icon name="wrench" [size]="13" /> {{ f.label }}</button> }
         @if (dg.reachable) { <button type="button" class="btn btn-primary" (click)="diagnosis.set(null); doCheck()"><nb-icon name="circle-check" [size]="13" /> Check again</button> }
       </div>

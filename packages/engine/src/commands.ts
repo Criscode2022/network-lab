@@ -1,4 +1,4 @@
-import type { DeviceKind } from './types.ts';
+import type { DeviceKind, SwitchProfile } from './types.ts';
 
 export interface CmdHelp {
   cmd: string;
@@ -103,11 +103,36 @@ export const COMMANDS: Record<DeviceKind, CmdHelp[]> = {
 
 COMMANDS.server = COMMANDS.workstation;
 
-export function listCommands(kind: DeviceKind): CmdHelp[] {
+export const SWITCH_COMMANDS: Record<SwitchProfile, CmdHelp[]> = {
+  unmanaged: [
+    { cmd: '(no CLI)', help: 'Unmanaged switches are plug-and-play Layer 2 bridges' },
+  ],
+  'managed-l2': [
+    ...COMMANDS.switch,
+    { cmd: 'switchport trunk native vlan N', help: 'Set the untagged VLAN on a trunk' },
+  ],
+  multilayer: [
+    ...COMMANDS.switch.map((row) =>
+      row.cmd.startsWith('ip address')
+        ? { ...row, help: 'SVI or routed-port IPv4 address' }
+        : row,
+    ),
+    { cmd: 'ip routing | no ip routing', help: 'Enable or disable Layer 3 forwarding' },
+    { cmd: 'no switchport', help: 'Convert a physical port to a routed port' },
+    { cmd: 'ip route NET MASK NH | ipv6 route CIDR NH', help: 'Static routing' },
+    { cmd: 'ip dhcp pool NAME', help: 'Create or edit a DHCPv4 pool' },
+    { cmd: 'ip dhcp excluded-address START [END]', help: 'Reserve addresses from DHCP allocation' },
+    { cmd: 'ip helper-address A.B.C.D', help: 'Relay DHCP from this SVI or routed port' },
+    { cmd: 'show ip route | show ip dhcp binding', help: 'Inspect routes and active DHCP leases' },
+  ],
+};
+
+export function listCommands(kind: DeviceKind, switchProfile?: SwitchProfile): CmdHelp[] {
+  if (kind === 'switch') return SWITCH_COMMANDS[switchProfile ?? 'managed-l2'];
   return COMMANDS[kind] ?? [];
 }
 
-export function helpText(kind: DeviceKind): string {
-  const rows = listCommands(kind);
+export function helpText(kind: DeviceKind, switchProfile?: SwitchProfile): string {
+  const rows = listCommands(kind, switchProfile);
   return rows.map((r) => `  ${r.cmd.padEnd(42)} ${r.help}`).join('\n');
 }

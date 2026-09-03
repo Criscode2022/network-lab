@@ -26,12 +26,12 @@ import { Icon, KIND_ICON } from './icons';
           </button>
         </div>
         <div class="flex flex-wrap items-center gap-1.5 border-b border-ink-800 px-3 py-2">
-          @for (k of kinds(); track k.kind) {
+          @for (k of kinds(); track k.id) {
             <button
               type="button"
               class="inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors"
-              [ngClass]="k.kind === kind() ? 'bg-ink-700 text-ink-50' : 'text-ink-400 hover:bg-ink-800 hover:text-ink-200'"
-              (click)="kindChange.emit(k.kind)"
+              [ngClass]="k.id === kind() ? 'bg-ink-700 text-ink-50' : 'text-ink-400 hover:bg-ink-800 hover:text-ink-200'"
+              (click)="kindChange.emit(k.id)"
             >
               <nb-icon [name]="icon(k.kind)" [size]="12" /> {{ k.label }}
             </button>
@@ -66,7 +66,7 @@ import { Icon, KIND_ICON } from './icons';
 })
 export class CheatSheet {
   kind = input('workstation');
-  kinds = input<{ kind: string; label: string }[]>([]);
+  kinds = input<{ id: string; kind: string; label: string }[]>([]);
   rows = input<{ cmd: string; help: string }[]>([]);
   loading = input(false);
 

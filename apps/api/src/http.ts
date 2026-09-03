@@ -11,6 +11,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -322,6 +323,15 @@ export class SessionsController {
     return s.engine.check();
   }
 
+  @Post(':id/solution')
+  solution(@Param('id') id: string) {
+    const s = this.sim.get(id);
+    const lab = curriculumLab(s.engine);
+    if (!lab?.solution) throw new HttpException('this session is not an exercise with an official solution', 400);
+    const result = applySolution(s.engine, lab);
+    return { ...result, state: s.engine.getState() };
+  }
+
   @Post(':id/cancel')
   cancel(@Param('id') id: string) {
     const s = this.sim.get(id);
@@ -442,8 +452,8 @@ export class CommandsController {
   constructor(@Inject(SimService) private readonly sim: SimService) {}
 
   @Get(':kind')
-  cmds(@Param('kind') kind: string) {
-    return { kind, commands: this.sim.commands(kind) };
+  cmds(@Param('kind') kind: string, @Query('switchProfile') switchProfile?: string) {
+    return { kind, switchProfile, commands: this.sim.commands(kind, switchProfile) };
   }
 }
 
@@ -490,6 +500,8 @@ export class EveToolsController {
       id: d.id,
       name: d.name,
       kind: d.kind,
+      switchProfile: d.switchProfile,
+      ipRouting: d.ipRouting,
       runningConfig: s.engine.runningConfig(d),
       startupConfig: d.startupLines.join('\n'),
       arp: d.arp,
@@ -602,8 +614,8 @@ export class EveToolsController {
   }
 
   @Post('list_commands')
-  list(@Body() body: { deviceType?: string }) {
-    return { commands: this.sim.commands(body.deviceType ?? 'workstation') };
+  list(@Body() body: { deviceType?: string; switchProfile?: string }) {
+    return { commands: this.sim.commands(body.deviceType ?? 'workstation', body.switchProfile) };
   }
 }
 

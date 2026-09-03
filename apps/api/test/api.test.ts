@@ -73,7 +73,7 @@ describe('sessions + engine path/check', () => {
   });
 
   it('run_check on every seeded lab matches its kind (models pass, exercises fail honestly)', async () => {
-    expect(BUILTIN_LABS.length).toBe(38);
+    expect(BUILTIN_LABS.length).toBe(48);
     for (const lab of BUILTIN_LABS) {
       const { sessionId } = await openLab(lab.id);
       const chk = await request(server).post(`/api/sessions/${sessionId}/check`).expect(201);
@@ -85,7 +85,7 @@ describe('sessions + engine path/check', () => {
   it('GET /labs/builtin lists kind/level/modelId/hint counts without leaking topologies or solutions', async () => {
     const r = await request(server).get('/api/labs/builtin').expect(200);
     const labs = r.body.labs as Record<string, unknown>[];
-    expect(labs.length).toBe(38);
+    expect(labs.length).toBe(48);
     const ex = labs.find((l) => l.id === 'lab-0a-plug-the-cable')!;
     expect(ex).toMatchObject({ kind: 'exercise', level: 'beginner', modelId: 'lab-1-first-ipv4-ping', hasSolution: true, hintCount: 3 });
     expect(ex.solution).toBeUndefined();
@@ -190,10 +190,10 @@ describe('confirmToken + patch schema', () => {
     const first = await request(server).post('/api/sessions').send({ labId: 'lab-1-first-ipv4-ping', labKey }).expect(201);
     expect(first.body.labKey).toBe(labKey);
     // The API "restarted": the UI reopens with the same key; Eve still holds the key from its context block.
-    const second = await request(server).post('/api/sessions').send({ labId: 'lab-2-missing-gateway', labKey }).expect(201);
+    const second = await request(server).post('/api/sessions').send({ labId: 'ex-wrong-gateway', labKey }).expect(201);
     const st = await request(server).post('/api/eve/tools/get_lab_state').send({ labId: labKey }).expect(201);
     expect(st.body.sessionId).toBe(second.body.sessionId);
-    expect(st.body.id).toBe('lab-2-missing-gateway');
+    expect(st.body.id).toBe('ex-wrong-gateway');
     for (let i = 0; i < 130; i++) {
       await request(server).post('/api/eve/tools/confirm').send({ labId: labKey, purpose: 'apply_device_config' }).expect(201);
     }
@@ -293,6 +293,27 @@ describe('list_commands matches terminal', () => {
     expect(blob).toContain('ping');
     expect(blob).toContain('ip addr');
     expect(blob).not.toMatch(/bgp/i);
+  });
+
+  it('returns profile-specific switch commands', async () => {
+    const unmanaged = await request(server).get('/api/commands/switch?switchProfile=unmanaged').expect(200);
+    expect(JSON.stringify(unmanaged.body)).toMatch(/no CLI/i);
+    expect(JSON.stringify(unmanaged.body)).not.toMatch(/switchport/);
+    const multilayer = await request(server).get('/api/commands/switch?switchProfile=multilayer').expect(200);
+    expect(JSON.stringify(multilayer.body)).toMatch(/ip routing/);
+    expect(JSON.stringify(multilayer.body)).toMatch(/helper-address/);
+  });
+
+  it('carries switchProfile through session state, edits and save', async () => {
+    const { sessionId } = await openLab('model-unmanaged-switch');
+    const state = await request(server).get(`/api/sessions/${sessionId}/state`).expect(200);
+    expect(state.body.devices.find((d: { name: string }) => d.name === 'USW1').switchProfile).toBe('unmanaged');
+    await request(server)
+      .post(`/api/sessions/${sessionId}/edit`)
+      .send({ patch: { addDevices: [{ type: 'switch', switchProfile: 'multilayer', name: 'DSW9', x: 700, y: 80 }] } })
+      .expect(201);
+    const saved = await request(server).post(`/api/sessions/${sessionId}/save`).send({}).expect(201);
+    expect(saved.body.json.devices.find((d: { name: string }) => d.name === 'DSW9').switchProfile).toBe('multilayer');
   });
 });
 
