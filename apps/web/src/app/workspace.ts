@@ -2243,6 +2243,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   deleteDevice(d: DeviceState) {
     this.confirmDel.set(d);
+    this.focusConfirmPrimary();
+  }
+
+  askReset(): void {
+    this.confirmReset.set(true);
+    this.focusConfirmPrimary();
+  }
+
+  /** Focus the primary action so Enter confirms (Delete → Enter). */
+  private focusConfirmPrimary(): void {
+    requestAnimationFrame(() => {
+      (document.querySelector('[data-confirm-primary]') as HTMLButtonElement | null)?.focus();
+    });
   }
 
   async doDelete() {
@@ -3448,7 +3461,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     act('report', 'Copy lab report (Markdown)', 'file', () => this.copyReport());
     act('json', 'Download lab JSON', 'download', () => this.saveJson(), 'Ctrl+S');
     act('saveas', 'Save a copy to my account…', 'save', () => this.openSaveAs());
-    act('reset', 'Reset lab to its start', 'reset', () => this.confirmReset.set(true));
+    act('reset', 'Reset lab to its start', 'reset', () => this.askReset());
     act('cheat', 'Command reference', 'book', () => this.openCheat());
     act('keys', 'Keyboard shortcuts', 'keyboard', () => this.shortcutsOpen.set(true), '?');
     act('help', 'Help topics', 'help', () => this.helpOpen.set('hub'));
@@ -3647,6 +3660,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (inField) return;
     if (ev.key === 'Delete' && this.selected()) {
       this.confirmDel.set(this.selected());
+      this.focusConfirmPrimary();
       return;
     }
     if (ev.key === '?') {
