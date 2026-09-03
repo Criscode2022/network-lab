@@ -797,6 +797,22 @@ export class Engine {
     return undefined;
   }
 
+  /** Egress interface for an IPv6 next hop: the interface whose prefix contains it, or where its NDP entry was learnt (link-local gateways). */
+  private ifaceForGw6(dev: Device, gw: string): Iface | undefined {
+    const g = parseIPv6(gw);
+    if (!g) return undefined;
+    const nd = dev.ndp.find((e) => e.ip === gw);
+    if (nd) return findIface(dev, nd.iface);
+    for (const i of dev.ifaces) {
+      for (const v of i.ipv6) {
+        if (v.ip.toLowerCase().startsWith('fe80')) continue;
+        const b = parseIPv6(v.ip);
+        if (b && ipv6PrefixMatch(g, b, v.prefix)) return i;
+      }
+    }
+    return undefined;
+  }
+
   lookupV4(dev: Device, dst: string): RouteV4 | undefined {
     this.rebuildConnected(dev);
     const dip = parseIPv4(dst);
@@ -1189,7 +1205,14 @@ export class Engine {
         return;
       }
     }
-    const route = this.lookupV6(dev, pkt.dst);
+    let route = this.lookupV6(dev, pkt.dst);
+    if (!route && pkt.dst.toLowerCase().startsWith('fe80')) {
+      // Link-local destinations are on-link by definition: answer on the interface we learnt the peer from
+      // (or the one the packet came in on), never through a router.
+      const viaNdp = dev.ndp.find((e) => e.ip === pkt.dst)?.iface;
+      const onLink = (viaNdp ? findIface(dev, viaNdp) : undefined) ?? inIf ?? dev.ifaces.find((i) => i.adminUp && !i.isRadio && i.ipv6.length > 0);
+      if (onLink) route = { dest: 'fe80::', prefix: 10, iface: onLink.name, proto: 'connected', ad: 0 };
+    }
     if (!route) {
       this.emitEvent({
         from: { device: dev.name, iface: inIf?.name ?? '?' },
@@ -1203,7 +1226,7 @@ export class Engine {
       });
       return;
     }
-    const out = route.iface ? findIface(dev, route.iface) : this.pickSrc6(dev, pkt.dst)?.iface;
+    const out = route.iface ? findIface(dev, route.iface) : (route.nexthop ? this.ifaceForGw6(dev, route.nexthop) : undefined) ?? this.pickSrc6(dev, pkt.dst)?.iface;
     if (!out?.adminUp) {
       this.emitEvent({
         from: { device: dev.name, iface: out?.name ?? '?' },
@@ -1295,6 +1318,8 @@ export class Engine {
       return;
     }
     if (pkt.icmpType === 'ra') {
+      // The RA's link-local source becomes the default gateway; remember which port it came from so routed traffic leaves there.
+      this.learnNdp(dev, inIf.name, pkt.src, _frame.srcMac);
       this.applyRa(dev, inIf, pkt);
       return;
     }
@@ -1813,19 +1838,22 @@ export class Engine {
     return `Associated to ${ssid} on ${match.ap.name} (VLAN ${match.conf.vlan}, channel ${match.conf.channel} cosmetic except same-SSID/same-channel BSS)`;
   }
 
-  resolveName(dev: Device, host: string): { ip?: string; family?: Family; err?: string } {
+  /** Name → address. On a dual-stack peer `prefer` decides which family wins (ping6 / a v6 check asks for v6). */
+  resolveName(dev: Device, host: string, prefer?: Family): { ip?: string; family?: Family; err?: string } {
     if (isIPv4Literal(host)) return { ip: host, family: 'v4' };
     if (isIPv6Literal(host)) return { ip: host, family: 'v6' };
-    if (dev.hostsFile[host]) return this.resolveName(dev, dev.hostsFile[host]);
+    if (dev.hostsFile[host]) return this.resolveName(dev, dev.hostsFile[host], prefer);
     const peer = this.find(host);
     if (peer) {
       const ip = peer.ifaces.find((i) => i.ipv4)?.ipv4?.ip;
+      const ip6 = peer.ifaces.find((i) => i.ipv6.some((v) => !v.ip.toLowerCase().startsWith('fe80')))?.ipv6.find((v) => !v.ip.toLowerCase().startsWith('fe80'))?.ip;
+      if (prefer === 'v6' && ip6) return { ip: ip6, family: 'v6' };
       if (ip) return { ip, family: 'v4' };
-      const ip6 = peer.ifaces.find((i) => i.ipv6.some((v) => !v.ip.toLowerCase().startsWith('fe80')))?.ipv6.find((v) => !v.ip.toLowerCase().startsWith('fe80'));
-      if (ip6) return { ip: ip6.ip, family: 'v6' };
+      if (ip6) return { ip: ip6, family: 'v6' };
     }
     for (const d of this.devices.values()) {
       const rec = d.dnsRecords[host];
+      if (prefer === 'v6' && rec?.aaaa) return { ip: rec.aaaa, family: 'v6' };
       if (rec?.a) return { ip: rec.a, family: 'v4' };
       if (rec?.aaaa) return { ip: rec.aaaa, family: 'v6' };
     }
@@ -1835,7 +1863,7 @@ export class Engine {
   ping(srcName: string, dst: string, opts: { count?: number; family?: Family; ttl?: number } = {}): PingResult {
     const src = this.dev(srcName);
     const start = this.packets.length;
-    const resolved = this.resolveName(src, dst);
+    const resolved = this.resolveName(src, dst, opts.family);
     if (resolved.err || !resolved.ip) {
       return { ok: false, output: `ping: ${resolved.err}`, reason: resolved.err ?? 'unresolved', events: [], rttMs: [] };
     }
@@ -1932,7 +1960,7 @@ export class Engine {
 
   traceroute(srcName: string, dst: string, family: Family): { output: string; events: PacketEvent[]; ok: boolean } {
     const src = this.dev(srcName);
-    const resolved = this.resolveName(src, dst);
+    const resolved = this.resolveName(src, dst, family);
     if (!resolved.ip) return { output: `traceroute: ${resolved.err}`, events: [], ok: false };
     const start = this.packets.length;
     const lines = [`traceroute${family === 'v6' ? '6' : ''} to ${dst} (${resolved.ip}), 30 hops max [simulated]`];
@@ -1957,7 +1985,7 @@ export class Engine {
     const start = this.packets.length;
     const src = this.find(srcName);
     if (!src) return { ok: false, hops: [], reason: `unknown device ${srcName}`, events: [] };
-    const resolved = this.resolveName(src, dst);
+    const resolved = this.resolveName(src, dst, family);
     const dest = resolved.ip ?? dst;
     if (proto === 'tcp' || proto === 'ssh') {
       const s = family === 'v6' ? this.pickSrc6(src, dest) : this.pickSrc4(src, dest);
@@ -2489,7 +2517,9 @@ export class Engine {
       }
     }
     if (t[0] === 'ip' && t[1] === 'dhcp' && t[2] === 'pool') {
-      d.dhcpPools.push({ name: t[3] });
+      if (!t[3]) return err('% Incomplete command');
+      // Re-entering an existing pool edits it (IOS behaviour) instead of shadowing it with an empty duplicate.
+      if (!d.dhcpPools.some((p) => p.name === t[3])) d.dhcpPools.push({ name: t[3] });
       d.cli.level = 'dhcp';
       d.cli.dhcpPool = t[3];
       return out('');

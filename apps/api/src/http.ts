@@ -13,7 +13,18 @@ import {
   Put,
   UnauthorizedException,
 } from '@nestjs/common';
-import { BUILTIN_LABS, Engine, labById, labFromSpec, labStartupErrors, validateLab, type LabJson } from '@netbench/engine';
+import {
+  applySolution,
+  BUILTIN_LABS,
+  Engine,
+  exercisesForModel,
+  labById,
+  labFromSpec,
+  labStartupErrors,
+  labSummary,
+  validateLab,
+  type LabJson,
+} from '@netbench/engine';
 import jwt from 'jsonwebtoken';
 import {
   consumeMagic,
@@ -90,6 +101,18 @@ function labFromBuildBody(body: { spec?: string; lab?: unknown }): { lab: LabJso
     throw new HttpException('NetBench does not implement BGP/MPLS/VXLAN/802.1X. Use OSPF area 0 and the eight device types.', 400);
   }
   return { lab: labFromSpec(body.spec ?? ''), startupErrors: [] };
+}
+
+/** Lab JSON as served to clients: the exercise's answer travels only through the explicit solution routes. */
+function stripSolution(lab: LabJson): Omit<LabJson, 'solution'> {
+  const { solution: _solution, ...rest } = lab;
+  void _solution;
+  return rest;
+}
+
+/** The built-in lab a session was opened from (custom/saved labs have no curriculum entry). */
+function curriculumLab(engine: Engine): LabJson | undefined {
+  return labById(engine.id);
 }
 
 /** Build identity so clients (the Eve host, the UI) can tell "old deploy" from "down" — Railway/Vercel set the commit env vars. */
@@ -183,16 +206,33 @@ export class AuthController {
 export class LabsController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
+  /** Models first, then exercises. Summaries only: no topology, no solution (the UI fetches those on demand). */
   @Get('builtin')
   builtin() {
-    return { labs: BUILTIN_LABS.map((l) => ({ id: l.id, name: l.name, goal: l.goal, description: l.description })) };
+    return { labs: BUILTIN_LABS.map(labSummary) };
   }
 
+  /** Full lab JSON minus the solution — an exercise must not leak its own answer through the lab loader. */
   @Get('builtin/:id')
   one(@Param('id') id: string) {
     const lab = labById(id);
     if (!lab) throw new HttpException('unknown lab', 404);
-    return lab;
+    return stripSolution(lab);
+  }
+
+  /** Official fix of an exercise: summary, progressive hints and the patch. 404 for models (nothing to fix). */
+  @Get('builtin/:id/solution')
+  solution(@Param('id') id: string) {
+    const lab = labById(id);
+    if (!lab?.solution) throw new HttpException('this lab has no solution (models pass as shipped)', 404);
+    return { labId: lab.id, modelId: lab.modelId, ...lab.solution };
+  }
+
+  /** Exercises built on a model, for "practice this" links. */
+  @Get('builtin/:id/exercises')
+  exercises(@Param('id') id: string) {
+    if (!labById(id)) throw new HttpException('unknown lab', 404);
+    return { labs: exercisesForModel(id).map(labSummary) };
   }
 
   @Get()
@@ -212,7 +252,7 @@ export class LabsController {
   async get(@Param('id') id: string) {
     const saved = await getLab(id);
     const builtin = labById(id);
-    const row = saved ?? (builtin ? { id, userId: null, name: builtin.name, json: builtin, updatedAt: '' } : undefined);
+    const row = saved ?? (builtin ? { id, userId: null, name: builtin.name, json: stripSolution(builtin), updatedAt: '' } : undefined);
     if (!row) throw new HttpException('unknown lab', 404);
     return row;
   }

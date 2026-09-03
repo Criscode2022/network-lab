@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Engine } from '../src/engine.ts';
 import { listCommands } from '../src/commands.ts';
-import { BUILTIN_LABS } from '../src/labs.ts';
+import { BUILTIN_LABS, EXERCISE_LABS, MODEL_LABS, applySolution, exercisesForModel, labById, labSummary } from '../src/labs.ts';
 import { dualStackOfficeLab, labFromSpec } from '../src/build.ts';
 import { validatePatch } from '../src/patch.ts';
 import { labStartupErrors, validateLab } from '../src/validate.ts';
@@ -130,10 +130,10 @@ describe('VLANs and static routing', () => {
   });
 
   it('static v4 via a router', () => {
-    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-two-subnets-router')!);
     expect(e.ping('PC1', '10.0.1.20', { count: 1 }).ok).toBe(true);
     e.exec('PC1', 'ip route add default via 10.0.0.9');
-    const broken = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    const broken = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-two-subnets-router')!);
     broken.exec('PC1', 'ip addr add 10.0.0.10/24 dev eth0');
     const pc = broken.find('PC1')!;
     pc.defaultGw4 = undefined;
@@ -249,7 +249,7 @@ describe('DHCP, wifi, firewall, NAT, TTL, loop', () => {
   });
 
   it('ICMP TTL expiry reason', () => {
-    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-two-subnets-router')!);
     const r = e.ping('PC1', '10.0.1.20', { count: 1, ttl: 1 });
     expect(r.ok).toBe(false);
     expect(r.reason.toLowerCase()).toMatch(/ttl expired/);
@@ -284,55 +284,115 @@ describe('DHCP, wifi, firewall, NAT, TTL, loop', () => {
 });
 
 describe('built-in labs Check', () => {
-  /** Fault labs start failing and must pass once the fix named in their goal is applied. */
-  const FIX: Record<string, (e: Engine) => void> = {
-    'lab-0a-plug-the-cable': (e) => e.addLink('PC2:eth0', 'SW1:Gi0/2', true, 'ethernet'),
-    'lab-0b-first-address': (e) => e.exec('PC2', 'ip addr add 10.0.0.20/24 dev eth0'),
-    'lab-0c-port-shutdown': (e) => {
-      for (const l of ['enable', 'conf t', 'int Gi0/2', 'no shut', 'end']) e.exec('SW1', l);
-    },
-    'lab-2b-wrong-mask': (e) => {
-      e.exec('PC2', 'ip addr del 10.0.0.200/25 dev eth0');
-      e.exec('PC2', 'ip addr add 10.0.0.200/24 dev eth0');
-    },
-    'lab-9-static-routes': (e) => {
-      for (const l of ['enable', 'conf t', 'ip route 10.2.2.0 255.255.255.0 10.0.12.2', 'end']) e.exec('R1', l);
-      for (const l of ['enable', 'conf t', 'ip route 10.1.1.0 255.255.255.0 10.0.12.1', 'end']) e.exec('R2', l);
-    },
-    'lab-10-ospf-three-routers': (e) => {
-      for (const l of ['enable', 'conf t', 'router ospf 1', 'network 10.0.13.0 0.0.0.3 area 0', 'network 10.0.23.0 0.0.0.3 area 0', 'network 10.3.3.0 0.0.0.255 area 0', 'end']) e.exec('R3', l);
-    },
-    'lab-11-nat-internet': (e) => {
-      for (const l of ['enable', 'conf t', 'ip access-list standard LAN', 'permit 192.168.1.0 0.0.0.255', 'ip nat inside source list LAN interface Gi0/1 overload', 'end']) e.exec('R1', l);
-    },
-    'lab-12-wlc-capwap': (e) => {
-      for (const l of ['enable', 'conf t', 'capwap controller 10.0.10.5', 'end']) e.exec('AP1', l);
-      e.exec('PC1', 'nmcli wifi connect CORP password netbench');
-    },
-  };
+  const failing = (chk: { results: { ok: boolean; reason: string }[] }) => chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ');
 
-  it('has a curriculum of 17 labs with unique ids', () => {
-    expect(BUILTIN_LABS).toHaveLength(17);
+  it('is a curriculum of 17 models + 21 exercises with unique, stable ids', () => {
+    expect(MODEL_LABS).toHaveLength(17);
+    expect(EXERCISE_LABS).toHaveLength(21);
+    expect(BUILTIN_LABS).toHaveLength(MODEL_LABS.length + EXERCISE_LABS.length);
     expect(new Set(BUILTIN_LABS.map((l) => l.id)).size).toBe(BUILTIN_LABS.length);
-    expect(BUILTIN_LABS[0].id).toBe('lab-0a-plug-the-cable');
-  });
-
-  it('study labs pass as shipped', () => {
-    for (const lab of BUILTIN_LABS.filter((l) => !FIX[l.id])) {
-      const chk = Engine.fromLab(lab).check();
-      expect(chk.ok, `${lab.id}: ${chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}`).toBe(true);
+    expect(BUILTIN_LABS[0].id).toBe('lab-1-first-ipv4-ping');
+    expect(EXERCISE_LABS[0].id).toBe('lab-0a-plug-the-cable');
+    for (const id of ['lab-3-vlans-roas', 'lab-6-ospf-area0', 'lab-8-firewall-ssh', 'lab-13-dual-stack-office', 'lab-9-static-routes', 'lab-12-wlc-capwap']) {
+      expect(labById(id), id).toBeDefined();
     }
   });
 
-  it('fault labs fail as shipped and pass after the documented fix', () => {
-    for (const lab of BUILTIN_LABS.filter((l) => FIX[l.id])) {
+  it('every lab is valid against validateLab and every startup line is accepted (an exercise may ship a failing post line)', () => {
+    for (const lab of BUILTIN_LABS) {
+      const v = validateLab(lab);
+      expect(v.ok, `${lab.id}: ${(v as { error?: string }).error ?? ''}`).toBe(true);
+      const postLines = new Set(lab.devices.flatMap((d) => d.post ?? []));
+      const errs = labStartupErrors(lab).filter((e) => !(lab.kind === 'exercise' && postLines.has(e.line)));
+      expect(errs, `${lab.id}: ${errs.map((e) => `${e.device}: ${e.line} → ${e.error}`).join('; ')}`).toEqual([]);
+    }
+  });
+
+  it('models are tagged, carry no solution, and pass Check as shipped', () => {
+    for (const lab of MODEL_LABS) {
+      expect(lab.kind, lab.id).toBe('model');
+      expect(lab.level, lab.id).toBeDefined();
+      expect(lab.topics?.length ?? 0, `${lab.id} topics`).toBeGreaterThan(0);
+      expect(lab.solution, `${lab.id} must not carry a solution`).toBeUndefined();
+      expect(lab.modelId, `${lab.id} must not point at a model`).toBeUndefined();
+      const chk = Engine.fromLab(lab).check();
+      expect(chk.ok, `${lab.id}: ${failing(chk)}`).toBe(true);
+    }
+  });
+
+  it('exercises are tagged, point at an existing model, and carry a summary + hints + patch', () => {
+    for (const lab of EXERCISE_LABS) {
+      expect(lab.kind, lab.id).toBe('exercise');
+      expect(lab.level, lab.id).toBeDefined();
+      expect(lab.topics?.length ?? 0, `${lab.id} topics`).toBeGreaterThan(0);
+      const model = lab.modelId ? labById(lab.modelId) : undefined;
+      expect(model?.kind, `${lab.id} → modelId ${lab.modelId}`).toBe('model');
+      expect(lab.solution?.summary.length ?? 0, `${lab.id} summary`).toBeGreaterThan(40);
+      expect(lab.solution?.hints.length ?? 0, `${lab.id} hints`).toBeGreaterThanOrEqual(2);
+      expect(lab.solution?.hints.every((h) => h.trim().length > 10), `${lab.id} empty hint`).toBe(true);
+      const p = lab.solution!.patch;
+      expect((p.configs?.length ?? 0) + (p.addLinks?.length ?? 0) + (p.addDevices?.length ?? 0), `${lab.id} empty patch`).toBeGreaterThan(0);
+    }
+  });
+
+  it('exercises fail as shipped and pass once their solution is applied', () => {
+    for (const lab of EXERCISE_LABS) {
       const e = Engine.fromLab(lab);
       expect(e.check().ok, `${lab.id} should start broken`).toBe(false);
-      FIX[lab.id](e);
-      e.converge();
-      const chk = e.check();
-      expect(chk.ok, `${lab.id}: ${chk.results.filter((r) => !r.ok).map((r) => r.reason).join('; ')}`).toBe(true);
+      const { check } = applySolution(e, lab);
+      expect(check.ok, `${lab.id}: ${failing(check)}`).toBe(true);
     }
+  });
+
+  it('applying a solution twice is harmless (idempotent repair)', () => {
+    for (const lab of EXERCISE_LABS) {
+      const e = Engine.fromLab(lab);
+      applySolution(e, lab);
+      const r = e.applyPatch(lab.solution!.patch);
+      // Re-adding a cable or a duplicate default route may be refused, but the lab must still be green.
+      expect(e.check().ok, `${lab.id} after second apply (${r.error ?? 'ok'})`).toBe(true);
+    }
+  });
+
+  it('every model has at least one exercise or is a capstone/reference on its own', () => {
+    const covered = new Set(EXERCISE_LABS.map((l) => l.modelId));
+    const standalone = MODEL_LABS.filter((m) => !covered.has(m.id)).map((m) => m.id);
+    expect(standalone.sort()).toEqual(['lab-13-dual-stack-office', 'model-dual-stack-routed'].sort());
+    expect(exercisesForModel('lab-1-first-ipv4-ping').map((l) => l.id)).toContain('lab-0a-plug-the-cable');
+  });
+
+  it('labSummary hides the topology and the solution but exposes kind/level/hints', () => {
+    const s = labSummary(labById('lab-0a-plug-the-cable')!);
+    expect(s).toMatchObject({ id: 'lab-0a-plug-the-cable', kind: 'exercise', level: 'beginner', modelId: 'lab-1-first-ipv4-ping', hasSolution: true, hintCount: 3, checks: 1, devices: 3 });
+    expect('solution' in s).toBe(false);
+    expect('devices' in s && typeof s.devices === 'number').toBe(true);
+    expect(labSummary(labById('lab-1-first-ipv4-ping')!)).toMatchObject({ kind: 'model', hasSolution: false, hintCount: 0 });
+  });
+
+  it('validateLab keeps kind/level/topics/modelId/solution and rejects an exercise without a solution', () => {
+    const ex = labById('ex-wrong-gateway')!;
+    const v = validateLab(JSON.parse(JSON.stringify(ex)));
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.lab.kind).toBe('exercise');
+      expect(v.lab.level).toBe('beginner');
+      expect(v.lab.topics).toEqual(ex.topics);
+      expect(v.lab.modelId).toBe(ex.modelId);
+      expect(v.lab.solution).toEqual(ex.solution);
+    }
+    const bad = validateLab({ ...JSON.parse(JSON.stringify(ex)), solution: undefined });
+    expect(bad.ok).toBe(false);
+    expect((bad as { error: string }).error).toMatch(/exercise lab needs a solution/);
+    const badLink = validateLab({ ...JSON.parse(JSON.stringify(ex)), solution: { summary: 'x', hints: [], patch: { addLinks: [{ a: 'PC1:eth0', b: 'SW1:Gi0/3' }] } } });
+    expect(badLink.ok).toBe(false);
+    expect((badLink as { error: string }).error).toMatch(/already cabled/);
+  });
+
+  it('the wrong-gateway exercise drops the reply on PC2 with an honest reason', () => {
+    const e = Engine.fromLab(labById('ex-wrong-gateway')!);
+    const p = e.getPath('PC1', '10.0.1.20', 'icmp', 'v4');
+    expect(p.ok).toBe(false);
+    expect(p.reason).toMatch(/PC2|10\.0\.1\.254/);
   });
 
   it('wrong mask drops on the way back with an honest reason', () => {
@@ -697,7 +757,7 @@ describe('get_path drop reason matches inspector', () => {
 
 describe('route and address removal', () => {
   it('ip route del / replace fix a wrong default gateway on a host', () => {
-    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-two-subnets-router')!);
     // Wrong gateway: add refuses a second default, replace swaps it, del removes it.
     expect(e.exec('PC1', 'ip route add default via 10.0.0.9').error).toBe(true);
     expect(e.exec('PC1', 'ip route replace default via 10.0.0.9').error).toBeFalsy();
@@ -716,7 +776,7 @@ describe('route and address removal', () => {
   });
 
   it('ip addr del removes the address and the routes that depended on it', () => {
-    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-missing-gateway')!);
+    const e = Engine.fromLab(BUILTIN_LABS.find((l) => l.id === 'lab-2-two-subnets-router')!);
     expect(e.exec('PC1', 'ip addr del 10.0.0.99/24 dev eth0').error).toBe(true);
     expect(e.exec('PC1', 'ip addr del 10.0.0.10/24 dev eth0').error).toBeFalsy();
     const pc = e.dev('PC1');

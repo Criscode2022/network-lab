@@ -1,6 +1,19 @@
 import { CABLE_MEDIA } from './cables.ts';
 import { Engine } from './engine.ts';
-import { DEVICE_KINDS, KIND_PORTS, type CableMedia, type DeviceKind, type LabCheck, type LabJson } from './types.ts';
+import {
+  DEVICE_KINDS,
+  KIND_PORTS,
+  LAB_KINDS,
+  LAB_LEVELS,
+  type CableMedia,
+  type DeviceKind,
+  type LabCheck,
+  type LabJson,
+  type LabKind,
+  type LabLevel,
+  type LabPatch,
+  type LabSolution,
+} from './types.ts';
 
 export const MAX_LAB_DEVICES = 40;
 export const MAX_LAB_LINKS = 80;
@@ -130,6 +143,36 @@ export function validateLab(input: unknown): Ok | Bad {
     }
   }
 
+  let kind: LabKind | undefined;
+  if (raw.kind !== undefined) {
+    if (!LAB_KINDS.includes(raw.kind as LabKind)) return { ok: false, error: `unknown lab kind "${String(raw.kind)}" (allowed: ${LAB_KINDS.join(', ')})` };
+    kind = raw.kind as LabKind;
+  }
+  let level: LabLevel | undefined;
+  if (raw.level !== undefined) {
+    if (!LAB_LEVELS.includes(raw.level as LabLevel)) return { ok: false, error: `unknown lab level "${String(raw.level)}" (allowed: ${LAB_LEVELS.join(', ')})` };
+    level = raw.level as LabLevel;
+  }
+  let topics: string[] | undefined;
+  if (raw.topics !== undefined) {
+    if (!isStrArray(raw.topics) || raw.topics.length > 12 || raw.topics.some((t) => !/^[a-z0-9][a-z0-9-]{0,23}$/.test(t))) {
+      return { ok: false, error: 'lab.topics must be up to 12 lowercase tags (letters, digits, -)' };
+    }
+    topics = raw.topics;
+  }
+  let modelId: string | undefined;
+  if (raw.modelId !== undefined) {
+    if (typeof raw.modelId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/i.test(raw.modelId)) return { ok: false, error: 'lab.modelId must be a lab id' };
+    modelId = raw.modelId;
+  }
+  let solution: LabSolution | undefined;
+  if (raw.solution !== undefined) {
+    const s = validateSolution(raw.solution, byName, usedPorts);
+    if ('ok' in s) return s;
+    solution = s.solution;
+  }
+  if (kind === 'exercise' && !solution) return { ok: false, error: 'an exercise lab needs a solution (summary, hints, patch)' };
+
   return {
     ok: true,
     lab: {
@@ -139,11 +182,107 @@ export function validateLab(input: unknown): Ok | Bad {
       ...(typeof raw.description === 'string' && raw.description ? { description: raw.description } : {}),
       ...(typeof raw.goal === 'string' && raw.goal ? { goal: raw.goal } : {}),
       ...(typeof raw.differsNote === 'string' && raw.differsNote ? { differsNote: raw.differsNote } : {}),
+      ...(kind ? { kind } : {}),
+      ...(level ? { level } : {}),
+      ...(topics && topics.length ? { topics } : {}),
+      ...(modelId ? { modelId } : {}),
+      ...(solution ? { solution } : {}),
       devices,
       links,
       checks,
     },
   };
+}
+
+/**
+ * A solution is a lab patch plus prose. Device names must exist in the lab (or be added by the patch),
+ * links must use free ports, and no command may name out-of-scope tech.
+ */
+function validateSolution(input: unknown, byName: Map<string, LabJson['devices'][number]>, usedPorts: Set<string>): { solution: LabSolution } | Bad {
+  if (!input || typeof input !== 'object') return { ok: false, error: 'lab.solution must be an object' };
+  const raw = input as Record<string, unknown>;
+  if (typeof raw.summary !== 'string' || !raw.summary.trim()) return { ok: false, error: 'solution.summary must be a non-empty string' };
+  const hints = raw.hints === undefined ? [] : raw.hints;
+  if (!isStrArray(hints) || hints.length > 8) return { ok: false, error: 'solution.hints must be up to 8 strings' };
+  if (!raw.patch || typeof raw.patch !== 'object') return { ok: false, error: 'solution.patch must be an object' };
+  const p = raw.patch as Record<string, unknown>;
+  const patch: LabPatch = {};
+  const names = new Set(byName.keys());
+
+  if (p.addDevices !== undefined) {
+    if (!Array.isArray(p.addDevices)) return { ok: false, error: 'solution.patch.addDevices must be an array' };
+    patch.addDevices = [];
+    for (const d of p.addDevices as unknown[]) {
+      const rec = (d ?? {}) as Record<string, unknown>;
+      if (!DEVICE_KINDS.includes(rec.type as DeviceKind)) return { ok: false, error: `solution adds a device of unknown type "${String(rec.type)}"` };
+      if (typeof rec.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/.test(rec.name)) return { ok: false, error: 'solution.patch.addDevices entries need a valid name' };
+      if (names.has(rec.name.toLowerCase())) return { ok: false, error: `solution adds ${rec.name}, which already exists` };
+      names.add(rec.name.toLowerCase());
+      patch.addDevices.push({
+        type: rec.type as DeviceKind,
+        name: rec.name,
+        ...(typeof rec.x === 'number' ? { x: rec.x } : {}),
+        ...(typeof rec.y === 'number' ? { y: rec.y } : {}),
+      });
+    }
+  }
+  if (p.removeDeviceIds !== undefined) {
+    if (!isStrArray(p.removeDeviceIds)) return { ok: false, error: 'solution.patch.removeDeviceIds must be a string array' };
+    patch.removeDeviceIds = p.removeDeviceIds;
+  }
+  if (p.addLinks !== undefined) {
+    if (!Array.isArray(p.addLinks)) return { ok: false, error: 'solution.patch.addLinks must be an array' };
+    patch.addLinks = [];
+    const taken = new Set(usedPorts);
+    for (const l of p.addLinks as unknown[]) {
+      const rec = (l ?? {}) as Record<string, unknown>;
+      const ends: string[] = [];
+      for (const side of ['a', 'b'] as const) {
+        const s = rec[side];
+        if (typeof s !== 'string' || s.lastIndexOf(':') <= 0) return { ok: false, error: `solution link ${side} must be "Name:iface"` };
+        const i = s.lastIndexOf(':');
+        const devName = s.slice(0, i);
+        const dev = byName.get(devName.toLowerCase());
+        const added = patch.addDevices?.find((d) => d.name.toLowerCase() === devName.toLowerCase());
+        const kind = dev?.kind ?? added?.type;
+        if (!kind) return { ok: false, error: `solution link: unknown device in "${s}"` };
+        const port = KIND_PORTS[kind].find((x) => x.toLowerCase() === s.slice(i + 1).toLowerCase());
+        if (!port || port === 'wlan0') return { ok: false, error: `solution link: ${devName} has no cable port ${s.slice(i + 1)}` };
+        const key = `${dev?.name ?? added!.name}:${port}`;
+        if (taken.has(key)) return { ok: false, error: `solution link: port ${key} is already cabled` };
+        taken.add(key);
+        ends.push(key);
+      }
+      if (ends[0].split(':')[0] === ends[1].split(':')[0]) return { ok: false, error: `solution link ${ends[0]} — ${ends[1]} connects a device to itself` };
+      let cable: CableMedia | undefined;
+      if (rec.cable !== undefined) {
+        if (typeof rec.cable !== 'string' || !CABLE_MEDIA.includes(rec.cable as CableMedia)) return { ok: false, error: `solution link: unknown cable "${String(rec.cable)}"` };
+        cable = rec.cable as CableMedia;
+      }
+      patch.addLinks.push({ a: ends[0], b: ends[1], ...(cable ? { cable } : {}) });
+    }
+  }
+  if (p.removeLinks !== undefined) {
+    if (!isStrArray(p.removeLinks)) return { ok: false, error: 'solution.patch.removeLinks must be a string array' };
+    patch.removeLinks = p.removeLinks;
+  }
+  if (p.configs !== undefined) {
+    if (!Array.isArray(p.configs)) return { ok: false, error: 'solution.patch.configs must be an array' };
+    patch.configs = [];
+    for (const c of p.configs as unknown[]) {
+      const rec = (c ?? {}) as Record<string, unknown>;
+      if (typeof rec.device !== 'string' || !names.has(rec.device.toLowerCase())) return { ok: false, error: `solution config: unknown device "${String(rec.device)}"` };
+      if (!isStrArray(rec.commands) || !rec.commands.length) return { ok: false, error: `solution config for ${rec.device}: commands must be a non-empty string array` };
+      for (const line of rec.commands) {
+        if (OUT_OF_SCOPE.test(line)) return { ok: false, error: `solution config for ${rec.device}: "${line}" — NetBench does not implement BGP/MPLS/VXLAN/802.1X` };
+      }
+      patch.configs.push({ device: rec.device, commands: rec.commands });
+    }
+  }
+  if (!patch.addDevices?.length && !patch.removeDeviceIds?.length && !patch.addLinks?.length && !patch.removeLinks?.length && !patch.configs?.length) {
+    return { ok: false, error: 'solution.patch must change something (configs, addLinks, …)' };
+  }
+  return { solution: { summary: raw.summary.trim(), hints, patch } };
 }
 
 /** Replays every startup/post line on a fresh engine and reports the ones the device CLI rejects. */

@@ -326,6 +326,25 @@ export interface CheckOspf {
 
 export type LabCheck = CheckPing | CheckSsh | CheckAssoc | CheckDhcp | CheckOspf;
 
+/**
+ * `model` — a reference lab that passes Check as shipped: read it, copy from it, break it on purpose.
+ * `exercise` — ships broken or incomplete; the learner repairs it and Check proves it. Carries a `solution`.
+ */
+export type LabKind = 'model' | 'exercise';
+export type LabLevel = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+export const LAB_KINDS: LabKind[] = ['model', 'exercise'];
+export const LAB_LEVELS: LabLevel[] = ['beginner', 'intermediate', 'advanced', 'expert'];
+
+/** The official fix of an exercise, in the same shape `apply_lab_patch` accepts (cables to add, CLI per device). */
+export interface LabSolution {
+  /** One paragraph in junior-admin terms: what was wrong / missing and why the fix works. */
+  summary: string;
+  /** Progressive hints, vaguest first. The UI reveals one at a time; the last one is almost the answer. */
+  hints: string[];
+  /** Applying this patch to the shipped lab makes every check pass. */
+  patch: LabPatch;
+}
+
 export interface LabJson {
   schemaVersion: 1;
   id: string;
@@ -333,6 +352,15 @@ export interface LabJson {
   description?: string;
   goal?: string;
   differsNote?: string;
+  /** Defaults to `model` when absent (older JSON, builder output). */
+  kind?: LabKind;
+  level?: LabLevel;
+  /** Free-form tags for grouping/search: 'vlan', 'ospf', 'nat', 'wifi', 'ipv6', 'firewall', 'dhcp', 'routing', 'cabling'. */
+  topics?: string[];
+  /** Exercise only: id of the model lab that shows the working version of this topology. */
+  modelId?: string;
+  /** Exercise only. Never copied into the running engine state; the UI fetches it on demand. */
+  solution?: LabSolution;
   devices: {
     id?: string;
     kind: DeviceKind;

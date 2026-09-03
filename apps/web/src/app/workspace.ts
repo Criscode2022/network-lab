@@ -2321,13 +2321,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.fail(e);
       return;
     }
-    this.cableFrom.set(null);
-    this.cableCursor.set(null);
+    this.cancelCable();
     const fresh = this.api.state()?.devices.find((x) => x.id === d.id);
     const st = fresh?.ifaces.find((i) => i.name === iface.name);
     const linkOk = !!st?.operUp;
     this.toast(
-      `${this.cableLabel(cable)} ${fromName}:${from.iface} ↔ ${d.name}:${iface.name}${linkOk ? ' — link up' : st ? ` — ${this.linkStatus(st)}` : ''}${this.cableArmed() ? '. Tap two more, or Esc.' : ''}`,
+      `${this.cableLabel(cable)} ${fromName}:${from.iface} ↔ ${d.name}:${iface.name}${linkOk ? ' — link up' : st ? ` — ${this.linkStatus(st)}` : ''}`,
       linkOk ? 'success' : 'warn',
     );
     if (this.basicMode()) {

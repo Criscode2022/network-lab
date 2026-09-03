@@ -72,25 +72,49 @@ describe('sessions + engine path/check', () => {
     expect(drop?.reason ?? path.body.reason).toBe(path.body.reason);
   });
 
-  it('run_check on every seeded lab matches its design (study labs pass, fault labs fail honestly)', async () => {
-    expect(BUILTIN_LABS.length).toBe(17);
-    // Labs whose goal is to repair something start with a failing Check.
-    const faultLabs = new Set([
-      'lab-0a-plug-the-cable',
-      'lab-0b-first-address',
-      'lab-0c-port-shutdown',
-      'lab-2b-wrong-mask',
-      'lab-9-static-routes',
-      'lab-10-ospf-three-routers',
-      'lab-11-nat-internet',
-      'lab-12-wlc-capwap',
-    ]);
+  it('run_check on every seeded lab matches its kind (models pass, exercises fail honestly)', async () => {
+    expect(BUILTIN_LABS.length).toBe(38);
     for (const lab of BUILTIN_LABS) {
       const { sessionId } = await openLab(lab.id);
       const chk = await request(server).post(`/api/sessions/${sessionId}/check`).expect(201);
-      expect(chk.body.ok, `${lab.id} ${JSON.stringify(chk.body.results)}`).toBe(!faultLabs.has(lab.id));
+      expect(chk.body.ok, `${lab.id} ${JSON.stringify(chk.body.results)}`).toBe(lab.kind === 'model');
       for (const r of chk.body.results as { ok: boolean; reason: string }[]) expect(typeof r.reason).toBe('string');
     }
+  });
+
+  it('GET /labs/builtin lists kind/level/modelId/hint counts without leaking topologies or solutions', async () => {
+    const r = await request(server).get('/api/labs/builtin').expect(200);
+    const labs = r.body.labs as Record<string, unknown>[];
+    expect(labs.length).toBe(38);
+    const ex = labs.find((l) => l.id === 'lab-0a-plug-the-cable')!;
+    expect(ex).toMatchObject({ kind: 'exercise', level: 'beginner', modelId: 'lab-1-first-ipv4-ping', hasSolution: true, hintCount: 3 });
+    expect(ex.solution).toBeUndefined();
+    expect(Array.isArray(ex.devices)).toBe(false);
+    const model = labs.find((l) => l.id === 'lab-1-first-ipv4-ping')!;
+    expect(model).toMatchObject({ kind: 'model', hasSolution: false });
+    const lastModel = labs.map((l) => l.kind).lastIndexOf('model');
+    expect(labs.findIndex((l) => l.kind === 'exercise')).toBeGreaterThan(lastModel);
+  });
+
+  it('GET /labs/builtin/:id/solution serves hints + patch for exercises only', async () => {
+    const ok = await request(server).get('/api/labs/builtin/lab-0a-plug-the-cable/solution').expect(200);
+    expect(ok.body.summary).toMatch(/cable/i);
+    expect(ok.body.hints).toHaveLength(3);
+    expect(ok.body.patch.addLinks).toEqual([{ a: 'PC2:eth0', b: 'SW1:Gi0/2' }]);
+    await request(server).get('/api/labs/builtin/lab-1-first-ipv4-ping/solution').expect(404);
+    await request(server).get('/api/labs/builtin/nope/solution').expect(404);
+  });
+
+  it('POST /sessions/:id/solution applies the official fix to an exercise session and Check passes', async () => {
+    const { sessionId } = await openLab('lab-9-static-routes');
+    const before = await request(server).post(`/api/sessions/${sessionId}/check`).expect(201);
+    expect(before.body.ok).toBe(false);
+    const r = await request(server).post(`/api/sessions/${sessionId}/solution`).send({}).expect(201);
+    expect(r.body.applied).toEqual(expect.arrayContaining(['config R1', 'config R2']));
+    expect(r.body.check.ok).toBe(true);
+    expect(r.body.state.lastCheck.ok).toBe(true);
+    const model = await openLab('lab-1-first-ipv4-ping');
+    await request(server).post(`/api/sessions/${model.sessionId}/solution`).send({}).expect(400);
   });
 
   it('POST cancel returns ^C and missing session is 404 not 500', async () => {
