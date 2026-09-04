@@ -233,7 +233,7 @@
           }
         </div>
         <div class="section-title px-3 pt-2 pb-1.5">Devices</div>
-        <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400 md:hidden">Tap a type — it lands in the middle of the canvas. Long-press Switch to change type.</p>
+        <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400">Click to drop in the middle, or drag onto the canvas. Long-press Switch on a phone to change type.</p>
         <div class="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-1">
           @for (p of devicePalette(); track p.id) {
             <div class="relative">
@@ -251,14 +251,14 @@
               }
               <button
                 type="button"
-                class="flex min-h-12 w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
+                class="flex min-h-12 w-full cursor-grab items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0 active:cursor-grabbing"
                 [ngClass]="placing() === p.id ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
                 [attr.aria-pressed]="placing() === p.id"
                 (click)="onPaletteDeviceClick(p, $event)"
                 (pointerdown)="onPaletteDevicePointerDown($event, p)"
                 (pointermove)="onPaletteDevicePointerMove($event)"
-                (pointerup)="onPaletteDevicePointerUp()"
-                (pointercancel)="onPaletteDevicePointerUp()"
+                (pointerup)="onPaletteDevicePointerUp($event)"
+                (pointercancel)="onPaletteDevicePointerUp($event)"
                 (contextmenu)="onPaletteDeviceContext($event, p)"
               >
                 <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)">
@@ -421,7 +421,7 @@
                             <nb-icon name="refresh" [size]="10" />
                           </button>
                         }
-                        <button type="button" class="menu-item w-full" role="menuitem" (click)="place(p)">
+                        <button type="button" class="menu-item w-full cursor-grab active:cursor-grabbing" role="menuitem" (click)="onPaletteDeviceClick(p, $event)" (pointerdown)="onPaletteDevicePointerDown($event, p)" (pointermove)="onPaletteDevicePointerMove($event)" (pointerup)="onPaletteDevicePointerUp($event)" (pointercancel)="onPaletteDevicePointerUp($event)">
                           <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
                           <span class="min-w-0 text-xs font-medium leading-snug text-ink-50">{{ p.label }}</span>
                         </button>
@@ -1382,12 +1382,12 @@
         @for (p of devicePalette(); track p.id) {
           <button
             type="button"
-            class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800"
+            class="flex min-h-14 cursor-grab items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800 active:cursor-grabbing"
             (click)="onPaletteDeviceClick(p, $event)"
             (pointerdown)="onPaletteDevicePointerDown($event, p)"
             (pointermove)="onPaletteDevicePointerMove($event)"
-            (pointerup)="onPaletteDevicePointerUp()"
-            (pointercancel)="onPaletteDevicePointerUp()"
+            (pointerup)="onPaletteDevicePointerUp($event)"
+            (pointercancel)="onPaletteDevicePointerUp($event)"
             (contextmenu)="onPaletteDeviceContext($event, p)"
           >
             <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" /></span>
@@ -1817,6 +1817,24 @@
           <div class="px-3 py-6 text-center text-xs text-ink-500">Nothing matches “{{ paletteQ() }}”.</div>
         }
       </div>
+    </div>
+  </div>
+}
+
+@if (paletteGhost(); as g) {
+  <div
+    class="pointer-events-none fixed z-[80] -translate-x-1/2 -translate-y-1/2"
+    [style.left.px]="g.x"
+    [style.top.px]="g.y"
+  >
+    <div
+      class="flex items-center gap-2 rounded-xl border px-2.5 py-1.5 shadow-pop backdrop-blur"
+      [ngClass]="g.overCanvas ? 'border-brand-400 bg-ink-900/95 shadow-glow' : 'border-ink-600 bg-ink-900/80'"
+    >
+      <span class="grid h-8 w-8 place-items-center rounded-lg border" [ngClass]="kindColor(g.item.kind)">
+        <nb-icon [name]="kindIcon(g.item.kind)" [size]="16" [ngClass]="kindAccent(g.item.kind)" />
+      </span>
+      <span class="text-xs font-medium text-ink-50">{{ g.item.label }}</span>
     </div>
   </div>
 }

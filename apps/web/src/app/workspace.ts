@@ -205,6 +205,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private paletteHold: { pointerId: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private paletteHoldStart = { x: 0, y: 0 };
   private paletteHoldFired = false;
+  private paletteDrag: {
+    item: DevicePaletteItem;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    active: boolean;
+  } | null = null;
+  paletteGhost = signal<{ item: DevicePaletteItem; x: number; y: number; overCanvas: boolean } | null>(null);
   private canvasSwitchHold: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private canvasSwitchHoldFired = false;
   cableFrom = signal<{ id: string; iface: string } | null>(null);
@@ -383,7 +393,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     add: {
       title: 'Add a device',
       body: [
-        '+ Add drops a device in the middle of the canvas. Drag it where you want, then Cable it.',
+        'Click a device to drop it in the middle of the canvas, or drag it from the list onto the canvas. Then Cable it.',
         'PC = a computer you ping from. Switch = a box that joins cables. Router = different IP networks. Server = a host with a service.',
         'A switch usually has no IPv4. That is normal for layer 2.',
       ],
@@ -2235,14 +2245,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   place(item: DevicePaletteItem) {
     this.addOpen.set(false);
     this.focusAddOpen.set(false);
-    if (this.isNarrow()) {
-      this.placing.set(null);
-      this.mobileTab.set('canvas');
-      requestAnimationFrame(() => requestAnimationFrame(() => void this.addDevice(item.kind, undefined, item.switchProfile)));
-      return;
-    }
-    this.placing.set(this.placing() === item.id ? null : item.id);
+    this.placing.set(null);
     this.cancelCable();
+    if (this.isNarrow()) this.mobileTab.set('canvas');
+    requestAnimationFrame(() => requestAnimationFrame(() => void this.addDevice(item.kind, undefined, item.switchProfile)));
   }
 
   cyclePaletteSwitch(ev?: Event) {
@@ -2307,8 +2313,24 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPaletteDevicePointerDown(ev: PointerEvent, item: DevicePaletteItem) {
+    if (ev.button !== 0) return;
     this.clearPaletteHold();
+    this.endPaletteDrag();
     this.paletteHoldFired = false;
+    this.paletteDrag = {
+      item,
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      x: ev.clientX,
+      y: ev.clientY,
+      active: false,
+    };
+    try {
+      (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);
+    } catch {
+      /* ignore */
+    }
     if (item.kind !== 'switch' || !this.isNarrow()) return;
     this.paletteHoldStart = { x: ev.clientX, y: ev.clientY };
     this.paletteHold = {
@@ -2316,6 +2338,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       timer: setTimeout(() => {
         this.paletteHold = null;
         this.paletteHoldFired = true;
+        this.endPaletteDrag();
         this.cyclePaletteSwitch();
         this.cdr.detectChanges();
       }, 450),
@@ -2323,12 +2346,41 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPaletteDevicePointerMove(ev: PointerEvent) {
-    if (!this.paletteHold || ev.pointerId !== this.paletteHold.pointerId) return;
-    if (Math.hypot(ev.clientX - this.paletteHoldStart.x, ev.clientY - this.paletteHoldStart.y) > 10) this.clearPaletteHold();
+    if (this.paletteHold && ev.pointerId === this.paletteHold.pointerId) {
+      if (Math.hypot(ev.clientX - this.paletteHoldStart.x, ev.clientY - this.paletteHoldStart.y) > 10) this.clearPaletteHold();
+    }
+    const drag = this.paletteDrag;
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    drag.x = ev.clientX;
+    drag.y = ev.clientY;
+    if (!drag.active && Math.hypot(ev.clientX - drag.startX, ev.clientY - drag.startY) > 8) {
+      drag.active = true;
+      this.paletteHoldFired = true;
+      this.clearPaletteHold();
+      this.addOpen.set(false);
+      this.focusAddOpen.set(false);
+    }
+    if (!drag.active) return;
+    ev.preventDefault();
+    this.paletteGhost.set({
+      item: drag.item,
+      x: ev.clientX,
+      y: ev.clientY,
+      overCanvas: this.canvasContainsPoint(ev.clientX, ev.clientY),
+    });
   }
 
-  onPaletteDevicePointerUp() {
+  onPaletteDevicePointerUp(ev?: PointerEvent) {
     this.clearPaletteHold();
+    const drag = this.paletteDrag;
+    const x = ev?.clientX ?? drag?.x;
+    const y = ev?.clientY ?? drag?.y;
+    const item = drag?.item;
+    const dropped = !!(drag?.active && item && x != null && y != null && this.canvasContainsPoint(x, y));
+    this.endPaletteDrag();
+    if (!dropped || !item || x == null || y == null) return;
+    this.paletteHoldFired = true;
+    this.dropPaletteItemAt(item, x, y);
   }
 
   onPaletteDeviceContext(ev: Event, item: DevicePaletteItem) {
@@ -2342,6 +2394,35 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       clearTimeout(this.paletteHold.timer);
       this.paletteHold = null;
     }
+  }
+
+  private endPaletteDrag() {
+    this.paletteDrag = null;
+    this.paletteGhost.set(null);
+  }
+
+  private canvasContainsPoint(x: number, y: number): boolean {
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+
+  private dropPaletteItemAt(item: DevicePaletteItem, clientX: number, clientY: number) {
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    if (!el) {
+      void this.addDevice(item.kind, undefined, item.switchProfile);
+      return;
+    }
+    this.stageEl = el;
+    const w = this.worldFromEvent({ clientX, clientY }, el);
+    this.cancelCable();
+    this.placing.set(null);
+    void this.addDevice(
+      item.kind,
+      { x: Math.round(w.x / GRID) * GRID - this.cardW() / 2, y: Math.round(w.y / GRID) * GRID - ANCHOR_Y },
+      item.switchProfile,
+    );
   }
 
   private clearCanvasSwitchHold() {
@@ -4327,6 +4408,17 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  onDocPaletteDragMove(ev: PointerEvent) {
+    if (this.paletteDrag) this.onPaletteDevicePointerMove(ev);
+  }
+
+  @HostListener('document:pointerup', ['$event'])
+  @HostListener('document:pointercancel', ['$event'])
+  onDocPaletteDragUp(ev: PointerEvent) {
+    if (this.paletteDrag) this.onPaletteDevicePointerUp(ev);
   }
 
   @HostListener('window:mouseup')
