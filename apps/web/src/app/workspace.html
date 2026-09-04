@@ -844,6 +844,7 @@
                     </form>
                   }
                 }
+                <ng-container *ngTemplateOutlet="dhcpPanel; context: { $implicit: d, big: false }" />
                 @if (d.kind === 'router') {
                   <div class="section-title mt-3 mb-1">OSPF neighbors</div>
                   @for (n of d.ospfNeighbors ?? []; track n.routerId) {
@@ -1092,6 +1093,115 @@
   </nav>
 </div>
 
+<!-- ======================================================================= shared: DHCP (managed / multilayer switch + router) -->
+<ng-template #dhcpPanel let-d let-big="big">
+  @if (showsDhcpSection(d)) {
+    <div class="mt-3 flex items-center gap-1">
+      <span class="section-title">DHCP</span>
+      @if (basicMode()) { <button type="button" class="btn btn-ghost btn-icon h-6 w-6 text-ink-400" aria-label="Help: DHCP" (click)="openHelp('dhcp', $event)"><nb-icon name="help" [size]="13" /></button> }
+    </div>
+    @if (!canServeDhcp(d)) {
+      <div class="mt-1 flex items-start gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-2" [ngClass]="big ? 'text-sm' : 'text-xs'">
+        <nb-icon name="info" [size]="13" class="mt-0.5 shrink-0 text-ink-400" />
+        <div class="min-w-0 flex-1 leading-snug text-ink-300">A DHCP server needs a multilayer switch. Layer 2 can switch traffic but cannot hand out addresses.</div>
+        <button type="button" class="btn btn-secondary shrink-0" [ngClass]="big ? 'btn-lg' : 'btn-sm'" (click)="cyclePlacedSwitch(d, $event)">{{ kindLabel('switch', nextSwitchProfileOf(d)) }}</button>
+      </div>
+    } @else {
+      <div class="mt-1 space-y-1.5">
+        @for (p of dhcpPoolsOf(d); track p.name) {
+          <div class="rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-ink-50" [ngClass]="big ? 'text-sm' : 'text-xs'">{{ p.name }}</span>
+              <span class="min-w-0 flex-1 truncate font-mono text-ink-400" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">{{ dhcpPoolSummary(p) }}</span>
+              <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-brand-200" title="Edit pool" aria-label="Edit pool" (click)="startDhcpPool(d, p)"><nb-icon name="pencil" [size]="12" /></button>
+              <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-danger-300" title="Remove pool" aria-label="Remove pool" (click)="removeDhcpPool(d, p.name)"><nb-icon name="x" [size]="12" /></button>
+            </div>
+          </div>
+        } @empty {
+          <p class="text-ink-400" [ngClass]="big ? 'text-sm' : 'text-xs'">No DHCP pools yet. Hosts on this LAN will not get an address until you add one.</p>
+        }
+        @if (dhcpOpen()) {
+          <form class="rounded-lg border border-brand-500/40 bg-ink-900/60 p-2.5" (submit)="$event.preventDefault(); saveDhcpPool(d)">
+            <div class="mb-1.5 text-[10.5px] text-ink-400">{{ dhcpEditName() ? 'Edit pool ' + dhcpEditName() : 'New DHCP pool' }}</div>
+            <div class="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5">
+              <label class="text-[10.5px] text-ink-500" [attr.for]="(big ? 'dhcp-name-big' : 'dhcp-name')">Name</label>
+              <input class="field font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpName" [name]="big ? 'dhcp-name-big' : 'dhcp-name'" [id]="big ? 'dhcp-name-big' : 'dhcp-name'" [readonly]="!!dhcpEditName()" placeholder="LAN" />
+              <label class="text-[10.5px] text-ink-500" [attr.for]="(big ? 'dhcp-net-big' : 'dhcp-net')">Network</label>
+              <div class="flex items-center gap-2">
+                <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpNetwork" [name]="big ? 'dhcp-net-big' : 'dhcp-net'" [id]="big ? 'dhcp-net-big' : 'dhcp-net'" inputmode="decimal" placeholder="10.0.0.0" />
+                <span class="text-ink-500">/</span>
+                <input class="field w-16 font-mono" [ngClass]="big ? 'field-lg' : ''" type="number" min="1" max="32" [(ngModel)]="dhcpPrefix" [name]="big ? 'dhcp-pfx-big' : 'dhcp-pfx'" />
+              </div>
+              <label class="text-[10.5px] text-ink-500" [attr.for]="(big ? 'dhcp-gw-big' : 'dhcp-gw')">Router</label>
+              <input class="field font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpGateway" [name]="big ? 'dhcp-gw-big' : 'dhcp-gw'" [id]="big ? 'dhcp-gw-big' : 'dhcp-gw'" inputmode="decimal" placeholder="10.0.0.1" />
+              <label class="text-[10.5px] text-ink-500" [attr.for]="(big ? 'dhcp-dns-big' : 'dhcp-dns')">DNS</label>
+              <input class="field font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpDns" [name]="big ? 'dhcp-dns-big' : 'dhcp-dns'" [id]="big ? 'dhcp-dns-big' : 'dhcp-dns'" inputmode="decimal" placeholder="1.1.1.1" />
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button type="submit" class="btn btn-primary flex-1" [ngClass]="big ? 'btn-lg' : ''" [disabled]="dhcpBusy()">{{ dhcpBusy() ? 'Saving…' : dhcpEditName() ? 'Save pool' : 'Add pool' }}</button>
+              <button type="button" class="btn btn-secondary" [ngClass]="big ? 'btn-lg' : ''" (click)="cancelDhcpPool()">Cancel</button>
+            </div>
+          </form>
+        } @else {
+          <button type="button" class="btn btn-secondary w-full" [ngClass]="big ? 'btn-lg' : ''" (click)="startDhcpPool(d)"><nb-icon name="plus" [size]="12" /> Add a pool</button>
+        }
+
+        <div class="pt-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase">Excluded addresses</div>
+        @for (range of dhcpExcludedOf(d); track range.start + '-' + range.end) {
+          <div class="flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5 font-mono text-ink-100" [ngClass]="big ? 'text-sm' : 'text-xs'">
+            <span class="min-w-0 flex-1 truncate">{{ dhcpRangeLabel(range) }}</span>
+            <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-danger-300" title="Remove exclusion" aria-label="Remove exclusion" (click)="removeDhcpExclusion(d, range)"><nb-icon name="x" [size]="12" /></button>
+          </div>
+        } @empty {
+          <p class="text-ink-500" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">None — the gateway is usually excluded so DHCP does not reuse it.</p>
+        }
+        <form class="flex items-center gap-1.5" (submit)="$event.preventDefault(); addDhcpExclusion(d)">
+          <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpExStart" [name]="big ? 'dhcp-ex-s-big' : 'dhcp-ex-s'" inputmode="decimal" placeholder="10.0.0.1" />
+          <span class="text-ink-500">–</span>
+          <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpExEnd" [name]="big ? 'dhcp-ex-e-big' : 'dhcp-ex-e'" inputmode="decimal" placeholder="10.0.0.9" />
+          <button type="submit" class="btn btn-secondary shrink-0" [ngClass]="big ? 'btn-lg' : ''" [disabled]="dhcpBusy()">Exclude</button>
+        </form>
+
+        @if (dhcpRelayIfaces(d).length) {
+          <div class="pt-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase">Relay (ip helper-address)</div>
+          @for (i of dhcpRelayIfaces(d); track i.name) {
+            <div class="rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5">
+              @if (dhcpHelperEdit() === i.name) {
+                <form class="flex items-center gap-1.5" (submit)="$event.preventDefault(); saveDhcpHelper(d, i.name)">
+                  <span class="font-mono text-ink-400" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">{{ i.name }}</span>
+                  <input class="field min-w-0 flex-1 font-mono" [ngClass]="big ? 'field-lg' : ''" [(ngModel)]="dhcpHelperInput" [name]="'dhcp-help-' + i.name + (big ? '-big' : '')" inputmode="decimal" placeholder="10.0.12.2" />
+                  <button type="submit" class="btn btn-primary" [ngClass]="big ? 'btn-lg' : 'btn-sm'" [disabled]="dhcpBusy()">Set</button>
+                  <button type="button" class="btn btn-secondary" [ngClass]="big ? 'btn-lg' : 'btn-sm'" (click)="dhcpHelperEdit.set(null)">Cancel</button>
+                </form>
+              } @else {
+                <div class="flex items-center gap-2" [ngClass]="big ? 'text-sm' : 'text-xs'">
+                  <span class="font-mono text-ink-400">{{ i.name }}</span>
+                  <span class="min-w-0 flex-1 truncate font-mono" [ngClass]="i.helperAddress ? 'text-ink-100' : 'text-ink-500'">{{ i.helperAddress || 'no helper' }}</span>
+                  <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-brand-200" title="Set helper-address" aria-label="Set helper-address" (click)="startDhcpHelper(d, i.name)"><nb-icon name="pencil" [size]="12" /></button>
+                  @if (i.helperAddress) {
+                    <button type="button" class="btn btn-ghost btn-icon h-7 w-7 shrink-0 text-ink-500 hover:text-danger-300" title="Remove helper-address" aria-label="Remove helper-address" (click)="removeDhcpHelper(d, i.name)"><nb-icon name="x" [size]="12" /></button>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+
+        <div class="pt-1 text-[10px] font-semibold tracking-wide text-ink-500 uppercase">Leases</div>
+        @for (b of dhcpBindingsOf(d); track b.mac + b.ip) {
+          <div class="flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5 font-mono" [ngClass]="big ? 'text-sm' : 'text-xs'">
+            <span class="text-ok-300">{{ b.ip }}</span>
+            <span class="min-w-0 flex-1 truncate text-ink-400">{{ b.mac }}</span>
+            <span class="text-ink-500">{{ b.iface }}</span>
+          </div>
+        } @empty {
+          <p class="text-ink-500" [ngClass]="big ? 'text-xs' : 'text-[10.5px]'">None yet. On a PC, use “Get an address via DHCP”.</p>
+        }
+      </div>
+    }
+  }
+</ng-template>
+
 <!-- ======================================================================= shared: device panel (Simple inspector + Basic sheet) -->
 <ng-template #devicePanel let-d let-big="big">
   @if (d.kind === 'switch') {
@@ -1231,6 +1341,8 @@
       @if (!needsGateway(d)) { <p class="mt-1 text-[10.5px] text-ink-500">Optional here — every address in this lab is on the same network.</p> }
     }
   }
+
+  <ng-container *ngTemplateOutlet="dhcpPanel; context: { $implicit: d, big: big }" />
 
   @if (hasRadio(d)) {
     <div class="section-title mt-3">Wi-Fi</div>

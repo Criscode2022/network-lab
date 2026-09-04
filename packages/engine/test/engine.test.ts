@@ -254,6 +254,52 @@ describe('realistic switch profiles', () => {
     expect(e.ping('PC1', '10.10.10.1', { count: 1 }).ok).toBe(true);
   });
 
+  it('adds and removes multilayer DHCP pools and exclusions from CLI', () => {
+    const lab: LabJson = {
+      schemaVersion: 1,
+      id: 't-dhcp-cli',
+      name: 'dhcp-cli',
+      devices: [
+        {
+          kind: 'switch',
+          switchProfile: 'multilayer',
+          name: 'SW1',
+          x: 0,
+          y: 0,
+          startup: ['enable', 'conf t', 'ip routing', 'end'],
+        },
+      ],
+      links: [],
+      checks: [],
+    };
+    const e = Engine.fromLab(lab);
+    for (const line of [
+      'enable',
+      'conf t',
+      'ip dhcp excluded-address 10.0.0.1 10.0.0.9',
+      'ip dhcp pool LAN',
+      'network 10.0.0.0 255.255.255.0',
+      'default-router 10.0.0.1',
+      'dns-server 1.1.1.1',
+      'end',
+    ]) {
+      expect(e.exec('SW1', line).error).not.toBe(true);
+    }
+    const sw = e.find('SW1');
+    expect(sw?.dhcpPools).toEqual([
+      { name: 'LAN', network: '10.0.0.0', prefix: 24, gateway: '10.0.0.1', dns: '1.1.1.1' },
+    ]);
+    expect(sw?.dhcpExcluded).toEqual([{ start: '10.0.0.1', end: '10.0.0.9' }]);
+    expect((e.getState() as { devices: { dhcpExcluded?: unknown }[] }).devices[0].dhcpExcluded).toEqual([
+      { start: '10.0.0.1', end: '10.0.0.9' },
+    ]);
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'no ip dhcp excluded-address 10.0.0.1 10.0.0.9').error).not.toBe(true);
+    expect(e.exec('SW1', 'no ip dhcp pool LAN').error).not.toBe(true);
+    expect(e.find('SW1')?.dhcpPools).toEqual([]);
+    expect(e.find('SW1')?.dhcpExcluded).toEqual([]);
+  });
+
   it('selects local DHCP pools by client SVI instead of declaration order', () => {
     const e = Engine.fromLab(labById('model-multilayer-dhcp')!);
     expect(e.find('PC10')?.ifaces[0].ipv4?.ip.startsWith('10.10.10.')).toBe(true);

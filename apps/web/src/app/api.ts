@@ -51,6 +51,7 @@ export interface DeviceState {
   ipRouting?: boolean;
   dhcpPools?: { name: string; network?: string; prefix?: number; gateway?: string; dns?: string }[];
   dhcpBindings?: { mac: string; ip: string; iface: string }[];
+  dhcpExcluded?: { start: string; end: string }[];
   x: number;
   y: number;
   associatedSsid?: string;

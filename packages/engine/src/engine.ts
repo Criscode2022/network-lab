@@ -2693,7 +2693,8 @@ export class Engine {
       (t[0] === 'ip' && t[1] === 'route') ||
       (t[0] === 'no' && t[1] === 'ip' && t[2] === 'route') ||
       (t[0] === 'ipv6' && t[1] === 'route') ||
-      (t[0] === 'ip' && t[1] === 'dhcp');
+      (t[0] === 'ip' && t[1] === 'dhcp') ||
+      (t[0] === 'no' && t[1] === 'ip' && t[2] === 'dhcp');
     if (routerCommand) return this.ciscoRouter(d, raw);
     return this.ciscoSwitch(d, raw);
   }
@@ -2744,6 +2745,15 @@ export class Engine {
       const start = t[4];
       const end = t[5] ?? start;
       d.dhcpExcluded = d.dhcpExcluded.filter((range) => range.start !== start || range.end !== end);
+      return out('');
+    }
+    if (t[0] === 'no' && t[1] === 'ip' && t[2] === 'dhcp' && t[3] === 'pool') {
+      if (!t[4]) return err('% Incomplete command');
+      d.dhcpPools = d.dhcpPools.filter((p) => p.name !== t[4]);
+      if (d.cli.dhcpPool === t[4]) {
+        d.cli.level = 'config';
+        d.cli.dhcpPool = undefined;
+      }
       return out('');
     }
     if (t[0] === 'ip' && t[1] === 'dhcp' && t[2] === 'pool') {
@@ -3271,6 +3281,7 @@ export class Engine {
         ipRouting: d.ipRouting,
         dhcpPools: d.dhcpPools,
         dhcpBindings: d.dhcpBindings,
+        dhcpExcluded: d.dhcpExcluded,
         x: d.x,
         y: d.y,
         associatedSsid: d.associatedSsid,

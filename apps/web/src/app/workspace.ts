@@ -44,7 +44,7 @@ import { Toasts, type Toast, type ToastKind } from './toasts';
 import { LabPicker } from './lab-picker';
 import { CheatSheet } from './cheat-sheet';
 
-type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status' | 'ping' | 'gateway' | 'hints' | 'troubleshoot' | 'checkpoints';
+type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status' | 'ping' | 'gateway' | 'dhcp' | 'hints' | 'troubleshoot' | 'checkpoints';
 type MobileTab = 'canvas' | 'palette' | 'inspect' | 'term' | 'eve';
 
 export interface ReachResult {
@@ -277,6 +277,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   wifiPsk = '';
   wifiBusy = signal(false);
   wifiOpen = signal(false);
+  dhcpOpen = signal(false);
+  dhcpEditName = signal<string | null>(null);
+  dhcpName = '';
+  dhcpNetwork = '';
+  dhcpPrefix = 24;
+  dhcpGateway = '';
+  dhcpDns = '';
+  dhcpExStart = '';
+  dhcpExEnd = '';
+  dhcpBusy = signal(false);
+  dhcpHelperEdit = signal<string | null>(null);
+  dhcpHelperInput = '';
   reach = signal<ReachState | null>(null);
   confirmDel = signal<DeviceState | null>(null);
   confirmReset = signal(false);
@@ -453,6 +465,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         'A wrong gateway is changed with ip route replace default via <router>, or removed with ip route del default. Cisco routers use no ip route 0.0.0.0 0.0.0.0 <old>.',
       ],
     },
+    dhcp: {
+      title: 'DHCP',
+      body: [
+        'A multilayer switch or router can hand out IPv4 addresses. A pool needs a network and usually a default-router (the SVI or routed address on that subnet).',
+        'Excluded addresses stay reserved — typically the gateway and other static hosts. Leases appear after a PC runs dhclient.',
+        'To use a DHCP server on another device, set ip helper-address on the client-facing SVI. Managed Layer 2 switches cannot serve or relay DHCP.',
+      ],
+    },
     hints: {
       title: 'Hints',
       body: [
@@ -473,6 +493,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     { id: 'status', title: 'Up and Disabled' },
     { id: 'ipv4', title: 'IPv4 addresses' },
     { id: 'gateway', title: 'Default gateway' },
+    { id: 'dhcp', title: 'DHCP' },
     { id: 'ping', title: 'Ping, Trace and Watch' },
     { id: 'hints', title: 'Hints' },
     { id: 'troubleshoot', title: 'Troubleshoot' },
@@ -1185,6 +1206,42 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   isMultilayerSwitch(d: DeviceState): boolean {
     return this.switchProfile(d) === 'multilayer';
+  }
+
+  canServeDhcp(d: DeviceState): boolean {
+    return d.kind === 'router' || this.isMultilayerSwitch(d);
+  }
+
+  showsDhcpSection(d: DeviceState): boolean {
+    return this.canServeDhcp(d) || (d.kind === 'switch' && !this.isUnmanagedSwitch(d));
+  }
+
+  dhcpPoolsOf(d: DeviceState) {
+    return d.dhcpPools ?? [];
+  }
+
+  dhcpExcludedOf(d: DeviceState) {
+    return d.dhcpExcluded ?? [];
+  }
+
+  dhcpBindingsOf(d: DeviceState) {
+    return d.dhcpBindings ?? [];
+  }
+
+  dhcpRelayIfaces(d: DeviceState) {
+    return d.ifaces.filter((i) => !i.isRadio && (i.ipv4 || i.helperAddress));
+  }
+
+  dhcpPoolSummary(p: NonNullable<DeviceState['dhcpPools']>[number]): string {
+    const bits: string[] = [];
+    if (p.network) bits.push(`${p.network}/${p.prefix ?? 24}`);
+    if (p.gateway) bits.push(`gw ${p.gateway}`);
+    if (p.dns) bits.push(`dns ${p.dns}`);
+    return bits.join(' · ') || 'no network yet';
+  }
+
+  dhcpRangeLabel(range: { start: string; end: string }): string {
+    return range.end && range.end !== range.start ? `${range.start} – ${range.end}` : range.start;
   }
 
   nextSwitchProfileOf(d: DeviceState): SwitchProfile {
@@ -1976,6 +2033,166 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (ok) {
       const ip = this.primaryIpv4(this.api.state()?.devices.find((x) => x.id === d.id) ?? d);
       this.toast(ip ? `${d.name} got ${ip} via DHCP` : `${d.name}: no DHCP offer received — see the terminal`, ip ? 'success' : 'warn');
+    }
+  }
+
+  private suggestDhcpPool(d: DeviceState) {
+    const iface = d.ifaces.find((i) => i.ipv4?.ip);
+    if (!iface?.ipv4) return { name: 'LAN', network: '10.0.0.0', prefix: 24, gateway: '10.0.0.1', dns: '' };
+    const n = this.parseV4(iface.ipv4.ip);
+    const prefix = iface.ipv4.prefix || 24;
+    const network = n == null ? '10.0.0.0' : this.fmtV4((n & this.maskOf(prefix)) >>> 0);
+    return { name: 'LAN', network, prefix, gateway: iface.ipv4.ip, dns: '' };
+  }
+
+  startDhcpPool(d: DeviceState, pool?: NonNullable<DeviceState['dhcpPools']>[number]) {
+    if (pool) {
+      this.dhcpEditName.set(pool.name);
+      this.dhcpName = pool.name;
+      this.dhcpNetwork = pool.network ?? '';
+      this.dhcpPrefix = pool.prefix ?? 24;
+      this.dhcpGateway = pool.gateway ?? '';
+      this.dhcpDns = pool.dns ?? '';
+    } else {
+      const s = this.suggestDhcpPool(d);
+      this.dhcpEditName.set(null);
+      this.dhcpName = s.name;
+      this.dhcpNetwork = s.network;
+      this.dhcpPrefix = s.prefix;
+      this.dhcpGateway = s.gateway;
+      this.dhcpDns = s.dns;
+    }
+    this.dhcpOpen.set(true);
+  }
+
+  cancelDhcpPool() {
+    this.dhcpOpen.set(false);
+    this.dhcpEditName.set(null);
+  }
+
+  async saveDhcpPool(d: DeviceState) {
+    if (!this.canServeDhcp(d)) {
+      this.toast(`${d.name} cannot serve DHCP. Change it to a multilayer switch.`, 'info');
+      return;
+    }
+    const name = this.dhcpName.trim();
+    const network = this.dhcpNetwork.trim();
+    const prefix = this.dhcpPrefix || 24;
+    const gateway = this.dhcpGateway.trim();
+    const dns = this.dhcpDns.trim();
+    if (!/^[A-Za-z][\w.-]*$/.test(name)) {
+      this.toast('Pool name must start with a letter (letters, digits, _ . -).', 'warn');
+      return;
+    }
+    if (this.parseV4(network) == null) {
+      this.toast('Enter a network address like 10.0.0.0', 'warn');
+      return;
+    }
+    if (prefix < 1 || prefix > 32) {
+      this.toast('Prefix must be between 1 and 32.', 'warn');
+      return;
+    }
+    if (gateway && this.parseV4(gateway) == null) {
+      this.toast('Default router must be an IPv4 address.', 'warn');
+      return;
+    }
+    if (dns && this.parseV4(dns) == null) {
+      this.toast('DNS server must be an IPv4 address.', 'warn');
+      return;
+    }
+    const cmds = [
+      'enable',
+      'conf t',
+      `ip dhcp pool ${name}`,
+      `network ${network} ${this.prefixMask(prefix)}`,
+      ...(gateway ? [`default-router ${gateway}`] : []),
+      ...(dns ? [`dns-server ${dns}`] : []),
+      'end',
+    ];
+    this.dhcpBusy.set(true);
+    try {
+      const ok = await this.runCommands(d, cmds, `${d.name} DHCP pool ${name} ${this.dhcpEditName() ? 'updated' : 'added'}`);
+      if (ok) this.cancelDhcpPool();
+    } finally {
+      this.dhcpBusy.set(false);
+    }
+  }
+
+  async removeDhcpPool(d: DeviceState, name: string) {
+    this.dhcpBusy.set(true);
+    try {
+      const ok = await this.runCommands(d, ['enable', 'conf t', `no ip dhcp pool ${name}`, 'end'], `${d.name} DHCP pool ${name} removed`);
+      if (ok && this.dhcpEditName() === name) this.cancelDhcpPool();
+    } finally {
+      this.dhcpBusy.set(false);
+    }
+  }
+
+  async addDhcpExclusion(d: DeviceState) {
+    const start = this.dhcpExStart.trim();
+    const end = this.dhcpExEnd.trim() || start;
+    if (this.parseV4(start) == null || this.parseV4(end) == null) {
+      this.toast('Enter an IPv4 address or range to exclude.', 'warn');
+      return;
+    }
+    const line = start === end ? `ip dhcp excluded-address ${start}` : `ip dhcp excluded-address ${start} ${end}`;
+    this.dhcpBusy.set(true);
+    try {
+      const ok = await this.runCommands(d, ['enable', 'conf t', line, 'end'], `${d.name} excluded ${this.dhcpRangeLabel({ start, end })}`);
+      if (ok) {
+        this.dhcpExStart = '';
+        this.dhcpExEnd = '';
+      }
+    } finally {
+      this.dhcpBusy.set(false);
+    }
+  }
+
+  async removeDhcpExclusion(d: DeviceState, range: { start: string; end: string }) {
+    const end = range.end && range.end !== range.start ? ` ${range.end}` : '';
+    await this.runCommands(
+      d,
+      ['enable', 'conf t', `no ip dhcp excluded-address ${range.start}${end}`, 'end'],
+      `${d.name} exclusion ${this.dhcpRangeLabel(range)} removed`,
+    );
+  }
+
+  startDhcpHelper(d: DeviceState, iface: string) {
+    const current = d.ifaces.find((i) => i.name === iface)?.helperAddress ?? '';
+    this.dhcpHelperEdit.set(iface);
+    this.dhcpHelperInput = current;
+  }
+
+  async saveDhcpHelper(d: DeviceState, iface: string) {
+    const ip = this.dhcpHelperInput.trim();
+    if (this.parseV4(ip) == null) {
+      this.toast('Enter the DHCP server IPv4 address.', 'warn');
+      return;
+    }
+    this.dhcpBusy.set(true);
+    try {
+      const ok = await this.runCommands(
+        d,
+        ['enable', 'conf t', `interface ${iface}`, `ip helper-address ${ip}`, 'end'],
+        `${d.name} ${iface} relays DHCP to ${ip}`,
+      );
+      if (ok) this.dhcpHelperEdit.set(null);
+    } finally {
+      this.dhcpBusy.set(false);
+    }
+  }
+
+  async removeDhcpHelper(d: DeviceState, iface: string) {
+    this.dhcpBusy.set(true);
+    try {
+      const ok = await this.runCommands(
+        d,
+        ['enable', 'conf t', `interface ${iface}`, 'no ip helper-address', 'end'],
+        `${d.name} ${iface} helper-address removed`,
+      );
+      if (ok) this.dhcpHelperEdit.set(null);
+    } finally {
+      this.dhcpBusy.set(false);
     }
   }
 
@@ -4137,6 +4354,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.showFreePorts.set(false);
       this.gwEdit.set(false);
       this.ipEdit.set(null);
+      this.cancelDhcpPool();
+      this.dhcpHelperEdit.set(null);
     }
     this.selectedId.set(d.id);
     this.termDevice.set(d.id);
