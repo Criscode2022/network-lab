@@ -20,6 +20,7 @@ const solutionPatch = z.object({
   addLinks: z.array(z.object({ a: z.string(), b: z.string(), cable: z.enum(['ethernet', 'straight', 'crossover', 'fiber']).optional() })).max(20).optional(),
   removeLinks: z.array(z.string()).max(20).optional(),
   configs: z.array(z.object({ device: z.string(), commands: z.array(z.string()).min(1).max(40) })).max(20).optional(),
+  setSwitchProfiles: z.array(z.object({ device: z.string(), switchProfile })).max(10).optional(),
 });
 
 /**

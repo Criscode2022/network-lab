@@ -19,7 +19,7 @@ Not Packet Tracer. Not a CCIE catalog. Eight stable device kinds, three realisti
 
 Workstation (eth0+wlan0), Server, Switch (8×Gi), Router (4-port), Firewall (4-port), Access Point, thin WLC, Cloud/Internet stub.
 
-Switch has three palette profiles while remaining one backward-compatible `switch` kind:
+The palette has one Switch tile (unmanaged by default). Cycle unmanaged → managed L2 → multilayer from the top-left button on desktop, a long-press on mobile, or the details of a switch already on the canvas. It remains one backward-compatible `switch` kind:
 - **Unmanaged** — plug-and-play MAC learning and forwarding; no CLI, VLANs, IP, DHCP, or routing.
 - **Managed L2** — access/trunk VLANs, native VLAN, RSTP-lite, MAC table, and management SVI.
 - **Multilayer L3** — managed-L2 features plus `ip routing`, routed ports, SVI routing, static routes, DHCP pools/exclusions, and `ip helper-address`.

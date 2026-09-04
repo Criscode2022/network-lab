@@ -124,7 +124,7 @@ Multilayer implementation details:
 - `no ip routing` disables forwarding but does not erase configured static routes.
 - The simulator intentionally keeps STP as deterministic RSTP-lite. STP priorities/roles, EtherChannel, DHCP snooping, BGP/MPLS/VXLAN/802.1X remain unsupported.
 
-UI palette entries are in `apps/web/src/app/api.ts`: Unmanaged Switch, Managed L2 Switch, Multilayer L3 Switch. They share the switch icon and `SW` naming sequence. Unmanaged switches expose no terminal or port power controls; managed L2 copy says the SVI is management-only; multilayer state shows whether `ip routing` is enabled. Eve context includes `switchProfile` and `ip-routing=on`.
+UI palette has **one Switch tile** (default unmanaged). Cycle unmanaged → managed L2 → multilayer with the top-left refresh button on desktop, a long-press on mobile, and always from the inspector/details of a switch already on the canvas. The engine patch field is `setSwitchProfiles`; cables stay and out-of-profile config is stripped. They share the switch icon and `SW` naming sequence. Unmanaged switches expose no terminal or port power controls; managed L2 copy says the SVI is management-only; multilayer state shows whether `ip routing` is enabled. Eve context includes `switchProfile` and `ip-routing=on`. Command reference still lists all three switch CLIs.
 
 ### CLI additions (route / address removal)
 

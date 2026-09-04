@@ -1,5 +1,5 @@
 import { helpText } from './commands.ts';
-import { createDevice, ensureSubif, ensureSvi, findIface } from './devices.ts';
+import { applySwitchProfile, createDevice, ensureSubif, ensureSvi, findIface } from './devices.ts';
 import {
   MAC_BCAST,
   allocMac,
@@ -273,6 +273,14 @@ export class Engine {
     this.devices.set(d.id, d);
     this.logActivity(`add device ${name} (${kind})`);
     return d;
+  }
+
+  setSwitchProfile(idOrName: string, switchProfile: SwitchProfile): void {
+    const d = this.dev(idOrName);
+    applySwitchProfile(d, switchProfile);
+    this.logActivity(`${d.name} switch profile ${switchProfile}`);
+    this.recomputeStp();
+    this.converge();
   }
 
   removeDevice(idOrName: string): void {
@@ -3200,6 +3208,10 @@ export class Engine {
         if (!DEVICE_KINDS.includes(d.type)) throw new Error(`unknown device type ${d.type}`);
         this.addDevice(d.type, d.name, d.x ?? 80, d.y ?? 80, d.switchProfile);
         applied.push(`add ${d.name}`);
+      }
+      for (const rec of patch.setSwitchProfiles ?? []) {
+        this.setSwitchProfile(rec.device, rec.switchProfile);
+        applied.push(`profile ${rec.device} ${rec.switchProfile}`);
       }
       for (const id of patch.removeDeviceIds ?? []) {
         this.removeDevice(id);

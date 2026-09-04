@@ -5,7 +5,7 @@ export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | {
   if (!input || typeof input !== 'object') return { ok: false, error: 'patch must be an object' };
   const p = input as Record<string, unknown>;
   const extra = Object.keys(p).filter(
-    (k) => !['addDevices', 'removeDeviceIds', 'addLinks', 'removeLinks', 'configs'].includes(k),
+    (k) => !['addDevices', 'removeDeviceIds', 'addLinks', 'removeLinks', 'configs', 'setSwitchProfiles'].includes(k),
   );
   if (extra.length) return { ok: false, error: `unknown patch fields: ${extra.join(', ')}` };
   const patch: LabPatch = {};
@@ -68,6 +68,19 @@ export function validatePatch(input: unknown): { ok: true; patch: LabPatch } | {
       }
       if ((rec.commands as unknown[]).some((x) => typeof x !== 'string')) return { ok: false, error: 'commands must be strings' };
       patch.configs.push({ device: rec.device, commands: rec.commands as string[] });
+    }
+  }
+  if (p.setSwitchProfiles !== undefined) {
+    if (!Array.isArray(p.setSwitchProfiles)) return { ok: false, error: 'setSwitchProfiles must be an array' };
+    patch.setSwitchProfiles = [];
+    for (const item of p.setSwitchProfiles) {
+      if (!item || typeof item !== 'object') return { ok: false, error: 'invalid setSwitchProfiles item' };
+      const rec = item as Record<string, unknown>;
+      if (typeof rec.device !== 'string' || !rec.device) return { ok: false, error: 'setSwitchProfiles needs device' };
+      if (!SWITCH_PROFILES.includes(rec.switchProfile as SwitchProfile)) {
+        return { ok: false, error: `unknown switchProfile ${String(rec.switchProfile)}` };
+      }
+      patch.setSwitchProfiles.push({ device: rec.device, switchProfile: rec.switchProfile as SwitchProfile });
     }
   }
   return { ok: true, patch };

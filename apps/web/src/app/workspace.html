@@ -233,24 +233,43 @@
           }
         </div>
         <div class="section-title px-3 pt-2 pb-1.5">Devices</div>
-        <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400 md:hidden">Tap a type — it lands in the middle of the canvas. Drag it, then Cable.</p>
+        <p class="px-3 pb-2 text-[11px] leading-snug text-ink-400 md:hidden">Tap a type — it lands in the middle of the canvas. Long-press Switch to change type.</p>
         <div class="grid grid-cols-2 gap-1.5 px-2 pb-2 md:grid-cols-1">
-          @for (p of PALETTE; track p.id) {
-            <button
-              type="button"
-              class="flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
-              [ngClass]="placing() === p.id ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
-              [attr.aria-pressed]="placing() === p.id"
-              (click)="place(p)"
-            >
-              <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)">
-                <nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" />
-              </span>
-              <span class="min-w-0">
-                <span class="block text-xs font-medium text-ink-50">{{ p.label }}</span>
-                <span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span>
-              </span>
-            </button>
+          @for (p of devicePalette(); track p.id) {
+            <div class="relative">
+              @if (p.kind === 'switch' && !isNarrow()) {
+                <button
+                  type="button"
+                  class="absolute left-0.5 top-0.5 z-10 grid h-6 w-6 place-items-center rounded-md border border-ink-600 bg-ink-900/95 text-ink-300 hover:border-brand-400 hover:text-brand-200"
+                  [title]="'Change switch type to ' + kindLabel('switch', nextPaletteSwitchProfile())"
+                  [attr.aria-label]="'Change switch type to ' + kindLabel('switch', nextPaletteSwitchProfile())"
+                  (pointerdown)="$event.stopPropagation()"
+                  (click)="cyclePaletteSwitch($event)"
+                >
+                  <nb-icon name="refresh" [size]="11" />
+                </button>
+              }
+              <button
+                type="button"
+                class="flex min-h-12 w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors md:min-h-0"
+                [ngClass]="placing() === p.id ? 'border-brand-500/70 bg-brand-500/10' : 'border-transparent hover:border-ink-700 hover:bg-ink-800/70'"
+                [attr.aria-pressed]="placing() === p.id"
+                (click)="onPaletteDeviceClick(p, $event)"
+                (pointerdown)="onPaletteDevicePointerDown($event, p)"
+                (pointermove)="onPaletteDevicePointerMove($event)"
+                (pointerup)="onPaletteDevicePointerUp()"
+                (pointercancel)="onPaletteDevicePointerUp()"
+                (contextmenu)="onPaletteDeviceContext($event, p)"
+              >
+                <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)">
+                  <nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" />
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-xs font-medium text-ink-50">{{ p.label }}</span>
+                  <span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span>
+                </span>
+              </button>
+            </div>
           }
         </div>
         <p class="mt-auto hidden px-3 py-3 text-[10.5px] leading-snug text-ink-500 md:block">
@@ -388,11 +407,25 @@
                 <div class="card absolute bottom-full left-0 z-40 mb-2 w-72 p-1.5 animate-pop" role="menu">
                   <div class="section-title px-2.5 pt-1 pb-1">Add a device</div>
                   <div class="grid grid-cols-2 gap-1">
-                    @for (p of PALETTE; track p.id) {
-                      <button type="button" class="menu-item" role="menuitem" (click)="place(p)">
-                        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
-                        <span class="min-w-0"><span class="block truncate text-xs font-medium text-ink-50">{{ p.label }}</span></span>
-                      </button>
+                    @for (p of devicePalette(); track p.id) {
+                      <div class="relative">
+                        @if (p.kind === 'switch') {
+                          <button
+                            type="button"
+                            class="absolute left-0.5 top-0.5 z-10 grid h-5 w-5 place-items-center rounded-md border border-ink-600 bg-ink-900 text-ink-300 hover:border-brand-400 hover:text-brand-200"
+                            [title]="'Change switch type to ' + kindLabel('switch', nextPaletteSwitchProfile())"
+                            [attr.aria-label]="'Change switch type to ' + kindLabel('switch', nextPaletteSwitchProfile())"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="cyclePaletteSwitch($event)"
+                          >
+                            <nb-icon name="refresh" [size]="10" />
+                          </button>
+                        }
+                        <button type="button" class="menu-item w-full" role="menuitem" (click)="place(p)">
+                          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
+                          <span class="min-w-0"><span class="block truncate text-xs font-medium text-ink-50">{{ p.label }}</span></span>
+                        </button>
+                      </div>
                     }
                   </div>
                   @if (advUi()) {
@@ -582,6 +615,18 @@
                   "
                   (pointerdown)="startDrag($event, d)"
                 >
+                  @if (d.kind === 'switch' && !isNarrow()) {
+                    <button
+                      type="button"
+                      class="absolute -left-1.5 -top-1.5 z-10 grid h-6 w-6 place-items-center rounded-md border border-ink-600 bg-ink-900/95 text-ink-300 hover:border-brand-400 hover:text-brand-200"
+                      [title]="'Change to ' + kindLabel('switch', nextSwitchProfileOf(d))"
+                      [attr.aria-label]="'Change ' + d.name + ' to ' + kindLabel('switch', nextSwitchProfileOf(d))"
+                      (pointerdown)="$event.stopPropagation()"
+                      (click)="cyclePlacedSwitch(d, $event)"
+                    >
+                      <nb-icon name="refresh" [size]="11" />
+                    </button>
+                  }
                   <div class="flex items-center gap-1.5">
                     <nb-icon [name]="kindIcon(d.kind)" [size]="14" [ngClass]="kindAccent(d.kind)" />
                     <span class="min-w-0 flex-1 truncate text-[9px] font-medium tracking-wider text-ink-300 uppercase">{{ kindLabel(d.kind, d.switchProfile) }}</span>
@@ -653,7 +698,20 @@
                 <span class="truncate text-sm font-semibold text-ink-50">{{ d.name }}</span>
                 <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span>
               </div>
-              <div class="truncate text-[11px] text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }} · <span class="font-mono">{{ d.hostname }}</span></div>
+              @if (d.kind === 'switch') {
+                <button
+                  type="button"
+                  class="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] text-brand-300 hover:underline"
+                  [title]="'Change to ' + kindLabel('switch', nextSwitchProfileOf(d))"
+                  (click)="cyclePlacedSwitch(d, $event)"
+                >
+                  <span class="truncate">{{ kindLabel(d.kind, d.switchProfile) }}</span>
+                  <nb-icon name="refresh" [size]="11" class="shrink-0" />
+                </button>
+                <div class="truncate font-mono text-[11px] text-ink-500">{{ d.hostname }}</div>
+              } @else {
+                <div class="truncate text-[11px] text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }} · <span class="font-mono">{{ d.hostname }}</span></div>
+              }
             </div>
             @if (!isNarrow()) {
               <div class="seg">
@@ -1036,6 +1094,17 @@
 
 <!-- ======================================================================= shared: device panel (Simple inspector + Basic sheet) -->
 <ng-template #devicePanel let-d let-big="big">
+  @if (d.kind === 'switch') {
+    <div class="mt-2 flex items-center gap-2 rounded-lg border border-ink-800 bg-ink-900/60 px-2.5 py-1.5">
+      <div class="min-w-0 flex-1">
+        <div class="text-[10px] font-semibold tracking-wide text-ink-400 uppercase">Switch type</div>
+        <div class="truncate font-medium text-ink-50" [ngClass]="big ? 'text-sm' : 'text-xs'">{{ kindLabel(d.kind, d.switchProfile) }}</div>
+      </div>
+      <button type="button" class="btn btn-secondary shrink-0" [ngClass]="big ? 'btn-lg' : 'btn-sm'" (click)="cyclePlacedSwitch(d, $event)" [title]="'Change to ' + kindLabel('switch', nextSwitchProfileOf(d))" [attr.aria-label]="'Change to ' + kindLabel('switch', nextSwitchProfileOf(d))">
+        <nb-icon name="refresh" [size]="12" /> {{ kindLabel('switch', nextSwitchProfileOf(d)) }}
+      </button>
+    </div>
+  }
   @if (hints().length) {
     <div class="mt-2 space-y-1.5">
       @for (h of hints(); track h.id) {
@@ -1273,7 +1342,14 @@
         <span class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border" [ngClass]="kindColor(d.kind)"><nb-icon [name]="kindIcon(d.kind)" [size]="22" [ngClass]="kindAccent(d.kind)" /></span>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 text-lg font-semibold text-ink-50">{{ d.name }} <span class="led" [ngClass]="{ 'led-up': deviceLed(d) === 'up', 'led-warn': deviceLed(d) === 'warn', 'led-off': deviceLed(d) === 'off' }"></span></div>
-          <div class="text-sm text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }}</div>
+          @if (d.kind === 'switch') {
+            <button type="button" class="inline-flex items-center gap-1 text-sm text-brand-300 hover:underline" (click)="cyclePlacedSwitch(d, $event)">
+              {{ kindLabel(d.kind, d.switchProfile) }}
+              <nb-icon name="refresh" [size]="13" />
+            </button>
+          } @else {
+            <div class="text-sm text-ink-400">{{ kindLabel(d.kind, d.switchProfile) }}</div>
+          }
         </div>
         <button type="button" class="btn btn-ghost btn-icon h-9 w-9" aria-label="Help: this device" (click)="openHelp('add', $event)"><nb-icon name="help" [size]="16" /></button>
       </div>
@@ -1301,9 +1377,19 @@
         <span><span class="block text-sm font-medium text-ink-50">Cable</span><span class="block text-[11px] text-ink-400">Tap two devices. First free ports are used.</span></span>
       </button>
       <div class="section-title mb-2">Add a device</div>
+      <p class="mb-2 text-[11px] leading-snug text-ink-500">Long-press Switch to cycle unmanaged → managed L2 → multilayer.</p>
       <div class="grid grid-cols-2 gap-2">
-        @for (p of PALETTE; track p.id) {
-          <button type="button" class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800" (click)="place(p)">
+        @for (p of devicePalette(); track p.id) {
+          <button
+            type="button"
+            class="flex min-h-14 items-center gap-2.5 rounded-xl border border-ink-700 bg-ink-800/40 px-3 py-2 text-left hover:bg-ink-800"
+            (click)="onPaletteDeviceClick(p, $event)"
+            (pointerdown)="onPaletteDevicePointerDown($event, p)"
+            (pointermove)="onPaletteDevicePointerMove($event)"
+            (pointerup)="onPaletteDevicePointerUp()"
+            (pointercancel)="onPaletteDevicePointerUp()"
+            (contextmenu)="onPaletteDeviceContext($event, p)"
+          >
             <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="16" [ngClass]="kindAccent(p.kind)" /></span>
             <span class="min-w-0"><span class="block text-xs font-medium text-ink-50">{{ p.label }}</span><span class="block truncate text-[10px] text-ink-400">{{ p.hint }}</span></span>
           </button>
@@ -1372,7 +1458,7 @@
 
 <!-- ======================================================================= Cheat sheet -->
 @if (showCheat()) {
-  <nb-cheat-sheet [kind]="cheatKind()" [kinds]="PALETTE" [rows]="cheatRows()" [loading]="cheatLoading()" (close)="showCheat.set(false)" (kindChange)="setCheatKind($event)" (run)="insertCommand($event)" />
+  <nb-cheat-sheet [kind]="cheatKind()" [kinds]="cheatKinds" [rows]="cheatRows()" [loading]="cheatLoading()" (close)="showCheat.set(false)" (kindChange)="setCheatKind($event)" (run)="insertCommand($event)" />
 }
 
 <!-- ======================================================================= Auth -->

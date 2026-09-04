@@ -315,6 +315,16 @@ describe('list_commands matches terminal', () => {
     const saved = await request(server).post(`/api/sessions/${sessionId}/save`).send({}).expect(201);
     expect(saved.body.json.devices.find((d: { name: string }) => d.name === 'DSW9').switchProfile).toBe('multilayer');
   });
+
+  it('cycles an existing switch profile through edit', async () => {
+    const { sessionId } = await openLab('model-unmanaged-switch');
+    await request(server)
+      .post(`/api/sessions/${sessionId}/edit`)
+      .send({ patch: { setSwitchProfiles: [{ device: 'USW1', switchProfile: 'managed-l2' }] } })
+      .expect(201);
+    const state = await request(server).get(`/api/sessions/${sessionId}/state`).expect(200);
+    expect(state.body.devices.find((d: { name: string }) => d.name === 'USW1').switchProfile).toBe('managed-l2');
+  });
 });
 
 describe('Eve tool endpoints + six eval scenarios', () => {

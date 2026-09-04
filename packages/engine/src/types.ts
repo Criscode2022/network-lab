@@ -27,6 +27,12 @@ export function isMultilayerSwitch(device: Pick<Device, 'kind' | 'switchProfile'
   return switchProfileOf(device) === 'multilayer';
 }
 
+/** unmanaged → managed-l2 → multilayer → unmanaged */
+export function nextSwitchProfile(profile: SwitchProfile): SwitchProfile {
+  const i = SWITCH_PROFILES.indexOf(profile);
+  return SWITCH_PROFILES[i < 0 ? 0 : (i + 1) % SWITCH_PROFILES.length];
+}
+
 export type Family = 'v4' | 'v6';
 
 export interface Ipv4Addr {
@@ -449,6 +455,8 @@ export interface LabPatch {
   addLinks?: { a: string; b: string; cable?: CableMedia }[];
   removeLinks?: string[];
   configs?: { device: string; commands: string[] }[];
+  /** Change the capability tier of an existing switch; cables stay, out-of-profile config is stripped. */
+  setSwitchProfiles?: { device: string; switchProfile: SwitchProfile }[];
 }
 
 export const KIND_PORTS: Record<DeviceKind, string[]> = {

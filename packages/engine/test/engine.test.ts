@@ -161,6 +161,40 @@ describe('realistic switch profiles', () => {
     expect(e.find('DSW1')?.routesV6.some((route) => route.dest === '2001:db8:30::' && route.prefix === 64)).toBe(true);
   });
 
+  it('cycles a live switch profile without dropping cables', () => {
+    const e = Engine.fromLab(twoPcSwitch());
+    expect(e.ping('PC1', '10.0.0.20', { count: 1 }).ok).toBe(true);
+    e.setSwitchProfile('SW1', 'multilayer');
+    expect(e.find('SW1')?.switchProfile).toBe('multilayer');
+    expect(e.exec('SW1', 'enable').error).not.toBe(true);
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'ip routing').error).not.toBe(true);
+    expect(e.ping('PC1', '10.0.0.20', { count: 1 }).ok).toBe(true);
+
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'int Gi0/3').error).not.toBe(true);
+    expect(e.exec('SW1', 'no switchport').error).not.toBe(true);
+    expect(e.exec('SW1', 'ip address 10.0.12.1 255.255.255.252').error).not.toBe(true);
+    expect(e.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.mode).toBe('routed');
+
+    e.setSwitchProfile('SW1', 'unmanaged');
+    expect(e.find('SW1')?.switchProfile).toBe('unmanaged');
+    expect(e.exec('SW1', 'enable').error).toBe(true);
+    const usw = e.find('SW1');
+    expect(usw?.ifaces.every((i) => i.adminUp && i.mode === 'access' && !i.name.toLowerCase().startsWith('vlan'))).toBe(true);
+    expect(usw?.ifaces.find((i) => i.name === 'Gi0/3')?.ipv4).toBeUndefined();
+    expect(e.ping('PC1', '10.0.0.20', { count: 1 }).ok).toBe(true);
+
+    expect(validatePatch({ setSwitchProfiles: [{ device: 'SW1', switchProfile: 'managed-l2' }] })).toMatchObject({ ok: true });
+    expect(validatePatch({ setSwitchProfiles: [{ device: 'SW1', switchProfile: 'magic' }] })).toMatchObject({ ok: false });
+    const r = e.applyPatch({ setSwitchProfiles: [{ device: 'SW1', switchProfile: 'managed-l2' }] });
+    expect(r.ok).toBe(true);
+    expect(e.find('SW1')?.switchProfile).toBe('managed-l2');
+    expect(e.exec('SW1', 'enable').error).not.toBe(true);
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'ip routing').error).toBe(true);
+  });
+
   it('multilayer switches relay DHCP to a remote server and honor excluded ranges', () => {
     const lab: LabJson = {
       schemaVersion: 1,

@@ -19,6 +19,8 @@ import {
   ApiError,
   CABLE_TYPES,
   PALETTE,
+  SWITCH_TYPES,
+  nextSwitchProfile,
   type CableMedia,
   type CheckItemResult,
   type CheckResult,
@@ -162,8 +164,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly api = inject(Api);
   readonly eve = inject(EveClient);
   private readonly cdr = inject(ChangeDetectorRef);
-  readonly PALETTE = PALETTE;
+  readonly cheatKinds = PALETTE.flatMap((p) => (p.kind === 'switch' ? SWITCH_TYPES : [p]));
   readonly CABLE_TYPES = CABLE_TYPES;
+  /** Type the single palette Switch tile will place next. Default unmanaged. */
+  paletteSwitchProfile = signal<SwitchProfile>('unmanaged');
+  devicePalette = computed(() => {
+    const profile = this.paletteSwitchProfile();
+    const meta = SWITCH_TYPES.find((s) => s.switchProfile === profile) ?? SWITCH_TYPES[0];
+    return PALETTE.map((p) => (p.kind === 'switch' ? { ...p, switchProfile: profile, label: meta.label, hint: meta.hint } : p));
+  });
   readonly KIND_ICON = KIND_ICON;
 
   // ---- lab / session -------------------------------------------------------
@@ -193,6 +202,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private guarded = new WeakSet<HTMLElement>();
   private tapAt: { x: number; y: number } | null = null;
   private moved = false;
+  private paletteHold: { pointerId: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  private paletteHoldStart = { x: 0, y: 0 };
+  private paletteHoldFired = false;
+  private canvasSwitchHold: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  private canvasSwitchHoldFired = false;
   cableFrom = signal<{ id: string; iface: string } | null>(null);
   cableKind = signal<CableMedia>('ethernet');
   cableArmed = signal(false);
@@ -574,6 +588,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('pagehide', this.flushGuest);
     this.mq?.removeEventListener('change', this.onMq);
+    this.clearPaletteHold();
+    this.clearCanvasSwitchHold();
     this.stopMonitor();
     if (this.saveTimer) clearInterval(this.saveTimer);
     for (const t of this.toastTimers.values()) clearTimeout(t);
@@ -1157,6 +1173,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   isMultilayerSwitch(d: DeviceState): boolean {
     return this.switchProfile(d) === 'multilayer';
+  }
+
+  nextSwitchProfileOf(d: DeviceState): SwitchProfile {
+    return nextSwitchProfile(this.switchProfile(d) ?? 'unmanaged');
+  }
+
+  nextPaletteSwitchProfile(): SwitchProfile {
+    return nextSwitchProfile(this.paletteSwitchProfile());
   }
 
   kindIcon(k: string): IconName {
@@ -1798,7 +1822,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async setCheatKind(id: string) {
-    const item = PALETTE.find((entry) => entry.id === id) ?? PALETTE.find((entry) => entry.kind === id);
+    const item = this.cheatKinds.find((entry) => entry.id === id) ?? this.cheatKinds.find((entry) => entry.kind === id);
     if (!item) return;
     this.cheatKind.set(item.id);
     this.cheatLoading.set(true);
@@ -2203,7 +2227,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   placingItem(): DevicePaletteItem | undefined {
-    return PALETTE.find((item) => item.id === this.placing());
+    return this.devicePalette().find((item) => item.id === this.placing());
   }
 
   place(item: DevicePaletteItem) {
@@ -2219,11 +2243,100 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.cancelCable();
   }
 
+  cyclePaletteSwitch(ev?: Event) {
+    ev?.preventDefault();
+    ev?.stopPropagation();
+    const next = this.nextPaletteSwitchProfile();
+    this.paletteSwitchProfile.set(next);
+    this.toast(`Next switch: ${this.kindLabel('switch', next)}`, 'info');
+  }
+
+  async cyclePlacedSwitch(d: DeviceState, ev?: Event) {
+    ev?.preventDefault();
+    ev?.stopPropagation();
+    if (d.kind !== 'switch') return;
+    const next = this.nextSwitchProfileOf(d);
+    try {
+      await this.api.edit({ setSwitchProfiles: [{ device: d.id, switchProfile: next }] });
+    } catch (e) {
+      this.fail(e);
+      return;
+    }
+    const fresh = this.api.state()?.devices.find((x) => x.id === d.id);
+    if (fresh) {
+      this.selectedId.set(fresh.id);
+      void this.loadVocab(fresh.kind, fresh.switchProfile);
+    }
+    const label = this.kindLabel('switch', next);
+    this.toast(
+      next === 'unmanaged'
+        ? `${d.name} is now an Unmanaged Switch. VLAN, IP and CLI configuration were removed.`
+        : `${d.name} is now a ${label}.`,
+      next === 'unmanaged' ? 'warn' : 'success',
+    );
+  }
+
+  onPaletteDeviceClick(item: DevicePaletteItem, ev: Event) {
+    if (this.paletteHoldFired) {
+      this.paletteHoldFired = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    this.place(item);
+  }
+
+  onPaletteDevicePointerDown(ev: PointerEvent, item: DevicePaletteItem) {
+    this.clearPaletteHold();
+    this.paletteHoldFired = false;
+    if (item.kind !== 'switch' || !this.isNarrow()) return;
+    this.paletteHoldStart = { x: ev.clientX, y: ev.clientY };
+    this.paletteHold = {
+      pointerId: ev.pointerId,
+      timer: setTimeout(() => {
+        this.paletteHold = null;
+        this.paletteHoldFired = true;
+        this.cyclePaletteSwitch();
+        this.cdr.detectChanges();
+      }, 450),
+    };
+  }
+
+  onPaletteDevicePointerMove(ev: PointerEvent) {
+    if (!this.paletteHold || ev.pointerId !== this.paletteHold.pointerId) return;
+    if (Math.hypot(ev.clientX - this.paletteHoldStart.x, ev.clientY - this.paletteHoldStart.y) > 10) this.clearPaletteHold();
+  }
+
+  onPaletteDevicePointerUp() {
+    this.clearPaletteHold();
+  }
+
+  onPaletteDeviceContext(ev: Event, item: DevicePaletteItem) {
+    if (item.kind !== 'switch') return;
+    ev.preventDefault();
+    if (this.isNarrow() && !this.paletteHoldFired) this.cyclePaletteSwitch();
+  }
+
+  private clearPaletteHold() {
+    if (this.paletteHold) {
+      clearTimeout(this.paletteHold.timer);
+      this.paletteHold = null;
+    }
+  }
+
+  private clearCanvasSwitchHold() {
+    if (this.canvasSwitchHold) {
+      clearTimeout(this.canvasSwitchHold.timer);
+      this.canvasSwitchHold = null;
+    }
+  }
+
   async addDevice(kind: string, at?: { x: number; y: number }, switchProfile?: SwitchProfile) {
     const name = this.nameFor(kind);
     const pos = at ?? this.dropPoint();
+    const profile = kind === 'switch' ? (switchProfile ?? this.paletteSwitchProfile()) : switchProfile;
     try {
-      await this.api.edit({ addDevices: [{ type: kind, name, ...(switchProfile ? { switchProfile } : {}), x: pos.x, y: pos.y }] });
+      await this.api.edit({ addDevices: [{ type: kind, name, ...(profile ? { switchProfile: profile } : {}), x: pos.x, y: pos.y }] });
     } catch (e) {
       this.fail(e);
       return;
@@ -2235,7 +2348,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       void this.loadVocab(d.kind, d.switchProfile);
     }
     this.toast(
-      this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind, switchProfile)} ${name} added. Drag to move; Cable to connect.`,
+      this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind, profile)} ${name} added. Drag to move; Cable to connect.`,
       'success',
     );
     if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
@@ -2283,7 +2396,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const kind = d.kind;
     const restore = async () => {
       try {
-        await this.api.edit({ addDevices: [{ type: kind, name: d.name, x: d.x, y: d.y }], addLinks: snapLinks });
+        await this.api.edit({
+          addDevices: [{ type: kind, name: d.name, x: d.x, y: d.y, ...(d.switchProfile ? { switchProfile: d.switchProfile } : {}) }],
+          addLinks: snapLinks,
+        });
         const cmds = [...(snapDev?.startup ?? []), ...(snapDev?.post ?? [])];
         if (cmds.length) {
           try {
@@ -3467,7 +3583,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     act('help', 'Help topics', 'help', () => this.helpOpen.set('hub'));
     act('view-subnet', `${this.view().subnet ? 'Hide' : 'Show'} subnet colours`, 'palette', () => this.toggleView('subnet'));
     act('view-vlan', `${this.view().vlan ? 'Hide' : 'Show'} VLAN labels on cables`, 'layers', () => this.toggleView('vlan'));
-    for (const p of PALETTE) {
+    for (const p of this.devicePalette()) {
       items.push({ id: `add-${p.id}`, group: 'Add device', label: `Add ${p.label}`, hint: p.hint, icon: this.kindIcon(p.kind), run: () => (this.isNarrow() ? this.place(p) : this.addDevice(p.kind, undefined, p.switchProfile)) });
     }
     for (const d of st?.devices ?? []) {
@@ -3791,6 +3907,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.movePinch();
       return;
     }
+    if (this.canvasSwitchHold && Math.hypot(ev.clientX - this.canvasSwitchHold.x, ev.clientY - this.canvasSwitchHold.y) > 10) {
+      this.clearCanvasSwitchHold();
+    }
     if (this.panning || this.dragging) ev.preventDefault();
     if (this.panning) {
       const dx = ev.clientX - this.panning.px;
@@ -3836,7 +3955,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const d = this.api.state()?.devices.find((x) => x.id === this.dragging!.id);
       if (d) {
         void this.api.edit(undefined, [{ id: d.id, x: d.x, y: d.y }]).catch(() => undefined);
-        if (this.isNarrow() && this.tapAt && Math.hypot(d.x - this.tapAt.x, d.y - this.tapAt.y) < 12) {
+        if (this.canvasSwitchHoldFired) {
+          this.canvasSwitchHoldFired = false;
+        } else if (this.isNarrow() && this.tapAt && Math.hypot(d.x - this.tapAt.x, d.y - this.tapAt.y) < 12) {
           if (this.basicMode()) {
             this.prepareIpv4Form(d);
             this.basicSheet.set(true);
@@ -3844,6 +3965,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         }
       }
     }
+    this.clearCanvasSwitchHold();
     this.panning = null;
     this.dragging = null;
     this.tapAt = null;
@@ -3883,6 +4005,24 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.selectDevice(d);
     this.tapAt = { x: d.x, y: d.y };
     this.dragging = { id: d.id, ox: d.x - ev.clientX, oy: d.y - ev.clientY };
+    this.clearCanvasSwitchHold();
+    this.canvasSwitchHoldFired = false;
+    if (d.kind === 'switch' && this.isNarrow()) {
+      this.canvasSwitchHold = {
+        id: d.id,
+        x: ev.clientX,
+        y: ev.clientY,
+        timer: setTimeout(() => {
+          this.canvasSwitchHold = null;
+          this.canvasSwitchHoldFired = true;
+          this.dragging = null;
+          this.tapAt = null;
+          const cur = this.api.state()?.devices.find((x) => x.id === d.id);
+          if (cur) void this.cyclePlacedSwitch(cur);
+          this.cdr.detectChanges();
+        }, 450),
+      };
+    }
   }
 
   selectDevice(d: DeviceState) {

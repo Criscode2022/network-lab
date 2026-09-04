@@ -3,6 +3,8 @@ import {
   HOST_KINDS,
   isManagedSwitch,
   KIND_PORTS,
+  SWITCH_PROFILES,
+  switchProfileOf,
   type Device,
   type DeviceKind,
   type Iface,
@@ -153,4 +155,80 @@ export function ensureSubif(dev: Device, parent: string, vlan: number): Iface {
 
 export function physicalIfaces(dev: Device): Iface[] {
   return dev.ifaces.filter((i) => !i.parent && !i.name.toLowerCase().startsWith('vlan'));
+}
+
+function isSvi(iface: Iface): boolean {
+  return iface.vlanId !== undefined || iface.name.toLowerCase().startsWith('vlan');
+}
+
+function stripLayer3(dev: Device): void {
+  dev.forwarding = false;
+  dev.ipRouting = false;
+  dev.routesV4 = [];
+  dev.routesV6 = [];
+  dev.dhcpPools = [];
+  dev.dhcpBindings = [];
+  dev.dhcpOffered = 0;
+  dev.dhcpExcluded = [];
+  dev.defaultGw4 = undefined;
+  dev.defaultGw6 = undefined;
+}
+
+function stripToUnmanaged(dev: Device): void {
+  dev.ifaces = physicalIfaces(dev);
+  for (const iface of dev.ifaces) {
+    iface.adminUp = true;
+    iface.mode = 'access';
+    iface.accessVlan = 1;
+    iface.nativeVlan = 1;
+    iface.allowedVlans = 'all';
+    iface.ipv4 = undefined;
+    iface.ipv6 = [];
+    iface.helperAddress = undefined;
+    iface.vlanId = undefined;
+    iface.encapVlan = undefined;
+    iface.parent = undefined;
+  }
+  dev.vlans = [1];
+  dev.macTable = [];
+  dev.arp = [];
+  dev.ndp = [];
+  stripLayer3(dev);
+}
+
+function stripMultilayerOnly(dev: Device): void {
+  for (const iface of dev.ifaces) {
+    if (iface.mode === 'routed' && !isSvi(iface)) {
+      iface.mode = 'access';
+      iface.accessVlan = 1;
+      iface.ipv4 = undefined;
+      iface.ipv6 = [];
+    }
+    iface.helperAddress = undefined;
+  }
+  stripLayer3(dev);
+}
+
+/** Change a live switch's capability tier. Physical cables stay; features the new profile cannot have are removed. */
+export function applySwitchProfile(dev: Device, profile: SwitchProfile): void {
+  if (dev.kind !== 'switch') throw new Error(`${dev.name} is not a switch`);
+  if (!SWITCH_PROFILES.includes(profile)) throw new Error(`unknown switchProfile ${profile}`);
+  const prev = switchProfileOf(dev);
+  if (prev === profile) return;
+  if (profile === 'unmanaged') {
+    stripToUnmanaged(dev);
+  } else {
+    if (profile === 'managed-l2') stripMultilayerOnly(dev);
+    else {
+      for (const iface of dev.ifaces) {
+        if (!isSvi(iface)) continue;
+        if (!iface.ipv6.some((v) => v.ip.toLowerCase().startsWith('fe80'))) {
+          iface.ipv6.push({ ip: linkLocalFromMac(iface.mac), prefix: 64 });
+        }
+      }
+    }
+  }
+  dev.switchProfile = profile;
+  dev.cli = { level: 'user' };
+  dev.startupLines = [];
 }

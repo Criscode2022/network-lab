@@ -8,7 +8,13 @@ const WS = LOCAL
   : 'wss://api-production-caeb.up.railway.app/ws';
 
 export type CableMedia = 'ethernet' | 'straight' | 'crossover' | 'fiber';
-export type SwitchProfile = 'unmanaged' | 'managed-l2' | 'multilayer';
+export const SWITCH_PROFILES = ['unmanaged', 'managed-l2', 'multilayer'] as const;
+export type SwitchProfile = (typeof SWITCH_PROFILES)[number];
+
+export function nextSwitchProfile(profile: SwitchProfile): SwitchProfile {
+  const i = SWITCH_PROFILES.indexOf(profile);
+  return SWITCH_PROFILES[i < 0 ? 0 : (i + 1) % SWITCH_PROFILES.length];
+}
 
 export interface IfacePeer {
   device: string;
@@ -160,12 +166,16 @@ export interface PaletteItem {
   hint: string;
 }
 
-export const PALETTE: PaletteItem[] = [
-  { id: 'workstation', kind: 'workstation', label: 'PC', hint: 'A computer to ping from' },
-  { id: 'server', kind: 'server', label: 'Server', hint: 'Linux host with a service' },
+export const SWITCH_TYPES: PaletteItem[] = [
   { id: 'switch-unmanaged', kind: 'switch', switchProfile: 'unmanaged', label: 'Unmanaged Switch', hint: 'Plug-and-play; no VLANs or CLI' },
   { id: 'switch-managed-l2', kind: 'switch', switchProfile: 'managed-l2', label: 'Managed L2 Switch', hint: 'VLANs, trunks, STP and management SVI' },
   { id: 'switch-multilayer', kind: 'switch', switchProfile: 'multilayer', label: 'Multilayer L3 Switch', hint: 'Inter-VLAN routing, static routes and DHCP' },
+];
+
+export const PALETTE: PaletteItem[] = [
+  { id: 'workstation', kind: 'workstation', label: 'PC', hint: 'A computer to ping from' },
+  { id: 'server', kind: 'server', label: 'Server', hint: 'Linux host with a service' },
+  { id: 'switch', kind: 'switch', switchProfile: 'unmanaged', label: 'Switch', hint: 'Unmanaged by default — cycle for managed L2 or multilayer' },
   { id: 'router', kind: 'router', label: 'Router', hint: 'IPv4 between networks' },
   { id: 'firewall', kind: 'firewall', label: 'Firewall', hint: 'Allow or block traffic' },
   { id: 'ap', kind: 'ap', label: 'Wi-Fi AP', hint: 'Wireless access point' },
