@@ -14,9 +14,13 @@
     "test": "npm test -w @netbench/engine && npm test -w @netbench/api --if-present",
     "test:engine": "npm test -w @netbench/engine",
     "test:api": "npm test -w @netbench/api --if-present",
+    "dev": "concurrently -n api,web,eve -c cyan,green,magenta \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:eve\"",
     "dev:api": "npm run start:dev -w @netbench/api",
     "dev:web": "npm start -w @netbench/web",
     "dev:eve": "npm run dev -w @netbench/eve-agent --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   },
   "engines": {
     "node": ">=20"
