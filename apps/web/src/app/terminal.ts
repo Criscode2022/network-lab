@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, effect, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, input, output, signal, viewChild } from '@angular/core';
 import { NgClass } from '@angular/common';
 import type { DeviceState } from './api';
 import { Icon, KIND_ICON } from './icons';
@@ -12,58 +12,166 @@ export interface TermLine {
   sys?: boolean;
 }
 
-/** One-tap commands per device kind. Every entry is a real CLI line the engine understands. */
-export const QUICK_COMMANDS: Record<string, { label: string; cmd: string }[]> = {
+export type QuickCategoryId = 'common' | 'inspect' | 'network' | 'specific';
+
+export interface QuickCommand {
+  label: string;
+  cmd: string;
+  category: QuickCategoryId;
+}
+
+export const QUICK_CATEGORY_LABEL: Record<QuickCategoryId, string> = {
+  common: 'Common',
+  inspect: 'Inspect',
+  network: 'Network',
+  specific: 'Specific',
+};
+
+const QUICK_CATEGORY_TONE: Record<QuickCategoryId, string> = {
+  common: 'text-ink-400',
+  inspect: 'text-brand-400/80',
+  network: 'text-ok-400/80',
+  specific: 'text-eve-300/80',
+};
+
+const QUICK_CATEGORY_ORDER: QuickCategoryId[] = ['common', 'inspect', 'network', 'specific'];
+
+const Q = (category: QuickCategoryId, label: string, cmd: string): QuickCommand => ({ category, label, cmd });
+
+const LINUX_COMMON = [Q('common', 'help', 'help'), Q('common', 'hostname', 'hostname')];
+const LINUX_INSPECT = [
+  Q('inspect', 'ip addr', 'ip addr'),
+  Q('inspect', 'ip link', 'ip link'),
+  Q('inspect', 'ip route', 'ip route'),
+  Q('inspect', 'tcpdump', 'tcpdump -c 10'),
+];
+const CISCO_COMMON = [
+  Q('common', 'help', 'help'),
+  Q('common', 'enable', 'enable'),
+  Q('common', 'conf t', 'conf t'),
+  Q('common', 'write', 'write'),
+];
+
+const QUICK_BY_KIND: Record<string, QuickCommand[]> = {
   workstation: [
-    { label: 'ip addr', cmd: 'ip addr' },
-    { label: 'ip route', cmd: 'ip route' },
-    { label: 'wifi link', cmd: 'iw dev wlan0 link' },
-    { label: 'tcpdump', cmd: 'tcpdump -c 10' },
-    { label: 'help', cmd: 'help' },
+    ...LINUX_COMMON,
+    ...LINUX_INSPECT,
+    Q('network', 'dhclient', 'dhclient'),
+    Q('network', 'resolvectl', 'resolvectl'),
+    Q('specific', 'wifi link', 'iw dev wlan0 link'),
+    Q('specific', 'ss', 'ss'),
+    Q('specific', 'hosts', 'cat /etc/hosts'),
   ],
   server: [
-    { label: 'ip addr', cmd: 'ip addr' },
-    { label: 'ip route', cmd: 'ip route' },
-    { label: 'sockets', cmd: 'ss' },
-    { label: 'start ssh', cmd: 'systemctl start ssh' },
-    { label: 'help', cmd: 'help' },
-  ],
-  switch: [
-    { label: 'show run', cmd: 'show run' },
-    { label: 'show vlan', cmd: 'show vlan' },
-    { label: 'show mac', cmd: 'show mac' },
-    { label: 'show int', cmd: 'show int' },
-    { label: 'show trunk', cmd: 'show trunk' },
-    { label: 'help', cmd: 'help' },
+    ...LINUX_COMMON,
+    ...LINUX_INSPECT,
+    Q('network', 'dhclient', 'dhclient'),
+    Q('specific', 'ss', 'ss'),
+    Q('specific', 'start ssh', 'systemctl start ssh'),
+    Q('specific', 'hosts', 'cat /etc/hosts'),
   ],
   router: [
-    { label: 'show run', cmd: 'show run' },
-    { label: 'show ip route', cmd: 'show ip route' },
-    { label: 'ospf neighbor', cmd: 'show ip ospf neighbor' },
-    { label: 'show ipv6 route', cmd: 'show ipv6 route' },
-    { label: 'help', cmd: 'help' },
+    ...CISCO_COMMON,
+    Q('inspect', 'show run', 'show run'),
+    Q('inspect', 'show int', 'show int'),
+    Q('network', 'show ip route', 'show ip route'),
+    Q('network', 'show ipv6 route', 'show ipv6 route'),
+    Q('specific', 'ospf neigh', 'show ip ospf neighbor'),
+    Q('specific', 'ospf db', 'show ip ospf database'),
   ],
   firewall: [
-    { label: 'show rules', cmd: 'show rules' },
-    { label: 'ip addr', cmd: 'ip addr' },
-    { label: 'ip route', cmd: 'ip route' },
-    { label: 'help', cmd: 'help' },
+    ...LINUX_COMMON,
+    Q('inspect', 'ip addr', 'ip addr'),
+    Q('inspect', 'ip route', 'ip route'),
+    Q('inspect', 'show rules', 'show rules'),
+    Q('specific', 'show run', 'show run'),
   ],
   ap: [
-    { label: 'show ssid', cmd: 'show ssid' },
-    { label: 'show interface', cmd: 'show interface' },
-    { label: 'help', cmd: 'help' },
+    Q('common', 'help', 'help'),
+    Q('common', 'enable', 'enable'),
+    Q('inspect', 'show run', 'show run'),
+    Q('inspect', 'show ssid', 'show ssid'),
+    Q('inspect', 'show int', 'show interface'),
+    Q('specific', 'no shut', 'no shutdown'),
   ],
   wlc: [
-    { label: 'show ap summary', cmd: 'show ap summary' },
-    { label: 'show wlan', cmd: 'show wlan' },
-    { label: 'help', cmd: 'help' },
+    Q('common', 'help', 'help'),
+    Q('common', 'enable', 'enable'),
+    Q('inspect', 'show run', 'show run'),
+    Q('specific', 'show ap', 'show ap summary'),
+    Q('specific', 'show wlan', 'show wlan'),
   ],
   cloud: [
-    { label: 'show run', cmd: 'show run' },
-    { label: 'help', cmd: 'help' },
+    ...LINUX_COMMON,
+    Q('inspect', 'ip addr', 'ip addr'),
+    Q('inspect', 'ip route', 'ip route'),
+    Q('inspect', 'show run', 'show run'),
   ],
 };
+
+const QUICK_SWITCH: Record<string, QuickCommand[]> = {
+  'managed-l2': [
+    ...CISCO_COMMON,
+    Q('inspect', 'show run', 'show run'),
+    Q('inspect', 'show int', 'show int'),
+    Q('inspect', 'show vlan', 'show vlan'),
+    Q('inspect', 'show mac', 'show mac'),
+    Q('specific', 'show trunk', 'show trunk'),
+  ],
+  multilayer: [
+    ...CISCO_COMMON,
+    Q('inspect', 'show run', 'show run'),
+    Q('inspect', 'show int', 'show int'),
+    Q('inspect', 'show vlan', 'show vlan'),
+    Q('inspect', 'show mac', 'show mac'),
+    Q('network', 'show ip route', 'show ip route'),
+    Q('network', 'show ipv6 route', 'show ipv6 route'),
+    Q('specific', 'dhcp bind', 'show ip dhcp binding'),
+    Q('specific', 'show trunk', 'show trunk'),
+  ],
+};
+
+function neighborIpv4(device: DeviceState, all: DeviceState[]): string | undefined {
+  for (const iface of device.ifaces) {
+    const peer = all.find((x) => x.id === iface.peer?.deviceId || x.name === iface.peer?.device);
+    const ip = peer?.ifaces.find((p) => p.ipv4?.ip)?.ipv4?.ip;
+    if (ip) return ip;
+  }
+  return undefined;
+}
+
+function canIcmp(device: DeviceState): boolean {
+  if (device.kind === 'ap' || device.kind === 'wlc') return false;
+  if (device.kind === 'switch') {
+    return device.switchProfile === 'multilayer' || device.ifaces.some((i) => !!i.ipv4);
+  }
+  return true;
+}
+
+/** One-tap commands for the selected device. Every `cmd` is a real CLI line the engine understands. */
+export function quickCommandsFor(device: DeviceState, all: DeviceState[] = []): QuickCommand[] {
+  if (device.kind === 'switch') {
+    const profile = device.switchProfile ?? 'managed-l2';
+    if (profile === 'unmanaged') return [];
+    return withContext(device, all, QUICK_SWITCH[profile] ?? QUICK_SWITCH['managed-l2']);
+  }
+  return withContext(device, all, QUICK_BY_KIND[device.kind] ?? []);
+}
+
+function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand[]): QuickCommand[] {
+  const extra: QuickCommand[] = [];
+  const target = canIcmp(device) ? neighborIpv4(device, all) : undefined;
+  if (target && !base.some((q) => q.cmd === `ping ${target}`)) {
+    extra.push(Q('network', `ping ${target}`, `ping ${target}`));
+  }
+  if (device.kind === 'workstation' || device.kind === 'server' || device.kind === 'firewall') {
+    for (const iface of device.ifaces) {
+      if (iface.adminUp || extra.length > 2) continue;
+      extra.push(Q('network', `up ${iface.name}`, `ip link set ${iface.name} up`));
+    }
+  }
+  return extra.length ? [...base, ...extra] : base;
+}
 
 @Component({
   selector: 'nb-terminal',
@@ -98,7 +206,7 @@ export const QUICK_COMMANDS: Record<string, { label: string; cmd: string }[]> = 
 
     <div #out class="term scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-[11.5px] leading-[1.55]" (click)="focus()">
       @if (!lines().length) {
-        <div class="text-ink-500">Type <span class="text-ink-200">help</span> for this device’s commands. ↑/↓ recalls history, Tab completes.</div>
+        <div class="text-ink-500">Type <span class="text-ink-200">help</span> or tap a quick command. ↑/↓ recalls history, Tab completes.</div>
       }
       @for (line of lines(); track $index) {
         <pre
@@ -111,18 +219,23 @@ export const QUICK_COMMANDS: Record<string, { label: string; cmd: string }[]> = 
       }
     </div>
 
-    @if (quick().length) {
-      <div class="scroll-thin flex shrink-0 items-center gap-1 overflow-x-auto border-t border-ink-800/80 px-2 py-1">
-        <span class="mr-1 shrink-0 text-[10px] text-ink-500">Quick</span>
-        @for (q of quick(); track q.cmd) {
-          <button
-            type="button"
-            class="shrink-0 rounded-md border border-ink-700 bg-ink-900 px-2 py-0.5 font-mono text-[10.5px] text-ink-200 transition-colors hover:border-brand-500/50 hover:text-brand-200"
-            [disabled]="busy()"
-            (click)="run.emit(q.cmd)"
-          >
-            {{ q.label }}
-          </button>
+    @if (quickGroups().length) {
+      <div class="scroll-thin flex max-h-[4.25rem] shrink-0 flex-wrap content-start items-center gap-x-3 gap-y-1 overflow-y-auto border-t border-ink-800/80 px-2 py-1">
+        @for (g of quickGroups(); track g.id) {
+          <div class="flex min-w-0 items-center gap-1">
+            <span class="shrink-0 text-[9px] font-semibold uppercase tracking-[0.14em]" [ngClass]="g.tone">{{ g.label }}</span>
+            @for (q of g.items; track q.cmd) {
+              <button
+                type="button"
+                class="shrink-0 rounded-md border border-ink-700 bg-ink-900 px-2 py-0.5 font-mono text-[10.5px] text-ink-200 transition-colors hover:border-brand-500/50 hover:text-brand-200"
+                [title]="q.cmd"
+                [disabled]="busy()"
+                (click)="run.emit(q.cmd)"
+              >
+                {{ q.label }}
+              </button>
+            }
+          </div>
         }
       </div>
     }
@@ -156,7 +269,16 @@ export class Terminal {
   busy = input(false);
   /** Words offered for Tab completion (from the cheat sheet of the current device kind). */
   vocab = input<string[]>([]);
-  quick = input<{ label: string; cmd: string }[]>([]);
+  quick = input<QuickCommand[]>([]);
+  quickGroups = computed(() => {
+    const items = this.quick();
+    return QUICK_CATEGORY_ORDER.map((id) => ({
+      id,
+      label: QUICK_CATEGORY_LABEL[id],
+      tone: QUICK_CATEGORY_TONE[id],
+      items: items.filter((q) => q.category === id),
+    })).filter((g) => g.items.length);
+  });
 
   deviceChange = output<string>();
   run = output<string>();

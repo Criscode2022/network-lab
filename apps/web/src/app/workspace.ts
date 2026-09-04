@@ -38,7 +38,7 @@ import {
 } from './api';
 import { EveClient } from './eve-client';
 import { Icon, KIND_ICON, type IconName } from './icons';
-import { QUICK_COMMANDS, Terminal, type TermLine } from './terminal';
+import { Terminal, quickCommandsFor, type TermLine } from './terminal';
 import { Packets } from './packets';
 import { Toasts, type Toast, type ToastKind } from './toasts';
 import { LabPicker } from './lab-picker';
@@ -525,8 +525,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   failedChecks = computed(() => this.checkResult()?.results.filter((r) => !r.ok) ?? []);
   guestLabel = computed(() => (this.api.guest() ? 'Guest' : (this.api.email() ?? 'Account')));
   quickCmds = computed(() => {
-    const d = this.api.state()?.devices.find((x) => x.id === this.termDevice());
-    return d ? (QUICK_COMMANDS[d.kind] ?? []) : [];
+    const st = this.api.state();
+    const d = st?.devices.find((x) => x.id === this.termDevice());
+    return d ? quickCommandsFor(d, st?.devices ?? []) : [];
   });
   /** Subnet → colour class, assigned in order of first appearance so the same network always shares a colour. */
   subnetColors = computed(() => {
