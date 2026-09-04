@@ -404,7 +404,7 @@
             <div class="pointer-events-auto relative flex items-center gap-0.5 rounded-xl border border-ink-700 bg-ink-900/90 p-1 shadow-pop backdrop-blur">
               @if (focusAddOpen()) {
                 <div class="fixed inset-0 z-30" (click)="focusAddOpen.set(false)"></div>
-                <div class="card absolute bottom-full left-0 z-40 mb-2 w-72 p-1.5 animate-pop" role="menu">
+                <div class="card absolute bottom-full left-0 z-40 mb-2 w-96 p-1.5 animate-pop" role="menu">
                   <div class="section-title px-2.5 pt-1 pb-1">Add a device</div>
                   <div class="grid grid-cols-2 gap-1">
                     @for (p of devicePalette(); track p.id) {
@@ -423,7 +423,7 @@
                         }
                         <button type="button" class="menu-item w-full" role="menuitem" (click)="place(p)">
                           <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg border" [ngClass]="kindColor(p.kind)"><nb-icon [name]="kindIcon(p.kind)" [size]="14" [ngClass]="kindAccent(p.kind)" /></span>
-                          <span class="min-w-0"><span class="block truncate text-xs font-medium text-ink-50">{{ p.label }}</span></span>
+                          <span class="min-w-0 text-xs font-medium leading-snug text-ink-50">{{ p.label }}</span>
                         </button>
                       </div>
                     }
