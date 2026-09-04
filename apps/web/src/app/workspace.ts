@@ -270,6 +270,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   reach = signal<ReachState | null>(null);
   confirmDel = signal<DeviceState | null>(null);
   confirmReset = signal(false);
+  confirmSwitch = signal<{ device: DeviceState; next: SwitchProfile } | null>(null);
 
   // ---- dock / terminal -----------------------------------------------------
   termDevice = signal<string | null>(null);
@@ -2251,11 +2252,29 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.toast(`Next switch: ${this.kindLabel('switch', next)}`, 'info');
   }
 
-  async cyclePlacedSwitch(d: DeviceState, ev?: Event) {
+  cyclePlacedSwitch(d: DeviceState, ev?: Event) {
     ev?.preventDefault();
     ev?.stopPropagation();
     if (d.kind !== 'switch') return;
-    const next = this.nextSwitchProfileOf(d);
+    this.confirmSwitch.set({ device: d, next: this.nextSwitchProfileOf(d) });
+    this.focusConfirmPrimary();
+  }
+
+  switchChangeDetail(next: SwitchProfile): string {
+    if (next === 'unmanaged') {
+      return 'VLAN, IP and CLI configuration will be removed. They are saved and applied again when you cycle back to a managed type.';
+    }
+    if (next === 'managed-l2') {
+      return 'Routed ports, IP routing and DHCP will be removed. Your last Layer 2 configuration is restored if one was saved.';
+    }
+    return 'The switch gains routing and DHCP. Your last multilayer configuration is restored if one was saved.';
+  }
+
+  async doChangeSwitch() {
+    const pending = this.confirmSwitch();
+    if (!pending) return;
+    this.confirmSwitch.set(null);
+    const { device: d, next } = pending;
     try {
       await this.api.edit({ setSwitchProfiles: [{ device: d.id, switchProfile: next }] });
     } catch (e) {
@@ -2270,8 +2289,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const label = this.kindLabel('switch', next);
     this.toast(
       next === 'unmanaged'
-        ? `${d.name} is now an Unmanaged Switch. VLAN, IP and CLI configuration were removed.`
-        : `${d.name} is now a ${label}.`,
+        ? `${d.name} is now an Unmanaged Switch. Configuration was saved and will return when you cycle back.`
+        : `${d.name} is now a ${label}. Previous configuration for this type was restored if one was saved.`,
       next === 'unmanaged' ? 'warn' : 'success',
     );
   }
@@ -3757,6 +3776,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       if (this.welcomeOpen()) return this.dismissWelcome();
       if (this.confirmReset()) return this.confirmReset.set(false);
       if (this.confirmDel()) return this.confirmDel.set(null);
+      if (this.confirmSwitch()) return this.confirmSwitch.set(null);
       if (this.menuOpen() || this.moreOpen() || this.focusAddOpen()) {
         this.menuOpen.set(false);
         this.moreOpen.set(false);

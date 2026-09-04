@@ -49,6 +49,12 @@ export const labJsonSchema = z.object({
         kind: deviceKind,
         /** Only for kind=switch. Absent keeps backward-compatible managed Layer 2 behavior. */
         switchProfile: switchProfile.optional(),
+        switchProfileSnapshots: z
+          .object({
+            'managed-l2': z.array(z.string()).optional(),
+            multilayer: z.array(z.string()).optional(),
+          })
+          .optional(),
         name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$/),
         x: z.number().optional(),
         y: z.number().optional(),

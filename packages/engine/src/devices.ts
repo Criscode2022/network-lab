@@ -106,6 +106,7 @@ export function createDevice(
     wifi: [],
     wlans: [],
     startupLines: [],
+    switchProfileSnapshots: kind === 'switch' ? {} : undefined,
     blockedPorts: [],
     dnsRecords: kind === 'cloud' ? { 'dns.google': { a: '8.8.8.8', aaaa: '2001:4860:4860::8888' } } : {},
     sshListen: kind === 'server',

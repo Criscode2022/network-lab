@@ -26,6 +26,15 @@
             "enum": ["unmanaged", "managed-l2", "multilayer"],
             "description": "Only for kind=switch. Absent means managed-l2."
           },
+          "switchProfileSnapshots": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Saved CLI for each managed switch type so cycling back restores it.",
+            "properties": {
+              "managed-l2": { "type": "array", "items": { "type": "string" } },
+              "multilayer": { "type": "array", "items": { "type": "string" } }
+            }
+          },
           "name": { "type": "string" },
           "x": { "type": "number" },
           "y": { "type": "number" },

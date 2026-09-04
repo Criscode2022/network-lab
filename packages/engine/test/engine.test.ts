@@ -193,6 +193,30 @@ describe('realistic switch profiles', () => {
     expect(e.exec('SW1', 'enable').error).not.toBe(true);
     expect(e.exec('SW1', 'conf t').error).not.toBe(true);
     expect(e.exec('SW1', 'ip routing').error).toBe(true);
+    expect(e.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.mode).toBe('access');
+    expect(e.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.ipv4).toBeUndefined();
+
+    e.setSwitchProfile('SW1', 'multilayer');
+    expect(e.find('SW1')?.switchProfile).toBe('multilayer');
+    expect(e.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.mode).toBe('routed');
+    expect(e.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.ipv4?.ip).toBe('10.0.12.1');
+    expect(e.exec('SW1', 'enable').error).not.toBe(true);
+    expect(e.exec('SW1', 'conf t').error).not.toBe(true);
+    expect(e.exec('SW1', 'ip routing').error).not.toBe(true);
+
+    e.setSwitchProfile('SW1', 'unmanaged');
+    const saved = e.toLab();
+    const parsed = validateLab(saved);
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    const sw = parsed.lab.devices.find((d) => d.name === 'SW1');
+    expect(sw?.switchProfileSnapshots?.['managed-l2']?.length).toBeGreaterThan(0);
+    expect(sw?.switchProfileSnapshots?.multilayer?.length).toBeGreaterThan(0);
+    const e2 = Engine.fromLab(parsed.lab);
+    e2.setSwitchProfile('SW1', 'managed-l2');
+    expect(e2.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.ipv4).toBeUndefined();
+    e2.setSwitchProfile('SW1', 'multilayer');
+    expect(e2.find('SW1')?.ifaces.find((i) => i.name === 'Gi0/3')?.ipv4?.ip).toBe('10.0.12.1');
   });
 
   it('multilayer switches relay DHCP to a remote server and honor excluded ranges', () => {

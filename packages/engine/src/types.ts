@@ -27,6 +27,9 @@ export function isMultilayerSwitch(device: Pick<Device, 'kind' | 'switchProfile'
   return switchProfileOf(device) === 'multilayer';
 }
 
+/** Saved CLI for a switch profile so cycling back can restore it. Unmanaged has nothing to keep. */
+export type SwitchProfileSnapshots = Partial<Record<'managed-l2' | 'multilayer', string[]>>;
+
 /** unmanaged → managed-l2 → multilayer → unmanaged */
 export function nextSwitchProfile(profile: SwitchProfile): SwitchProfile {
   const i = SWITCH_PROFILES.indexOf(profile);
@@ -203,6 +206,8 @@ export interface Device {
   kind: DeviceKind;
   /** Capability tier for switches; legacy switches default to managed-l2. */
   switchProfile?: SwitchProfile;
+  /** Last running-config for each managed profile, restored when the user cycles back. */
+  switchProfileSnapshots?: SwitchProfileSnapshots;
   name: string;
   hostname: string;
   x: number;
@@ -397,6 +402,7 @@ export interface LabJson {
     kind: DeviceKind;
     /** Only valid on switches. Absent means managed-l2. */
     switchProfile?: SwitchProfile;
+    switchProfileSnapshots?: SwitchProfileSnapshots;
     name: string;
     x: number;
     y: number;

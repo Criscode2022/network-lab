@@ -111,6 +111,7 @@ export class Engine {
     for (const d of json.devices) {
       const dev = createDevice(d.kind, d.name, d.x, d.y, d.id, d.switchProfile);
       if (d.hostname) dev.hostname = d.hostname;
+      if (d.switchProfileSnapshots) dev.switchProfileSnapshots = structuredClone(d.switchProfileSnapshots);
       dev.startupLines = [...(d.startup ?? [])];
       (dev as Device & { postLines?: string[] }).postLines = [...(d.post ?? [])];
       e.devices.set(dev.id, dev);
@@ -148,6 +149,9 @@ export class Engine {
           id: d.id,
           kind: d.kind,
           ...(d.kind === 'switch' ? { switchProfile: d.switchProfile ?? 'managed-l2' } : {}),
+          ...(d.kind === 'switch' && d.switchProfileSnapshots && Object.keys(d.switchProfileSnapshots).length
+            ? { switchProfileSnapshots: structuredClone(d.switchProfileSnapshots) }
+            : {}),
           name: d.name,
           x: d.x,
           y: d.y,
@@ -277,7 +281,17 @@ export class Engine {
 
   setSwitchProfile(idOrName: string, switchProfile: SwitchProfile): void {
     const d = this.dev(idOrName);
+    const prev = switchProfileOf(d);
+    if (prev === switchProfile) return;
+    if (prev && prev !== 'unmanaged') {
+      d.switchProfileSnapshots = { ...d.switchProfileSnapshots, [prev]: this.snapshotStartup(d) };
+    }
     applySwitchProfile(d, switchProfile);
+    const saved = switchProfile === 'unmanaged' ? undefined : d.switchProfileSnapshots?.[switchProfile];
+    if (saved?.length) {
+      for (const line of saved) this.exec(d.id, line);
+      d.cli = { level: 'user' };
+    }
     this.logActivity(`${d.name} switch profile ${switchProfile}`);
     this.recomputeStp();
     this.converge();

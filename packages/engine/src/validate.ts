@@ -15,6 +15,7 @@ import {
   type LabPatch,
   type LabSolution,
   type SwitchProfile,
+  type SwitchProfileSnapshots,
 } from './types.ts';
 
 export const MAX_LAB_DEVICES = 40;
@@ -27,6 +28,30 @@ type Bad = { ok: false; error: string };
 
 function isStrArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');
+}
+
+const SNAPSHOT_PROFILES = ['managed-l2', 'multilayer'] as const;
+
+function parseSwitchProfileSnapshots(
+  raw: unknown,
+  deviceName: unknown,
+): { ok: true; value?: SwitchProfileSnapshots } | Bad {
+  if (raw === undefined) return { ok: true };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: `${String(deviceName)}: switchProfileSnapshots must be an object` };
+  }
+  const out: SwitchProfileSnapshots = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(SNAPSHOT_PROFILES as readonly string[]).includes(key)) {
+      return { ok: false, error: `${String(deviceName)}: switchProfileSnapshots key "${key}" is invalid (allowed: managed-l2, multilayer)` };
+    }
+    if (!isStrArray(val)) return { ok: false, error: `${String(deviceName)}: switchProfileSnapshots.${key} must be a string array` };
+    for (const line of val) {
+      if (OUT_OF_SCOPE.test(line)) return { ok: false, error: `${String(deviceName)}: "${line}" — NetBench does not implement BGP/MPLS/VXLAN/802.1X` };
+    }
+    if (val.length) out[key as (typeof SNAPSHOT_PROFILES)[number]] = val;
+  }
+  return { ok: true, ...(Object.keys(out).length ? { value: out } : {}) };
 }
 
 /**
@@ -68,6 +93,9 @@ export function validateLab(input: unknown): Ok | Bad {
     const post = rec.post === undefined ? undefined : rec.post;
     if (!isStrArray(startup)) return { ok: false, error: `${rec.name}: startup must be a string array` };
     if (post !== undefined && !isStrArray(post)) return { ok: false, error: `${rec.name}: post must be a string array` };
+    const snapshots = parseSwitchProfileSnapshots(rec.switchProfileSnapshots, rec.name);
+    if (!snapshots.ok) return snapshots;
+    if (snapshots.value && kind !== 'switch') return { ok: false, error: `${rec.name}: switchProfileSnapshots is only valid for switches` };
     for (const line of [...startup, ...(post ?? [])]) {
       if (OUT_OF_SCOPE.test(line)) return { ok: false, error: `${rec.name}: "${line}" — NetBench does not implement BGP/MPLS/VXLAN/802.1X` };
     }
@@ -75,6 +103,7 @@ export function validateLab(input: unknown): Ok | Bad {
       ...(typeof rec.id === 'string' ? { id: rec.id } : {}),
       kind,
       ...(switchProfile ? { switchProfile } : {}),
+      ...(snapshots.value ? { switchProfileSnapshots: snapshots.value } : {}),
       name: rec.name,
       x: typeof rec.x === 'number' && Number.isFinite(rec.x) ? rec.x : 80 + (devices.length % 5) * 180,
       y: typeof rec.y === 'number' && Number.isFinite(rec.y) ? rec.y : 60 + Math.floor(devices.length / 5) * 160,
