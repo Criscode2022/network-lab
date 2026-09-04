@@ -2447,12 +2447,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.selectedId.set(d.id);
       this.termDevice.set(d.id);
       void this.loadVocab(d.kind, d.switchProfile);
+      if (!at) requestAnimationFrame(() => this.centerOnDevice(d));
+      else if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
+    } else if (this.basicMode()) {
+      requestAnimationFrame(() => this.fitIfNarrow());
     }
     this.toast(
       this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind, profile)} ${name} added. Drag to move; Cable to connect.`,
       'success',
     );
-    if (this.basicMode()) requestAnimationFrame(() => this.fitIfNarrow());
   }
 
   deleteDevice(d: DeviceState) {
@@ -4246,6 +4249,21 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     this.pendingFit = false;
     this.fitToView();
+  }
+
+  /** Pan (keep zoom) so a device sits in the visible canvas, clear of overlays. */
+  private centerOnDevice(d: DeviceState) {
+    const el = this.stage?.nativeElement ?? this.stageEl;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return;
+    const s = this.pan().s;
+    const cx = d.x + this.cardW() / 2;
+    const cy = d.y + ANCHOR_Y;
+    const top = this.isNarrow() ? 72 : this.goalOpen() ? 150 : 72;
+    const bottom = this.isNarrow() ? 72 : this.focusMode() ? 72 : 56;
+    const availH = Math.max(r.height - top - bottom, 80);
+    this.pan.set({ x: r.width / 2 - cx * s, y: top + availH / 2 - cy * s, s });
   }
 
   fitToView() {
