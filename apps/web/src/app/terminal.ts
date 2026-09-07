@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { NgClass } from '@angular/common';
 import type { DeviceState } from './api';
 import { Icon, KIND_ICON } from './icons';
+import { I18n } from './i18n/i18n';
+import type { MessageKey } from './i18n/en';
 
 export interface TermLine {
   text: string;
@@ -195,10 +197,10 @@ function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand
         }
       </div>
       <div class="flex shrink-0 items-center gap-0.5">
-        <button type="button" class="btn btn-ghost btn-icon h-7 w-7" title="Clear output (Ctrl+L)" aria-label="Clear terminal" (click)="clear.emit()">
+        <button type="button" class="btn btn-ghost btn-icon h-7 w-7" [title]="t('term.clear')" [attr.aria-label]="t('term.clear')" (click)="clear.emit()">
           <nb-icon name="eraser" [size]="13" />
         </button>
-        <button type="button" class="btn btn-ghost btn-icon h-7 w-7" title="Cancel running ping (Ctrl+C)" aria-label="Cancel" (click)="cancel.emit()">
+        <button type="button" class="btn btn-ghost btn-icon h-7 w-7" [title]="t('term.cancelTitle')" [attr.aria-label]="t('term.cancel')" (click)="cancel.emit()">
           <nb-icon name="x" [size]="13" />
         </button>
       </div>
@@ -206,7 +208,7 @@ function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand
 
     <div #out class="term scroll-thin min-h-0 flex-1 overflow-auto px-3 py-2 text-[11.5px] leading-[1.55]" (click)="focus()">
       @if (!lines().length) {
-        <div class="text-ink-500">Type <span class="text-ink-200">help</span> or tap a quick command. ↑/↓ recalls history, Tab completes.</div>
+        <div class="text-ink-500">{{ t('term.empty') }}</div>
       }
       @for (line of lines(); track $index) {
         <pre
@@ -215,7 +217,7 @@ function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand
         >{{ line.text }}</pre>
       }
       @if (busy()) {
-        <div class="mt-1 flex items-center gap-2 text-ink-500"><span class="spinner"></span> running…</div>
+        <div class="mt-1 flex items-center gap-2 text-ink-500"><span class="spinner"></span> {{ t('reach.running') }}</div>
       }
     </div>
 
@@ -251,17 +253,23 @@ function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"
-        [placeholder]="deviceId() ? 'command…' : 'select a device'"
+        [placeholder]="deviceId() ? t('term.command') : t('term.select')"
         [disabled]="!deviceId()"
         (keydown)="onKey($event)"
       />
-      <button type="submit" class="btn btn-ghost btn-icon h-7 w-7 text-ink-400" aria-label="Run" title="Run (Enter)">
+      <button type="submit" class="btn btn-ghost btn-icon h-7 w-7 text-ink-400" [attr.aria-label]="t('term.run')" [title]="t('term.runTitle')">
         <nb-icon name="arrow-right" [size]="14" />
       </button>
     </form>
   `,
 })
 export class Terminal {
+  readonly i18n = inject(I18n);
+
+  t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params);
+  }
+
   devices = input<DeviceState[]>([]);
   deviceId = input<string | null>(null);
   lines = input<TermLine[]>([]);
@@ -271,10 +279,17 @@ export class Terminal {
   vocab = input<string[]>([]);
   quick = input<QuickCommand[]>([]);
   quickGroups = computed(() => {
+    this.i18n.locale();
     const items = this.quick();
+    const labels: Record<QuickCategoryId, MessageKey> = {
+      common: 'term.common',
+      inspect: 'term.inspect',
+      network: 'term.network',
+      specific: 'term.specific',
+    };
     return QUICK_CATEGORY_ORDER.map((id) => ({
       id,
-      label: QUICK_CATEGORY_LABEL[id],
+      label: this.t(labels[id]),
       tone: QUICK_CATEGORY_TONE[id],
       items: items.filter((q) => q.category === id),
     })).filter((g) => g.items.length);

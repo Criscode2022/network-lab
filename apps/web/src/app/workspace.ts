@@ -37,12 +37,15 @@ import {
   type SwitchProfile,
 } from './api';
 import { EveClient } from './eve-client';
+import { Flag } from './flags';
 import { Icon, KIND_ICON, type IconName } from './icons';
 import { Terminal, quickCommandsFor, type TermLine } from './terminal';
 import { Packets } from './packets';
 import { Toasts, type Toast, type ToastKind } from './toasts';
 import { LabPicker } from './lab-picker';
 import { CheatSheet } from './cheat-sheet';
+import { I18n, type Locale } from './i18n/i18n';
+import type { MessageKey } from './i18n/en';
 
 type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status' | 'ping' | 'gateway' | 'dhcp' | 'hints' | 'troubleshoot' | 'checkpoints';
 type MobileTab = 'canvas' | 'palette' | 'inspect' | 'term' | 'eve';
@@ -157,23 +160,54 @@ const SUBNET_COLORS = ['text-ok-300', 'text-sky-300', 'text-amber-300', 'text-fu
 
 @Component({
   selector: 'app-workspace',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, Icon, Terminal, Packets, Toasts, LabPicker, CheatSheet],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, Icon, Flag, Terminal, Packets, Toasts, LabPicker, CheatSheet],
   templateUrl: './workspace.html',
 })
 export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly api = inject(Api);
   readonly eve = inject(EveClient);
+  readonly i18n = inject(I18n);
   private readonly cdr = inject(ChangeDetectorRef);
-  readonly cheatKinds = PALETTE.flatMap((p) => (p.kind === 'switch' ? SWITCH_TYPES : [p]));
+  readonly cheatKinds = computed(() => {
+    this.i18n.locale();
+    return PALETTE.flatMap((p) =>
+      p.kind === 'switch'
+        ? SWITCH_TYPES.map((s) => ({ ...s, label: this.kindLabel('switch', s.switchProfile), hint: this.deviceHint('switch', s.switchProfile) }))
+        : [{ ...p, label: this.kindLabel(p.kind), hint: this.deviceHint(p.kind) }],
+    );
+  });
   readonly CABLE_TYPES = CABLE_TYPES;
   /** Type the single palette Switch tile will place next. Default unmanaged. */
   paletteSwitchProfile = signal<SwitchProfile>('unmanaged');
   devicePalette = computed(() => {
+    this.i18n.locale();
     const profile = this.paletteSwitchProfile();
-    const meta = SWITCH_TYPES.find((s) => s.switchProfile === profile) ?? SWITCH_TYPES[0];
-    return PALETTE.map((p) => (p.kind === 'switch' ? { ...p, switchProfile: profile, label: meta.label, hint: meta.hint } : p));
+    return PALETTE.map((p) =>
+      p.kind === 'switch'
+        ? { ...p, switchProfile: profile, label: this.kindLabel('switch', profile), hint: this.deviceHint('switch', profile) }
+        : { ...p, label: this.kindLabel(p.kind), hint: this.deviceHint(p.kind) },
+    );
   });
   readonly KIND_ICON = KIND_ICON;
+  langOpen = signal(false);
+
+  t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params);
+  }
+
+  ckptStatus(status: string): string {
+    if (status === 'added' || status === 'removed' || status === 'changed') {
+      return this.t(`ckpt.${status}` as MessageKey);
+    }
+    return status;
+  }
+
+  setLocale(locale: Locale): void {
+    this.i18n.setLocale(locale);
+    this.langOpen.set(false);
+    this.menuOpen.set(false);
+    this.moreOpen.set(false);
+  }
 
   // ---- lab / session -------------------------------------------------------
   labs = signal<LabSummary[]>([]);
@@ -247,18 +281,24 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   addOpen = signal(false);
   moreOpen = signal(false);
   menuOpen = signal(false);
-  readonly mobileTabs: { id: MobileTab; label: string; icon: IconName }[] = [
-    { id: 'canvas', label: 'Canvas', icon: 'network' },
-    { id: 'palette', label: 'Add', icon: 'layers' },
-    { id: 'inspect', label: 'Inspect', icon: 'inspect' },
-    { id: 'term', label: 'Terminal', icon: 'terminal' },
-    { id: 'eve', label: 'Agent', icon: 'sparkles' },
-  ];
+  readonly mobileTabs = computed(() => {
+    this.i18n.locale();
+    return [
+      { id: 'canvas' as MobileTab, label: this.t('nav.canvas'), icon: 'network' as IconName },
+      { id: 'palette' as MobileTab, label: this.t('nav.add'), icon: 'layers' as IconName },
+      { id: 'inspect' as MobileTab, label: this.t('nav.inspect'), icon: 'inspect' as IconName },
+      { id: 'term' as MobileTab, label: this.t('nav.terminal'), icon: 'terminal' as IconName },
+      { id: 'eve' as MobileTab, label: this.t('nav.agent'), icon: 'sparkles' as IconName },
+    ];
+  });
   /** Basic mode keeps the canvas front and centre but still gets Eve one tap away. */
-  readonly basicTabs: { id: MobileTab; label: string; icon: IconName }[] = [
-    { id: 'canvas', label: 'Canvas', icon: 'network' },
-    { id: 'eve', label: 'Agent', icon: 'sparkles' },
-  ];
+  readonly basicTabs = computed(() => {
+    this.i18n.locale();
+    return [
+      { id: 'canvas' as MobileTab, label: this.t('nav.canvas'), icon: 'network' as IconName },
+      { id: 'eve' as MobileTab, label: this.t('nav.agent'), icon: 'sparkles' as IconName },
+    ];
+  });
   private mq: MediaQueryList | null = null;
 
   // ---- inspector tools -----------------------------------------------------
@@ -363,161 +403,68 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[]; requestId?: string } | null>(null);
   private saveTimer: ReturnType<typeof setInterval> | null = null;
 
-  readonly HELP: Record<HelpId, { title: string; body: string[] }> = {
-    basics: {
-      title: 'Basic mode',
-      body: [
-        'This is the simple phone view: a drawing of the network, nothing else.',
-        'Tap a box to see its cables, IP and a Ping button. Use Cable to plug two devices. Use + Add for a new PC or switch. Check tests the lab goal.',
-        'Turn Basic off in the header if you want the full editor with a terminal, packets and the Agent.',
-      ],
-    },
-    lab: {
-      title: 'This lab',
-      body: [
-        'The lab picker holds the practice scenarios in order of difficulty. Each has a goal — what must work when you press Check.',
-        'The first three are single-fix labs: plug a cable, add an address, enable a port. Study labs already work; fault labs start broken and tell you what to repair.',
-      ],
-    },
-    check: {
-      title: 'Check',
-      body: [
-        'Check runs this lab’s tests, usually a ping between two PCs.',
-        'Green means the path works. Red lists exactly why it failed: no cable, no IPv4, a disabled port, a wrong gateway.',
-        'Fix one thing, then Check again. That is how you debug a real network too.',
-      ],
-    },
-    goal: {
-      title: 'Lab goal',
-      body: [
-        'The sentence at the top is the job. Check is true only when every item in its checklist passes.',
-        'Read it before you add devices. Most first labs already have cables — you only confirm or fix them.',
-      ],
-    },
-    cable: {
-      title: 'Cables',
-      body: [
-        'Tap Cable, then tap two devices. Ethernet uses the first free port on each (PC eth0, switch Gi0/1, Gi0/2, …).',
-        'A green light on the card means the link is up. Amber means the port is disabled or the cable type is wrong.',
-        'Tap a cable on the canvas to inspect or unplug it. Each PC has its own eth0 — never share one Ethernet port across PCs.',
-      ],
-    },
-    add: {
-      title: 'Add a device',
-      body: [
-        'Click a device to drop it in the middle of the canvas, or drag it from the list onto the canvas. Then Cable it.',
-        'PC = a computer you ping from. Switch = a box that joins cables. Router = different IP networks. Server = a host with a service.',
-        'A switch usually has no IPv4. That is normal for layer 2.',
-      ],
-    },
-    ports: {
-      title: 'Ports',
-      body: [
-        'Used ports are the ones with a cable. The name on the left is this device; the arrow is the neighbor.',
-        'Up = the port is on and the cable has link. Disabled = administratively down — tap it to turn it on. Unplugged = no cable.',
-        'Show free ports if you need an empty switch jack. Do not plug two cables into the same port.',
-      ],
-    },
-    ipv4: {
-      title: 'IPv4 address',
-      body: [
-        'PCs and routers need an IPv4 address to ping. Same network means the same prefix, often /24 (255.255.255.0).',
-        'Example: 10.0.0.10/24 can ping 10.0.0.20/24. 10.0.1.20/24 is a different network and needs a router.',
-        'Add IP fills the next free host on the busiest subnet. A switch with no IP is fine.',
-      ],
-    },
-    status: {
-      title: 'Up and Disabled',
-      body: [
-        'Tap Up or Disabled to shut or no-shut the port. Same idea as ip link set eth0 down on Linux, or shutdown on a Cisco switch.',
-        'A cabled port that is Disabled will not pass pings. Turn it Up, then Check.',
-      ],
-    },
-    ping: {
-      title: 'Ping, Trace and Watch',
-      body: [
-        'Ping sends ICMP echo from this device to a target and reports whether a reply came back.',
-        'Trace asks the engine for the exact hop-by-hop path. Every hop lights up on the canvas and a drop shows the honest reason.',
-        'Watch repeats the test every five seconds while you work. The moment the path works it turns green and stops.',
-        'The command that ran is echoed in the terminal so you can learn it.',
-      ],
-    },
-    troubleshoot: {
-      title: 'Troubleshoot',
-      body: [
-        'Troubleshoot traces the failing check and reads the engine’s drop reason: which device dropped the packet and at which layer — cable, VLAN, addressing/routing, or policy.',
-        'It never guesses. The explanation is built from the drop text plus the device state, so “Look at” always names real interfaces and settings.',
-        'Use the verify buttons to run the matching show command, or apply the suggested fix when there is one.',
-      ],
-    },
-    checkpoints: {
-      title: 'Checkpoints',
-      body: [
-        'Save a checkpoint before a risky change. Diff later shows exactly which configuration lines were added or removed on each device, plus cables added or removed.',
-        'Restore reopens the lab as it was at that moment. Checkpoints live in this browser.',
-      ],
-    },
-    gateway: {
-      title: 'Default gateway',
-      body: [
-        'A host only knows its own network. To reach another network it hands packets to a router — the default gateway.',
-        'On Linux: ip route add default via 10.0.0.1. The gateway must be on the same subnet as the host.',
-        'A wrong gateway is changed with ip route replace default via <router>, or removed with ip route del default. Cisco routers use no ip route 0.0.0.0 0.0.0.0 <old>.',
-      ],
-    },
-    dhcp: {
-      title: 'DHCP',
-      body: [
-        'A multilayer switch or router can hand out IPv4 addresses. A pool needs a network and usually a default-router (the SVI or routed address on that subnet).',
-        'Excluded addresses stay reserved — typically the gateway and other static hosts. Leases appear after a PC runs dhclient.',
-        'To use a DHCP server on another device, set ip helper-address on the client-facing SVI. Managed Layer 2 switches cannot serve or relay DHCP.',
-      ],
-    },
-    hints: {
-      title: 'Hints',
-      body: [
-        'Hints are read from the device state: disabled ports, missing IPs, wrong cables, no gateway.',
-        'They are not a simulation result. Press Check for the real test — a device can look fine and still not reach its target.',
-      ],
-    },
+  private readonly HELP_BODY: Record<HelpId, MessageKey[]> = {
+    basics: ['help.basics.p1', 'help.basics.p2', 'help.basics.p3'],
+    lab: ['help.lab.p1', 'help.lab.p2'],
+    check: ['help.check.p1', 'help.check.p2', 'help.check.p3'],
+    goal: ['help.goal.p1', 'help.goal.p2'],
+    cable: ['help.cable.p1', 'help.cable.p2', 'help.cable.p3'],
+    add: ['help.add.p1', 'help.add.p2', 'help.add.p3'],
+    ports: ['help.ports.p1', 'help.ports.p2', 'help.ports.p3'],
+    ipv4: ['help.ipv4.p1', 'help.ipv4.p2', 'help.ipv4.p3'],
+    status: ['help.status.p1', 'help.status.p2'],
+    ping: ['help.ping.p1', 'help.ping.p2', 'help.ping.p3', 'help.ping.p4'],
+    troubleshoot: ['help.troubleshoot.p1', 'help.troubleshoot.p2', 'help.troubleshoot.p3'],
+    checkpoints: ['help.checkpoints.p1', 'help.checkpoints.p2'],
+    gateway: ['help.gateway.p1', 'help.gateway.p2', 'help.gateway.p3'],
+    dhcp: ['help.dhcp.p1', 'help.dhcp.p2', 'help.dhcp.p3'],
+    hints: ['help.hints.p1', 'help.hints.p2'],
   };
 
-  readonly helpTopics: { id: HelpId; title: string }[] = [
-    { id: 'basics', title: 'Basic mode' },
-    { id: 'lab', title: 'Picking a lab' },
-    { id: 'goal', title: 'Lab goal' },
-    { id: 'check', title: 'Check' },
-    { id: 'add', title: 'Adding devices' },
-    { id: 'cable', title: 'Cables' },
-    { id: 'ports', title: 'Ports' },
-    { id: 'status', title: 'Up and Disabled' },
-    { id: 'ipv4', title: 'IPv4 addresses' },
-    { id: 'gateway', title: 'Default gateway' },
-    { id: 'dhcp', title: 'DHCP' },
-    { id: 'ping', title: 'Ping, Trace and Watch' },
-    { id: 'hints', title: 'Hints' },
-    { id: 'troubleshoot', title: 'Troubleshoot' },
-    { id: 'checkpoints', title: 'Checkpoints' },
+  readonly helpTopicIds: HelpId[] = [
+    'basics',
+    'lab',
+    'goal',
+    'check',
+    'add',
+    'cable',
+    'ports',
+    'status',
+    'ipv4',
+    'gateway',
+    'dhcp',
+    'ping',
+    'hints',
+    'troubleshoot',
+    'checkpoints',
   ];
 
-  readonly shortcuts: { keys: string[]; what: string }[] = [
-    { keys: ['Ctrl', 'K'], what: 'Command palette — devices, labs, actions' },
-    { keys: ['?'], what: 'Keyboard shortcuts' },
-    { keys: ['Esc'], what: 'Cancel cable / placement, close dialogs, clear trace' },
-    { keys: ['Del'], what: 'Delete selected device' },
-    { keys: ['C'], what: 'Arm an Ethernet cable' },
-    { keys: ['T'], what: 'Focus the terminal' },
-    { keys: ['E'], what: 'Toggle Agent' },
-    { keys: ['F'], what: 'Fit topology to view' },
-    { keys: ['Shift', 'F'], what: 'Focus mode — canvas only' },
-    { keys: ['+', '−', '0'], what: 'Zoom in / out / reset' },
-    { keys: ['Ctrl', 'S'], what: 'Download lab JSON' },
-    { keys: ['Ctrl', 'Enter'], what: 'Run Check' },
-    { keys: ['↑', '↓'], what: 'Terminal history' },
-    { keys: ['Tab'], what: 'Terminal completion' },
-    { keys: ['Ctrl', 'C'], what: 'Cancel a running ping (in the terminal)' },
-    { keys: ['Ctrl', 'L'], what: 'Clear terminal output' },
-  ];
+  readonly helpTopics = computed(() => {
+    this.i18n.locale();
+    return this.helpTopicIds.map((id) => ({ id, title: this.t(`help.${id}` as MessageKey) }));
+  });
+
+  readonly shortcuts = computed(() => {
+    this.i18n.locale();
+    return [
+      { keys: ['Ctrl', 'K'], what: this.t('shortcuts.palette') },
+      { keys: ['?'], what: this.t('shortcuts.keys') },
+      { keys: ['Esc'], what: this.t('shortcuts.esc') },
+      { keys: ['Del'], what: this.t('shortcuts.del') },
+      { keys: ['C'], what: this.t('shortcuts.cable') },
+      { keys: ['T'], what: this.t('shortcuts.term') },
+      { keys: ['E'], what: this.t('shortcuts.agent') },
+      { keys: ['F'], what: this.t('shortcuts.fit') },
+      { keys: ['Shift', 'F'], what: this.t('shortcuts.focus') },
+      { keys: ['+', '−', '0'], what: this.t('shortcuts.zoom') },
+      { keys: ['Ctrl', 'S'], what: this.t('shortcuts.download') },
+      { keys: ['Ctrl', 'Enter'], what: this.t('shortcuts.check') },
+      { keys: ['↑', '↓'], what: this.t('shortcuts.history') },
+      { keys: ['Tab'], what: this.t('shortcuts.tab') },
+      { keys: ['Ctrl', 'C'], what: this.t('shortcuts.cancelPing') },
+      { keys: ['Ctrl', 'L'], what: this.t('shortcuts.clear') },
+    ];
+  });
 
   // ---- computed --------------------------------------------------------------
   selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
@@ -575,6 +522,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return m;
   });
   paletteItems = computed(() => {
+    this.i18n.locale();
     const q = this.paletteQ().trim().toLowerCase();
     const items = this.buildPalette();
     if (!q) return items.slice(0, 40);
@@ -594,7 +542,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async ngOnInit() {
     this.api.onPackets = (events) => this.animate(events);
     this.api.onRecovered = () => {
-      this.toast('The server restarted; your lab was restored from the last snapshot (ARP caches and history were reset).', 'warn', undefined, 7000);
+      this.toast(this.t('toast.restoredSnapshot'), 'warn', undefined, 7000);
       this.writeAutosave();
     };
     this.mq = window.matchMedia('(max-width: 767px)');
@@ -674,8 +622,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         }
       }
       this.afterOpen(how === 'attached');
-      if (how === 'shared') this.toast('Opened a shared lab. It is now saved in this browser.', 'success');
-      if (how === 'attached') this.toast('Picked up where you left off.', 'info');
+      if (how === 'shared') this.toast(this.t('toast.openedShared'), 'success');
+      if (how === 'attached') this.toast(this.t('toast.resumed'), 'info');
       if (!this.api.guest()) void this.loadMyLabs();
       if (how !== 'shared' && localStorage.getItem(WELCOME_KEY) !== '1') this.welcomeOpen.set(true);
     } catch (e) {
@@ -808,7 +756,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.api.open(id);
       this.afterOpen();
-      this.toast(`Loaded ${this.api.state()?.name}`, 'info');
+      this.toast(this.t('toast.loaded', { name: this.api.state()?.name ?? '' }), 'info');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -830,14 +778,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const st = this.api.state();
     if (!st) return;
     if (!this.builtinIds.has(st.id)) {
-      this.toast('Only built-in labs can be reset to their starting state.', 'warn');
+      this.toast(this.t('toast.resetOnlyBuiltin'), 'warn');
       return;
     }
     this.loading.set(true);
     try {
       await this.api.open(st.id, undefined, { fresh: true });
       this.afterOpen();
-      this.toast('Lab reset to its starting state.', 'success');
+      this.toast(this.t('toast.resetOk'), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -862,7 +810,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.menuOpen.set(false);
     if (this.api.guest()) {
       this.authOpen.set(true);
-      this.toast('Sign in to save labs to your account.', 'info');
+      this.toast(this.t('toast.signInToSave'), 'info');
       return;
     }
     this.saveAsName = this.api.state()?.name ?? 'My lab';
@@ -880,7 +828,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       await this.api.saveLabAs({ ...snap, id, name });
       await this.loadMyLabs();
       this.saveAsOpen.set(false);
-      this.toast(`Saved “${name}” to your account.`, 'success');
+      this.toast(this.t('toast.savedAccount', { name }), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -892,7 +840,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.api.deleteLab(id);
       this.myLabs.update((l) => l.filter((x) => x.id !== id));
-      this.toast('Saved lab deleted.', 'info');
+      this.toast(this.t('toast.savedDeleted'), 'info');
     } catch (e) {
       this.fail(e);
     }
@@ -938,15 +886,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   checkLabel(c: LabCheck): string {
     switch (c.type) {
       case 'ping':
-        return `${c.src} pings ${c.dst}${c.family === 'v6' ? ' (IPv6)' : ''}`;
+        return this.t(c.family === 'v6' ? 'check.ping6' : 'check.ping', { src: c.src, dst: c.dst });
       case 'ssh':
-        return `SSH ${c.src} → ${c.dst} is ${c.expect === 'allow' ? 'allowed' : 'denied'}`;
+        return this.t(c.expect === 'allow' ? 'check.sshAllow' : 'check.sshDeny', { src: c.src, dst: c.dst });
       case 'wifi-associated':
-        return `${c.client} joins Wi-Fi`;
+        return this.t('check.wifi', { client: c.client });
       case 'dhcp-bound':
-        return `${c.device} gets a DHCP lease`;
+        return this.t('check.dhcp', { device: c.device });
       case 'ospf-full':
-        return `OSPF ${c.a} ↔ ${c.b} reach FULL`;
+        return this.t('check.ospf', { a: c.a, b: c.b });
       default:
         return JSON.stringify(c);
     }
@@ -1096,7 +1044,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   toggleFocusTerm() {
     const target = this.api.state()?.devices.find((d) => d.id === this.termDevice());
     if (!this.focusTerm() && target && this.isUnmanagedSwitch(target)) {
-      this.toast(`${target.name} is unmanaged: it has no terminal.`, 'info');
+      this.toast(this.t('toast.noTerm', { name: target.name }), 'info');
       return;
     }
     this.focusTerm.set(!this.focusTerm());
@@ -1154,13 +1102,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   helpContent() {
     const id = this.helpOpen();
     if (!id || id === 'hub') return null;
-    const base = this.HELP[id];
+    const title = this.t(`help.${id}` as MessageKey);
+    const body = (this.HELP_BODY[id] ?? []).map((key) => this.t(key));
     const st = this.api.state();
     if ((id === 'goal' || id === 'lab') && st) {
-      const extra = id === 'goal' && st.goal ? [`This lab: ${st.goal}`] : id === 'lab' ? [`${st.name}${st.goal ? ` — ${st.goal}` : ''}`] : [];
-      return { title: id === 'lab' ? st.name || base.title : base.title, body: [...extra, ...base.body] };
+      const extra = id === 'goal' && st.goal ? [st.goal] : id === 'lab' ? [`${st.name}${st.goal ? ` — ${st.goal}` : ''}`] : [];
+      return { title: id === 'lab' ? st.name || title : title, body: [...extra, ...body] };
     }
-    return base;
+    return { title, body };
   }
 
   dismissWelcome(start = false) {
@@ -1180,20 +1129,39 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   kindLabel(k: string, switchProfile?: SwitchProfile) {
     if (k === 'switch') {
-      if (switchProfile === 'unmanaged') return 'Unmanaged Switch';
-      if (switchProfile === 'multilayer') return 'Multilayer L3 Switch';
-      return 'Managed L2 Switch';
+      if (switchProfile === 'unmanaged') return this.t('device.unmanaged');
+      if (switchProfile === 'multilayer') return this.t('device.multilayer');
+      return this.t('device.managed-l2');
     }
-    const m: Record<string, string> = {
-      workstation: 'PC',
-      server: 'Server',
-      router: 'Router',
-      firewall: 'Firewall',
-      ap: 'Wi-Fi AP',
-      wlc: 'WLC',
-      cloud: 'Internet',
+    const keys: Record<string, MessageKey> = {
+      workstation: 'device.workstation',
+      server: 'device.server',
+      router: 'device.router',
+      firewall: 'device.firewall',
+      ap: 'device.ap',
+      wlc: 'device.wlc',
+      cloud: 'device.cloud',
     };
-    return m[k] ?? k;
+    return keys[k] ? this.t(keys[k]) : k;
+  }
+
+  deviceHint(k: string, switchProfile?: SwitchProfile) {
+    if (k === 'switch') {
+      if (switchProfile === 'unmanaged') return this.t('device.unmanagedHint');
+      if (switchProfile === 'multilayer') return this.t('device.multilayerHint');
+      if (switchProfile === 'managed-l2') return this.t('device.managed-l2Hint');
+      return this.t('device.switchHint');
+    }
+    const keys: Record<string, MessageKey> = {
+      workstation: 'device.workstationHint',
+      server: 'device.serverHint',
+      router: 'device.routerHint',
+      firewall: 'device.firewallHint',
+      ap: 'device.apHint',
+      wlc: 'device.wlcHint',
+      cloud: 'device.cloudHint',
+    };
+    return keys[k] ? this.t(keys[k]) : '';
   }
 
   switchProfile(d: DeviceState): SwitchProfile | undefined {
@@ -1235,9 +1203,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   dhcpPoolSummary(p: NonNullable<DeviceState['dhcpPools']>[number]): string {
     const bits: string[] = [];
     if (p.network) bits.push(`${p.network}/${p.prefix ?? 24}`);
-    if (p.gateway) bits.push(`gw ${p.gateway}`);
-    if (p.dns) bits.push(`dns ${p.dns}`);
-    return bits.join(' · ') || 'no network yet';
+    if (p.gateway) bits.push(this.t('dhcp.summaryGw', { ip: p.gateway }));
+    if (p.dns) bits.push(this.t('dhcp.summaryDns', { ip: p.dns }));
+    return bits.join(' · ') || this.t('dhcp.noNetwork');
   }
 
   dhcpRangeLabel(range: { start: string; end: string }): string {
@@ -1445,11 +1413,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   linkStatus(i: IfaceState) {
-    if (i.isRadio && !i.adminUp) return 'Radio off';
+    if (i.isRadio && !i.adminUp) return this.t('status.radioOff');
+    if (i.status === 'Wrong cable') return this.t('status.wrongCable');
     if (i.status) return i.status;
-    if (!i.adminUp) return 'Disabled';
-    if (!i.operUp) return i.peer ? 'Down' : 'Unplugged';
-    return 'Up';
+    if (!i.adminUp) return this.t('status.disabled');
+    if (!i.operUp) return i.peer ? this.t('status.down') : this.t('status.unplugged');
+    return this.t('status.up');
   }
 
   statusChipClass(i: IfaceState) {
@@ -1559,12 +1528,26 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   cableLabel(id: CableMedia | string | undefined) {
-    if (id === 'radio') return 'Wi-Fi';
-    return CABLE_TYPES.find((c) => c.id === id)?.label ?? 'Ethernet';
+    if (id === 'radio') return this.t('cable.wifi');
+    if (id === 'straight') return this.t('cable.straight');
+    if (id === 'crossover') return this.t('cable.crossover');
+    if (id === 'fiber') return this.t('cable.fiber');
+    return this.t('cable.ethernet');
   }
 
   visibleCables() {
-    return this.advUi() ? CABLE_TYPES : CABLE_TYPES.filter((c) => !c.advanced);
+    const rows = this.advUi() ? CABLE_TYPES : CABLE_TYPES.filter((c) => !c.advanced);
+    const hints: Record<string, MessageKey> = {
+      ethernet: 'cable.ethernetHint',
+      straight: 'cable.straightHint',
+      crossover: 'cable.crossoverHint',
+      fiber: 'cable.fiberHint',
+    };
+    return rows.map((c) => ({
+      ...c,
+      label: this.cableLabel(c.id),
+      hint: this.t(hints[c.id] ?? 'cable.ethernetHint'),
+    }));
   }
 
   effectiveCable(): CableMedia {
@@ -1601,16 +1584,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (!st) return out;
     const used = this.usedPortRows(d);
     if (this.isUnmanagedSwitch(d)) {
-      out.push({ id: 'switch-profile', level: 'info', text: 'Unmanaged switch: one plug-and-play broadcast domain, automatic MAC learning, no VLANs, IP address, CLI, or DHCP service.' });
+      out.push({ id: 'switch-profile', level: 'info', text: this.t('hint.unmanaged') });
     } else if (d.kind === 'switch' && !this.isMultilayerSwitch(d)) {
-      out.push({ id: 'switch-profile', level: 'info', text: 'Managed Layer 2 switch: VLANs, trunks and a management SVI are supported, but inter-VLAN routing is not.' });
+      out.push({ id: 'switch-profile', level: 'info', text: this.t('hint.l2') });
     } else if (this.isMultilayerSwitch(d)) {
       out.push({
         id: 'switch-profile',
         level: d.ipRouting ? 'info' : 'warn',
-        text: d.ipRouting
-          ? 'Multilayer switch: Layer 3 forwarding is enabled; SVIs and routed ports can route and serve or relay DHCP.'
-          : 'Multilayer switch: routing is disabled by default. Configure “ip routing” before using SVIs as VLAN gateways.',
+        text: this.t(d.ipRouting ? 'hint.l3on' : 'hint.l3off'),
       });
     }
     const reported = new Set<string>();
@@ -1620,8 +1601,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         out.push({
           id: `down-${p.name}`,
           level: 'warn',
-          text: `${p.name} is administratively down but has a cable to ${p.peer?.device}.`,
-          action: { label: 'Enable port', run: () => this.toggleIface(d, p.name) },
+          text: this.t('hint.portDown', { port: p.name, peer: p.peer?.device ?? '' }),
+          action: { label: this.t('hint.enablePort'), run: () => this.toggleIface(d, p.name) },
         });
         continue;
       }
@@ -1630,8 +1611,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         out.push({
           id: `cable-${p.name}`,
           level: 'warn',
-          text: `${p.name}: ${p.reason || 'wrong cable type'} (${this.cableLabel(p.peer?.cable)}).`,
-          action: link ? { label: 'Replace with Ethernet', run: () => this.replaceCable(link) } : undefined,
+          text: this.t('hint.wrongCable', {
+            port: p.name,
+            reason: p.reason || this.t('hint.wrongCableDefault'),
+            cable: this.cableLabel(p.peer?.cable),
+          }),
+          action: link ? { label: this.t('hint.replaceEth'), run: () => this.replaceCable(link) } : undefined,
         });
         continue;
       }
@@ -1642,12 +1627,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
           out.push({
             id: `peerdown-${p.name}`,
             level: 'warn',
-            text: `No link on ${p.name}: the other end, ${other.name} ${oi.name}, is disabled.`,
-            action: { label: `Enable ${other.name} ${oi.name}`, run: () => this.toggleIface(other, oi.name) },
+            text: this.t('hint.peerDown', { port: p.name, peer: other.name, iface: oi.name }),
+            action: { label: this.t('hint.enableNamed', { name: other.name, iface: oi.name }), run: () => this.toggleIface(other, oi.name) },
           });
           continue;
         }
-        out.push({ id: `nocarrier-${p.name}`, level: 'warn', text: `${p.name} has a cable but no carrier (${p.reason || 'no carrier'}).` });
+        out.push({
+          id: `nocarrier-${p.name}`,
+          level: 'warn',
+          text: this.t('hint.noCarrier', { port: p.name, reason: p.reason || this.t('hint.noCarrierDefault') }),
+        });
       }
     }
     const radio = d.ifaces.find((i) => i.isRadio);
@@ -1655,8 +1644,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'radio-off',
         level: 'warn',
-        text: 'The Wi-Fi radio is off; clients cannot associate.',
-        action: { label: 'Enable radio', run: () => this.toggleIface(d, radio.name) },
+        text: this.t('hint.radioOff'),
+        action: { label: this.t('hint.enableRadio'), run: () => this.toggleIface(d, radio.name) },
       });
     }
     if (d.kind !== 'switch' && d.kind !== 'wlc' && d.kind !== 'ap' && this.canAddIpv4(d) && (used.length || d.associatedSsid)) {
@@ -1664,9 +1653,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'no-ip',
         level: 'warn',
-        text: `${d.name} has no IPv4 address, so it cannot ping or be pinged.`,
+        text: this.t('hint.noIp', { name: d.name }),
         action: {
-          label: linux && this.dhcpServerExists() ? 'Get one via DHCP' : 'Add IP',
+          label: linux && this.dhcpServerExists() ? this.t('hint.getDhcp') : this.t('hint.addIp'),
           run: () => (linux && this.dhcpServerExists() ? this.runDhcp(d) : this.focusIpForm(d)),
         },
       });
@@ -1677,8 +1666,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         out.push({
           id: `ip-down-${i.name}`,
           level: 'warn',
-          text: `${i.name} has ${i.ipv4.ip} but is ${this.linkStatus(i).toLowerCase()}${p ? '' : ' — cable it to a switch or router'}.`,
-          action: !i.adminUp ? { label: 'Enable port', run: () => this.toggleIface(d, i.name) } : undefined,
+          text: this.t(p ? 'hint.ipDown' : 'hint.ipDownCable', { iface: i.name, ip: i.ipv4.ip, status: this.linkStatus(i) }),
+          action: !i.adminUp ? { label: this.t('hint.enablePort'), run: () => this.toggleIface(d, i.name) } : undefined,
         });
       }
     }
@@ -1687,8 +1676,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'no-gw',
         level: 'warn',
-        text: `No default gateway: ${d.name} can only reach its own subnet.`,
-        action: gw ? { label: `Set gateway ${gw}`, run: () => this.setGateway(d, gw) } : undefined,
+        text: this.t('hint.noGw', { name: d.name }),
+        action: gw ? { label: this.t('hint.setGw', { gw }), run: () => this.setGateway(d, gw) } : undefined,
       });
     }
     const offGw = this.gatewayOffSubnet(d);
@@ -1697,8 +1686,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'gw-off-subnet',
         level: 'warn',
-        text: `Gateway ${offGw} is not on ${d.name}'s own subnet, so it can never be reached.`,
-        action: gw ? { label: `Change to ${gw}`, run: () => this.setGateway(d, gw) } : { label: 'Remove gateway', run: () => this.removeGateway(d) },
+        text: this.t('hint.gwOff', { gw: offGw, name: d.name }),
+        action: gw
+          ? { label: this.t('hint.changeTo', { gw }), run: () => this.setGateway(d, gw) }
+          : { label: this.t('hint.removeGw'), run: () => this.removeGateway(d) },
       });
     }
     const ghostGw = this.gatewayUnowned(d);
@@ -1707,8 +1698,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'gw-unowned',
         level: 'warn',
-        text: `No device in this lab has the gateway address ${ghostGw}.`,
-        action: gw && gw !== ghostGw ? { label: `Change to ${gw}`, run: () => this.setGateway(d, gw) } : undefined,
+        text: this.t('hint.gwGhost', { gw: ghostGw }),
+        action: gw && gw !== ghostGw ? { label: this.t('hint.changeTo', { gw }), run: () => this.setGateway(d, gw) } : undefined,
       });
     }
     if (d.kind === 'workstation' && !used.length && !d.associatedSsid) {
@@ -1716,8 +1707,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       out.push({
         id: 'isolated',
         level: 'warn',
-        text: nets.length ? `${d.name} is not connected. Cable it, or join Wi-Fi “${nets[0].ssid}”.` : `${d.name} is not connected to anything yet.`,
-        action: nets.length ? { label: 'Join Wi-Fi', run: () => this.openWifi(d) } : { label: 'Cable', run: () => this.armCable('ethernet') },
+        text: nets.length
+          ? this.t('hint.isolatedWifi', { name: d.name, ssid: nets[0].ssid })
+          : this.t('hint.isolated', { name: d.name }),
+        action: nets.length
+          ? { label: this.t('hint.joinWifi'), run: () => this.openWifi(d) }
+          : { label: this.t('inspect.cable'), run: () => this.armCable('ethernet') },
       });
     }
     if (d.kind === 'server' && !d.sshListen) {
@@ -1727,12 +1722,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         out.push({
           id: 'ssh',
           level: 'warn',
-          text: 'This lab expects SSH on the server, but sshd is not running.',
-          action: { label: 'Start SSH', run: () => this.runCommands(d, ['systemctl start ssh'], 'SSH started') },
+          text: this.t('hint.sshOff'),
+          action: { label: this.t('inspect.startSsh'), run: () => this.runCommands(d, ['systemctl start ssh'], this.t('toast.sshStarted')) },
         });
       }
     }
-    if (d.kind === 'switch' && !used.length) out.push({ id: 'empty-switch', level: 'info', text: 'Nothing is plugged into this switch yet.' });
+    if (d.kind === 'switch' && !used.length) out.push({ id: 'empty-switch', level: 'info', text: this.t('hint.emptySwitch') });
     return out;
   }
 
@@ -1784,7 +1779,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       for (const line of cmds) {
         const r = await this.runCli(d, line);
         if (r.error) {
-          this.toast(r.output || `Failed: ${line}`, 'error');
+          this.toast(r.output || this.t('toast.failedLine', { line }), 'error');
           return false;
         }
       }
@@ -1837,7 +1832,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   openTerminalFor(d: DeviceState) {
     if (this.isUnmanagedSwitch(d)) {
-      this.toast(`${d.name} is unmanaged: it has no CLI or management interface.`, 'info');
+      this.toast(this.t('toast.noCli', { name: d.name }), 'info');
       return;
     }
     this.termDevice.set(d.id);
@@ -1891,7 +1886,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async setCheatKind(id: string) {
-    const item = this.cheatKinds.find((entry) => entry.id === id) ?? this.cheatKinds.find((entry) => entry.kind === id);
+    const kinds = this.cheatKinds();
+    const item = kinds.find((entry) => entry.id === id) ?? kinds.find((entry) => entry.kind === id);
     if (!item) return;
     this.cheatKind.set(item.id);
     this.cheatLoading.set(true);
@@ -1913,7 +1909,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async applyIpv4(d: DeviceState) {
     const ip = this.ipInput.trim();
     if (this.parseV4(ip) == null) {
-      this.toast('Enter an IPv4 address like 10.0.0.30', 'warn');
+      this.toast(this.t('toast.badIpv4'), 'warn');
       return;
     }
     const prefix = this.ipPrefix || 24;
@@ -1931,7 +1927,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         ];
     this.ipBusy.set(true);
     try {
-      await this.runCommands(d, cmds, `${d.name} is now ${ip}/${prefix}`);
+      await this.runCommands(d, cmds, this.t('toast.nowIp', { name: d.name, ip, prefix }));
     } finally {
       this.ipBusy.set(false);
     }
@@ -1941,12 +1937,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async setGateway(d: DeviceState, gw?: string) {
     const target = (gw ?? this.gwInput).trim();
     if (this.parseV4(target) == null) {
-      this.toast('Enter the router address, like 10.0.0.1', 'warn');
+      this.toast(this.t('toast.badGw'), 'warn');
       return;
     }
     const current = this.gatewayOf(d);
     if (this.isUnmanagedSwitch(d)) {
-      this.toast(`${d.name} has no management interface or default gateway.`, 'info');
+      this.toast(this.t('toast.noMgmtGw', { name: d.name }), 'info');
       return;
     }
     const cmds = this.isLinux(d)
@@ -1956,7 +1952,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         : ['enable', 'conf t', ...(current ? [`no ip route 0.0.0.0 0.0.0.0 ${current}`] : []), `ip route 0.0.0.0 0.0.0.0 ${target}`, 'end'];
     this.gwBusy.set(true);
     try {
-      const ok = await this.runCommands(d, cmds, `${d.name} default gateway ${current ? `changed to ${target}` : target}`);
+      const ok = await this.runCommands(d, cmds, this.t(current ? 'toast.gwChanged' : 'toast.gwSet', { name: d.name, gw: target }));
       if (ok) this.gwEdit.set(false);
     } finally {
       this.gwBusy.set(false);
@@ -1971,20 +1967,20 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       : d.kind === 'switch' && !this.isMultilayerSwitch(d)
         ? ['enable', 'conf t', 'no ip default-gateway', 'end']
         : ['enable', 'conf t', `no ip route 0.0.0.0 0.0.0.0 ${current}`, 'end'];
-    await this.runCommands(d, cmds, `${d.name} default gateway removed`);
+    await this.runCommands(d, cmds, this.t('toast.gwRemoved', { name: d.name }));
     this.gwEdit.set(false);
   }
 
   /** Re-addresses one interface: Linux del + add (routes via the old subnet go with it), Cisco overwrites. */
   async changeIpv4(d: DeviceState, iface: string, ip?: string, prefix?: number) {
     if (this.isUnmanagedSwitch(d)) {
-      this.toast(`${d.name} has no configurable IP interfaces.`, 'info');
+      this.toast(this.t('toast.noIpIfaces', { name: d.name }), 'info');
       return;
     }
     const newIp = (ip ?? this.ipEditValue).trim();
     const newPrefix = prefix ?? this.ipEditPrefix ?? 24;
     if (this.parseV4(newIp) == null || newPrefix < 1 || newPrefix > 32) {
-      this.toast('Enter an IPv4 address like 10.0.0.20 and a prefix between 1 and 32', 'warn');
+      this.toast(this.t('toast.badIpv4Prefix'), 'warn');
       return;
     }
     const i = d.ifaces.find((x) => x.name === iface);
@@ -1999,12 +1995,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       : ['enable', 'conf t', `interface ${iface}`, `ip address ${newIp} ${this.prefixMask(newPrefix)}`, 'no shutdown', 'end'];
     this.ipBusy.set(true);
     try {
-      const ok = await this.runCommands(d, cmds, `${d.name} ${iface} is now ${newIp}/${newPrefix}`);
+      const ok = await this.runCommands(d, cmds, this.t('toast.nowIp', { name: `${d.name} ${iface}`, ip: newIp, prefix: newPrefix }));
       if (ok) {
         this.ipEdit.set(null);
         const fresh = this.api.state()?.devices.find((x) => x.id === d.id);
         // Linux drops a default route whose next hop left the subnet; say so instead of leaving the learner guessing.
-        if (fresh && gw && this.isLinux(d) && !this.gatewayOf(fresh)) this.toast(`The old gateway ${gw} is no longer on ${d.name}'s subnet, so its default route was removed. Set a new one if needed.`, 'info');
+        if (fresh && gw && this.isLinux(d) && !this.gatewayOf(fresh)) this.toast(this.t('toast.oldGwGone', { gw, name: d.name }), 'info');
       }
     } finally {
       this.ipBusy.set(false);
@@ -2015,7 +2011,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     ev?.stopPropagation();
     ev?.preventDefault();
     if (this.isUnmanagedSwitch(d)) {
-      this.toast(`${d.name} is unmanaged: its ports are always enabled and cannot be configured.`, 'info');
+      this.toast(this.t('toast.unmanagedPorts', { name: d.name }), 'info');
       return;
     }
     const i = d.ifaces.find((x) => x.name === iface);
@@ -2024,7 +2020,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const cmds = this.isLinux(d)
       ? [`ip link set ${iface} ${enable ? 'up' : 'down'}`]
       : ['enable', 'conf t', `interface ${iface}`, enable ? 'no shutdown' : 'shutdown', 'end'];
-    await this.runCommands(d, cmds, `${d.name} ${iface} ${enable ? 'enabled' : 'disabled'}`);
+    await this.runCommands(d, cmds, this.t(enable ? 'toast.portOn' : 'toast.portOff', { name: d.name, iface }));
   }
 
   async runDhcp(d: DeviceState) {
@@ -2032,7 +2028,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const ok = await this.runCommands(d, [`dhclient ${iface}`]);
     if (ok) {
       const ip = this.primaryIpv4(this.api.state()?.devices.find((x) => x.id === d.id) ?? d);
-      this.toast(ip ? `${d.name} got ${ip} via DHCP` : `${d.name}: no DHCP offer received — see the terminal`, ip ? 'success' : 'warn');
+      this.toast(ip ? this.t('toast.dhcpGot', { name: d.name, ip }) : this.t('toast.dhcpNone', { name: d.name }), ip ? 'success' : 'warn');
     }
   }
 
@@ -2072,7 +2068,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   async saveDhcpPool(d: DeviceState) {
     if (!this.canServeDhcp(d)) {
-      this.toast(`${d.name} cannot serve DHCP. Change it to a multilayer switch.`, 'info');
+      this.toast(this.t('toast.dhcpNeedL3', { name: d.name }), 'info');
       return;
     }
     const name = this.dhcpName.trim();
@@ -2081,23 +2077,23 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const gateway = this.dhcpGateway.trim();
     const dns = this.dhcpDns.trim();
     if (!/^[A-Za-z][\w.-]*$/.test(name)) {
-      this.toast('Pool name must start with a letter (letters, digits, _ . -).', 'warn');
+      this.toast(this.t('toast.dhcpName'), 'warn');
       return;
     }
     if (this.parseV4(network) == null) {
-      this.toast('Enter a network address like 10.0.0.0', 'warn');
+      this.toast(this.t('toast.dhcpNet'), 'warn');
       return;
     }
     if (prefix < 1 || prefix > 32) {
-      this.toast('Prefix must be between 1 and 32.', 'warn');
+      this.toast(this.t('toast.dhcpPfx'), 'warn');
       return;
     }
     if (gateway && this.parseV4(gateway) == null) {
-      this.toast('Default router must be an IPv4 address.', 'warn');
+      this.toast(this.t('toast.dhcpRouter'), 'warn');
       return;
     }
     if (dns && this.parseV4(dns) == null) {
-      this.toast('DNS server must be an IPv4 address.', 'warn');
+      this.toast(this.t('toast.dhcpDns'), 'warn');
       return;
     }
     const cmds = [
@@ -2111,7 +2107,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     ];
     this.dhcpBusy.set(true);
     try {
-      const ok = await this.runCommands(d, cmds, `${d.name} DHCP pool ${name} ${this.dhcpEditName() ? 'updated' : 'added'}`);
+      const ok = await this.runCommands(d, cmds, this.t(this.dhcpEditName() ? 'toast.poolUpdated' : 'toast.poolAdded', { name: d.name, pool: name }));
       if (ok) this.cancelDhcpPool();
     } finally {
       this.dhcpBusy.set(false);
@@ -2121,7 +2117,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async removeDhcpPool(d: DeviceState, name: string) {
     this.dhcpBusy.set(true);
     try {
-      const ok = await this.runCommands(d, ['enable', 'conf t', `no ip dhcp pool ${name}`, 'end'], `${d.name} DHCP pool ${name} removed`);
+      const ok = await this.runCommands(d, ['enable', 'conf t', `no ip dhcp pool ${name}`, 'end'], this.t('toast.poolRemoved', { name: d.name, pool: name }));
       if (ok && this.dhcpEditName() === name) this.cancelDhcpPool();
     } finally {
       this.dhcpBusy.set(false);
@@ -2132,13 +2128,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const start = this.dhcpExStart.trim();
     const end = this.dhcpExEnd.trim() || start;
     if (this.parseV4(start) == null || this.parseV4(end) == null) {
-      this.toast('Enter an IPv4 address or range to exclude.', 'warn');
+      this.toast(this.t('toast.dhcpEx'), 'warn');
       return;
     }
     const line = start === end ? `ip dhcp excluded-address ${start}` : `ip dhcp excluded-address ${start} ${end}`;
     this.dhcpBusy.set(true);
     try {
-      const ok = await this.runCommands(d, ['enable', 'conf t', line, 'end'], `${d.name} excluded ${this.dhcpRangeLabel({ start, end })}`);
+      const ok = await this.runCommands(d, ['enable', 'conf t', line, 'end'], this.t('toast.exAdded', { name: d.name, range: this.dhcpRangeLabel({ start, end }) }));
       if (ok) {
         this.dhcpExStart = '';
         this.dhcpExEnd = '';
@@ -2153,7 +2149,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.runCommands(
       d,
       ['enable', 'conf t', `no ip dhcp excluded-address ${range.start}${end}`, 'end'],
-      `${d.name} exclusion ${this.dhcpRangeLabel(range)} removed`,
+      this.t('toast.exRemoved', { name: d.name, range: this.dhcpRangeLabel(range) }),
     );
   }
 
@@ -2166,7 +2162,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async saveDhcpHelper(d: DeviceState, iface: string) {
     const ip = this.dhcpHelperInput.trim();
     if (this.parseV4(ip) == null) {
-      this.toast('Enter the DHCP server IPv4 address.', 'warn');
+      this.toast(this.t('toast.dhcpHelper'), 'warn');
       return;
     }
     this.dhcpBusy.set(true);
@@ -2174,7 +2170,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const ok = await this.runCommands(
         d,
         ['enable', 'conf t', `interface ${iface}`, `ip helper-address ${ip}`, 'end'],
-        `${d.name} ${iface} relays DHCP to ${ip}`,
+        this.t('toast.helperSet', { name: d.name, iface, ip }),
       );
       if (ok) this.dhcpHelperEdit.set(null);
     } finally {
@@ -2188,7 +2184,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const ok = await this.runCommands(
         d,
         ['enable', 'conf t', `interface ${iface}`, 'no ip helper-address', 'end'],
-        `${d.name} ${iface} helper-address removed`,
+        this.t('toast.helperRemoved', { name: d.name, iface }),
       );
       if (ok) this.dhcpHelperEdit.set(null);
     } finally {
@@ -2247,8 +2243,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const fresh = this.api.state()?.devices.find((x) => x.id === d.id);
       if (ok && fresh?.associatedSsid) {
         this.wifiOpen.set(false);
-        this.toast(`${d.name} joined ${fresh.associatedSsid}`, 'success');
-      } else if (ok) this.toast(`${d.name} did not associate — see the terminal output`, 'warn');
+        this.toast(this.t('toast.wifiOk', { name: d.name, ssid: fresh.associatedSsid }), 'success');
+      } else if (ok) this.toast(this.t('toast.wifiFail', { name: d.name }), 'warn');
     } finally {
       this.wifiBusy.set(false);
     }
@@ -2298,7 +2294,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const r = this.reach() ?? { target: '', proto: 'icmp' as const, busy: false, result: null };
     const target = r.target.trim();
     if (!target) {
-      this.toast('Pick a target first.', 'warn');
+      this.toast(this.t('toast.pickTarget'), 'warn');
       return;
     }
     this.reach.set({ ...r, busy: true });
@@ -2324,7 +2320,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const r = this.reach() ?? { target: '', proto: 'icmp' as const, busy: false, result: null };
     const target = r.target.trim();
     if (!target) {
-      this.toast('Pick a target first.', 'warn');
+      this.toast(this.t('toast.pickTarget'), 'warn');
       return;
     }
     this.reach.set({ ...r, busy: true });
@@ -2473,7 +2469,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     ev?.stopPropagation();
     const next = this.nextPaletteSwitchProfile();
     this.paletteSwitchProfile.set(next);
-    this.toast(`Next switch: ${this.kindLabel('switch', next)}`, 'info');
+    this.toast(this.t('toast.nextSwitch', { name: this.kindLabel('switch', next) }), 'info');
   }
 
   cyclePlacedSwitch(d: DeviceState, ev?: Event) {
@@ -2485,13 +2481,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   switchChangeDetail(next: SwitchProfile): string {
-    if (next === 'unmanaged') {
-      return 'VLAN, IP and CLI configuration will be removed. They are saved and applied again when you cycle back to a managed type.';
-    }
-    if (next === 'managed-l2') {
-      return 'Routed ports, IP routing and DHCP will be removed. Your last Layer 2 configuration is restored if one was saved.';
-    }
-    return 'The switch gains routing and DHCP. Your last multilayer configuration is restored if one was saved.';
+    if (next === 'unmanaged') return this.t('confirm.switchUnmanaged');
+    if (next === 'managed-l2') return this.t('confirm.switchL2');
+    return this.t('confirm.switchL3');
   }
 
   async doChangeSwitch() {
@@ -2513,8 +2505,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const label = this.kindLabel('switch', next);
     this.toast(
       next === 'unmanaged'
-        ? `${d.name} is now an Unmanaged Switch. Configuration was saved and will return when you cycle back.`
-        : `${d.name} is now a ${label}. Previous configuration for this type was restored if one was saved.`,
+        ? this.t('toast.nowUnmanaged', { name: d.name })
+        : this.t('toast.nowProfile', { name: d.name, kind: label }),
       next === 'unmanaged' ? 'warn' : 'success',
     );
   }
@@ -2670,7 +2662,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       requestAnimationFrame(() => this.fitIfNarrow());
     }
     this.toast(
-      this.basicMode() ? `${name} added. Drag it, then tap Cable and another device.` : `${this.kindLabel(kind, profile)} ${name} added. Drag to move; Cable to connect.`,
+      this.basicMode()
+        ? this.t('toast.addedBasic', { name })
+        : this.t('toast.added', { kind: this.kindLabel(kind, profile), name }),
       'success',
     );
   }
@@ -2726,18 +2720,18 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
           try {
             await this.api.edit({ configs: [{ device: d.name, commands: cmds }] });
           } catch {
-            this.toast(`${d.name} restored, but part of its configuration could not be replayed.`, 'warn');
+            this.toast(this.t('toast.restorePartial', { name: d.name }), 'warn');
             return;
           }
         }
         const back = this.api.state()?.devices.find((x) => x.name === d.name);
         if (back) this.selectedId.set(back.id);
-        this.toast(`${d.name} restored.`, 'success');
+        this.toast(this.t('toast.restored', { name: d.name }), 'success');
       } catch (e) {
         this.fail(e);
       }
     };
-    this.toast(`${d.name} deleted.`, 'info', { label: 'Undo', run: () => void restore() });
+    this.toast(this.t('toast.deleted', { name: d.name }), 'info', { label: this.t('toast.undo'), run: () => void restore() });
   }
 
   async unplug(linkId: string) {
@@ -2752,9 +2746,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     this.selectedLinkId.set(null);
     this.toast(
-      `Cable ${l.a.device}:${l.a.iface} — ${l.b.device}:${l.b.iface} removed.`,
+      this.t('toast.cableRemoved', { a: `${l.a.device}:${l.a.iface}`, b: `${l.b.device}:${l.b.iface}` }),
       'info',
-      undo ? { label: 'Undo', run: () => void this.api.edit({ addLinks: [undo] }).catch((e) => this.fail(e)) } : undefined,
+      undo ? { label: this.t('toast.undo'), run: () => void this.api.edit({ addLinks: [undo] }).catch((e) => this.fail(e)) } : undefined,
     );
   }
 
@@ -2762,7 +2756,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.api.edit({ removeLinks: [l.id] });
       await this.api.edit({ addLinks: [{ a: `${l.a.device}:${l.a.iface}`, b: `${l.b.device}:${l.b.iface}`, cable }] });
-      this.toast(`Cable replaced with ${this.cableLabel(cable)}.`, 'success');
+      this.toast(this.t('toast.cableReplaced', { cable: this.cableLabel(cable) }), 'success');
     } catch (e) {
       this.fail(e);
     }
@@ -2812,7 +2806,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const iface = this.freePort(d);
     if (!iface) {
       this.toast(
-        this.effectiveCable() === 'fiber' ? `${d.name} has no fiber (SFP) port. Use Ethernet, or pick a switch/router.` : `${d.name} has no free Ethernet port.`,
+        this.effectiveCable() === 'fiber' ? this.t('toast.noFiberPick', { name: d.name }) : this.t('toast.noEth', { name: d.name }),
         'warn',
       );
       return;
@@ -2827,11 +2821,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (!from || from.id === d.id) return;
     const iface = ifaceName ? d.ifaces.find((i) => i.name === ifaceName) : this.freePort(d);
     if (!iface || iface.isRadio) {
-      this.toast(this.effectiveCable() === 'fiber' ? `${d.name} has no fiber (SFP) port.` : `${d.name} has no free Ethernet port.`, 'warn');
+      this.toast(this.effectiveCable() === 'fiber' ? this.t('toast.noFiber', { name: d.name }) : this.t('toast.noEth', { name: d.name }), 'warn');
       return;
     }
     if (this.peerOf(d, iface.name)) {
-      this.toast(`${d.name} ${iface.name} is already cabled.`, 'warn');
+      this.toast(this.t('toast.alreadyCabled', { name: d.name, iface: iface.name }), 'warn');
       return;
     }
     const fromName = this.devName(from.id);
@@ -2847,7 +2841,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const st = fresh?.ifaces.find((i) => i.name === iface.name);
     const linkOk = !!st?.operUp;
     this.toast(
-      `${this.cableLabel(cable)} ${fromName}:${from.iface} ↔ ${d.name}:${iface.name}${linkOk ? ' — link up' : st ? ` — ${this.linkStatus(st)}` : ''}`,
+      this.t('toast.cableLinked', {
+        cable: this.cableLabel(cable),
+        a: `${fromName}:${from.iface}`,
+        b: `${d.name}:${iface.name}`,
+        suffix: linkOk ? this.t('toast.linkUp') : st ? ` — ${this.linkStatus(st)}` : '',
+      }),
       linkOk ? 'success' : 'warn',
     );
     if (this.basicMode()) {
@@ -2864,7 +2863,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const i = d.ifaces.find((x) => x.name === iface);
     if (i?.isRadio) {
       if (this.cableArmed() || this.cableFrom()) {
-        this.toast('Wi-Fi uses association (nmcli), not a copper cable.', 'info');
+        this.toast(this.t('toast.wifiNotCopper'), 'info');
         return;
       }
       void this.toggleIface(d, iface, ev);
@@ -2877,7 +2876,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const busy = this.peerOf(d, iface);
     if (busy) {
       this.selectedLinkId.set(busy.linkId);
-      this.toast(`${d.name} ${iface} is already cabled to ${busy.device} ${busy.iface}. Unplug it first.`, 'warn');
+      this.toast(this.t('toast.portBusy', { name: d.name, iface, peer: busy.device, piface: busy.iface }), 'warn');
       return;
     }
     const from = this.cableFrom();
@@ -2933,7 +2932,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.api.edit(undefined, moves);
       this.fitToView();
-      this.toast('Topology tidied.', 'success');
+      this.toast(this.t('toast.tidied'), 'success');
     } catch (e) {
       this.fail(e);
     }
@@ -2967,7 +2966,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       const url = `${location.origin}${location.pathname}#lab=${b64}`;
       await navigator.clipboard.writeText(url);
-      this.toast('Share link copied. Anyone who opens it gets a copy of this lab.', 'success');
+      this.toast(this.t('toast.shareCopied'), 'success');
     } catch (e) {
       this.fail(e);
     }
@@ -2979,7 +2978,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const snap = await this.api.snapshot();
       if (!snap) throw new Error('Nothing to copy yet');
       await navigator.clipboard.writeText(JSON.stringify(snap, null, 2));
-      this.toast('Lab JSON copied to the clipboard.', 'success');
+      this.toast(this.t('toast.jsonCopied'), 'success');
     } catch (e) {
       this.fail(e);
     }
@@ -3012,7 +3011,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.loading.set(true);
       await this.api.open(undefined, lab);
       this.afterOpen();
-      this.toast(`Imported ${lab.name || f.name}`, 'success');
+      this.toast(this.t('toast.imported', { name: lab.name || f.name }), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -3044,7 +3043,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       else await this.api.register(email, this.password);
       this.authOpen.set(false);
       this.password = '';
-      this.toast(`Signed in as ${email}. Your labs now save to this account.`, 'success');
+      this.toast(this.t('toast.signedIn', { email }), 'success');
       this.bindEve();
       void this.loadMyLabs();
     } catch (e) {
@@ -3060,7 +3059,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       await this.api.logout();
       this.myLabs.set([]);
       this.authOpen.set(false);
-      this.toast('Signed out. You are a guest again; this lab stays in this browser.', 'info');
+      this.toast(this.t('toast.signedOut'), 'info');
     } catch (e) {
       this.fail(e);
     }
@@ -3628,6 +3627,25 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
+  layerLabel(layer: DiagLayer | string): string {
+    switch (layer) {
+      case 'Physical (L1)':
+        return this.t('diag.layerL1');
+      case 'Switching (L2)':
+        return this.t('diag.layerL2');
+      case 'Addressing & routing (L3)':
+        return this.t('diag.layerL3');
+      case 'Policy':
+        return this.t('diag.layerPolicy');
+      case 'Wi-Fi':
+        return this.t('diag.layerWifi');
+      case 'Service':
+        return this.t('diag.layerService');
+      default:
+        return this.t('diag.layerUnknown');
+    }
+  }
+
   layerChip(layer: DiagLayer) {
     switch (layer) {
       case 'Physical (L1)':
@@ -3655,7 +3673,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const r = this.reach();
     const target = r?.target.trim();
     if (!r || !target) {
-      this.toast('Pick a target first.', 'warn');
+      this.toast(this.t('toast.pickTarget'), 'warn');
       return;
     }
     this.stopMonitor();
@@ -3683,7 +3701,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.setTrace(res.events, res.ok, reason, `Watching ${m.src} → ${m.dst}`);
       if (res.ok) {
         this.animate(res.events);
-        this.toast(cur.ok === false ? `${m.src} can now reach ${m.dst}.` : `${m.src} already reaches ${m.dst}.`, 'success');
+        this.toast(this.t(cur.ok === false ? 'toast.nowReaches' : 'toast.alreadyReaches', { src: m.src, dst: m.dst }), 'success');
         if (this.monitorTimer) clearInterval(this.monitorTimer);
         this.monitorTimer = null;
         this.monitor.set(null);
@@ -3706,7 +3724,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       localStorage.setItem(CKPT_KEY, JSON.stringify(list));
     } catch {
-      this.toast('Checkpoint kept in memory only (browser storage is full).', 'warn');
+      this.toast(this.t('toast.ckptMemory'), 'warn');
     }
   }
 
@@ -3719,7 +3737,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const c: Checkpoint = { id: Date.now().toString(36), name: n, at: Date.now(), labId: snap.id, lab: snap };
       this.persistCheckpoints([c, ...this.checkpoints()].slice(0, 12));
       this.ckptName = '';
-      this.toast(`Checkpoint “${n}” saved.`, 'success');
+      this.toast(this.t('toast.ckptSaved', { name: n }), 'success');
     } catch (e) {
       this.fail(e);
     }
@@ -3736,7 +3754,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.api.open(undefined, c.lab);
       this.afterOpen();
-      this.toast(`Restored “${c.name}”.`, 'success');
+      this.toast(this.t('toast.ckptRestored', { name: c.name }), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -3777,10 +3795,10 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
 
   when(ts: number) {
     const diff = Date.now() - ts;
-    if (diff < 60_000) return 'just now';
-    if (diff < 3_600_000) return `${Math.round(diff / 60_000)} min ago`;
-    if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)} h ago`;
-    return new Date(ts).toLocaleDateString();
+    if (diff < 60_000) return this.t('time.justNow');
+    if (diff < 3_600_000) return this.t('time.minAgo', { n: Math.round(diff / 60_000) });
+    if (diff < 86_400_000) return this.t('time.hAgo', { n: Math.round(diff / 3_600_000) });
+    return new Date(ts).toLocaleDateString(this.i18n.locale());
   }
 
   // ===========================================================================
@@ -3819,7 +3837,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         break;
     }
     if (!c) {
-      this.toast('Fill in the check first.', 'warn');
+      this.toast(this.t('toast.fillCheck'), 'warn');
       return;
     }
     this.labChecks.update((l) => [...l, c!]);
@@ -3847,7 +3865,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   async applyLabEdit() {
     const name = this.labEdit.name.trim();
     if (!name) {
-      this.toast('Give the lab a name.', 'warn');
+      this.toast(this.t('toast.labName'), 'warn');
       return;
     }
     this.labEditBusy.set(true);
@@ -3865,9 +3883,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.labEditOpen.set(false);
       this.loading.set(true);
       await this.api.open(undefined, lab);
-      this.labs.update((list) => [{ id: lab.id, name: `${lab.name} (this browser)`, goal: lab.goal ?? '', custom: true }, ...list.filter((l) => l.id !== lab.id && !l.custom)]);
+      this.labs.update((list) => [{ id: lab.id, name: this.t('lab.thisBrowser', { name: lab.name }), goal: lab.goal ?? '', custom: true }, ...list.filter((l) => l.id !== lab.id && !l.custom)]);
       this.afterOpen();
-      this.toast('Lab updated. Share it with ⋯ → Copy share link.', 'success');
+      this.toast(this.t('toast.labUpdated'), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
@@ -3883,35 +3901,39 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private buildPalette(): PaletteItem[] {
     const st = this.api.state();
     const items: PaletteItem[] = [];
-    const act = (id: string, label: string, icon: IconName, run: () => unknown, hint?: string) => items.push({ id, group: 'Actions', label, icon, run, hint });
-    act('check', 'Run Check', 'circle-check', () => this.doCheck(), 'Ctrl+Enter');
-    if (this.failedChecks().length) act('troubleshoot', 'Troubleshoot the failing check', 'stethoscope', () => this.troubleshoot());
-    act('tidy', 'Tidy up layout', 'tidy', () => this.tidyUp());
-    act('fit', 'Fit topology to view', 'fit', () => this.fitToView(), 'F');
-    if (!this.isNarrow()) act('focus', this.focus() ? 'Exit focus mode' : 'Focus mode (canvas only)', this.focus() ? 'collapse' : 'expand', () => this.toggleFocus(), 'Shift+F');
-    act('adv', this.advanced() ? 'Switch to Simple view' : 'Switch to Advanced view', 'inspect', () => this.toggleAdvanced());
-    act('eve', this.showEve() ? 'Hide Agent' : 'Open Agent', 'sparkles', () => this.toggleEve(), 'E');
-    act('ckpt', 'Save checkpoint', 'bookmark', () => this.saveCheckpoint());
-    act('ckpts', 'Checkpoints: restore or diff…', 'clock', () => this.checkpointsOpen.set(true));
-    act('edit', 'Edit lab name, goal and checks…', 'pencil', () => this.openLabEditor());
-    act('share', 'Copy share link', 'link', () => this.copyShareLink());
-    act('report', 'Copy lab report (Markdown)', 'file', () => this.copyReport());
-    act('json', 'Download lab JSON', 'download', () => this.saveJson(), 'Ctrl+S');
-    act('saveas', 'Save a copy to my account…', 'save', () => this.openSaveAs());
-    act('reset', 'Reset lab to its start', 'reset', () => this.askReset());
-    act('cheat', 'Command reference', 'book', () => this.openCheat());
-    act('keys', 'Keyboard shortcuts', 'keyboard', () => this.shortcutsOpen.set(true), '?');
-    act('help', 'Help topics', 'help', () => this.helpOpen.set('hub'));
-    act('view-subnet', `${this.view().subnet ? 'Hide' : 'Show'} subnet colours`, 'palette', () => this.toggleView('subnet'));
-    act('view-vlan', `${this.view().vlan ? 'Hide' : 'Show'} VLAN labels on cables`, 'layers', () => this.toggleView('vlan'));
+    const actions = this.t('cmd.groupActions');
+    const act = (id: string, label: string, icon: IconName, run: () => unknown, hint?: string) => items.push({ id, group: actions, label, icon, run, hint });
+    act('check', this.t('cmd.runCheck'), 'circle-check', () => this.doCheck(), 'Ctrl+Enter');
+    if (this.failedChecks().length) act('troubleshoot', this.t('cmd.troubleshoot'), 'stethoscope', () => this.troubleshoot());
+    act('tidy', this.t('menu.tidy'), 'tidy', () => this.tidyUp());
+    act('fit', this.t('shortcuts.fit'), 'fit', () => this.fitToView(), 'F');
+    if (!this.isNarrow()) act('focus', this.t(this.focus() ? 'cmd.exitFocus' : 'cmd.focus'), this.focus() ? 'collapse' : 'expand', () => this.toggleFocus(), 'Shift+F');
+    act('adv', this.t(this.advanced() ? 'header.switchSimple' : 'header.switchAdvanced'), 'inspect', () => this.toggleAdvanced());
+    act('eve', this.t(this.showEve() ? 'cmd.hideAgent' : 'cmd.openAgent'), 'sparkles', () => this.toggleEve(), 'E');
+    act('ckpt', this.t('menu.saveCheckpoint'), 'bookmark', () => this.saveCheckpoint());
+    act('ckpts', this.t('menu.checkpoints'), 'clock', () => this.checkpointsOpen.set(true));
+    act('edit', this.t('menu.editLab'), 'pencil', () => this.openLabEditor());
+    act('share', this.t('menu.copyShare'), 'link', () => this.copyShareLink());
+    act('report', this.t('menu.copyReport'), 'file', () => this.copyReport());
+    act('json', this.t('menu.downloadJson'), 'download', () => this.saveJson(), 'Ctrl+S');
+    act('saveas', this.t('menu.saveCopy'), 'save', () => this.openSaveAs());
+    act('reset', this.t('menu.reset'), 'reset', () => this.askReset());
+    act('cheat', this.t('menu.cheat'), 'book', () => this.openCheat());
+    act('keys', this.t('menu.shortcuts'), 'keyboard', () => this.shortcutsOpen.set(true), '?');
+    act('help', this.t('menu.helpTopics'), 'help', () => this.helpOpen.set('hub'));
+    act('view-subnet', this.t(this.view().subnet ? 'cmd.hideSubnet' : 'cmd.showSubnet'), 'palette', () => this.toggleView('subnet'));
+    act('view-vlan', this.t(this.view().vlan ? 'cmd.hideVlan' : 'cmd.showVlan'), 'layers', () => this.toggleView('vlan'));
+    const addGroup = this.t('cmd.groupAdd');
     for (const p of this.devicePalette()) {
-      items.push({ id: `add-${p.id}`, group: 'Add device', label: `Add ${p.label}`, hint: p.hint, icon: this.kindIcon(p.kind), run: () => (this.isNarrow() ? this.place(p) : this.addDevice(p.kind, undefined, p.switchProfile)) });
+      items.push({ id: `add-${p.id}`, group: addGroup, label: this.t('cmd.add', { name: p.label }), hint: p.hint, icon: this.kindIcon(p.kind), run: () => (this.isNarrow() ? this.place(p) : this.addDevice(p.kind, undefined, p.switchProfile)) });
     }
+    const devices = this.t('cmd.groupDevices');
     for (const d of st?.devices ?? []) {
-      items.push({ id: `sel-${d.id}`, group: 'Devices', label: `Select ${d.name}`, hint: `${this.kindLabel(d.kind, d.switchProfile)} · ${this.primaryIpv4(d) ?? 'no IPv4'}`, icon: this.kindIcon(d.kind), run: () => this.goToDevice(d.name) });
-      items.push({ id: `term-${d.id}`, group: 'Devices', label: `Terminal on ${d.name}`, icon: 'terminal', run: () => this.openTerminalFor(d) });
+      items.push({ id: `sel-${d.id}`, group: devices, label: this.t('cmd.select', { name: d.name }), hint: `${this.kindLabel(d.kind, d.switchProfile)} · ${this.primaryIpv4(d) ?? this.t('cmd.noIpv4')}`, icon: this.kindIcon(d.kind), run: () => this.goToDevice(d.name) });
+      items.push({ id: `term-${d.id}`, group: devices, label: this.t('cmd.termOn', { name: d.name }), icon: 'terminal', run: () => this.openTerminalFor(d) });
     }
-    for (const l of this.labs()) items.push({ id: `lab-${l.id}`, group: 'Labs', label: `Open lab: ${l.name}`, hint: l.goal, icon: 'flag', run: () => this.loadLab(l.id) });
+    const labs = this.t('cmd.groupLabs');
+    for (const l of this.labs()) items.push({ id: `lab-${l.id}`, group: labs, label: this.t('cmd.openLab', { name: l.name }), hint: l.goal, icon: 'flag', run: () => this.loadLab(l.id) });
     return items;
   }
 
@@ -4015,7 +4037,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       const md = this.buildReport();
       if (!md) throw new Error('Nothing to report yet');
       await navigator.clipboard.writeText(md);
-      this.toast('Lab report copied as Markdown.', 'success');
+      this.toast(this.t('toast.reportCopied'), 'success');
     } catch (e) {
       this.fail(e);
     }

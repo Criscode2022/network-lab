@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
 import { Icon, KIND_ICON } from './icons';
+import { I18n } from './i18n/i18n';
+import type { MessageKey } from './i18n/en';
 
 /** Searchable command reference per device kind. Clicking a row drops the command into the terminal. */
 @Component({
@@ -19,9 +21,9 @@ import { Icon, KIND_ICON } from './icons';
       >
         <div class="flex items-center gap-2 border-b border-ink-700 px-4 py-3">
           <nb-icon name="book" [size]="16" class="text-brand-300" />
-          <h2 id="nb-cheat-title" class="text-sm font-semibold text-ink-50">Command reference</h2>
-          <span class="text-[10.5px] text-ink-500">click a command to put it in the terminal</span>
-          <button type="button" class="btn btn-ghost btn-icon ml-auto" aria-label="Close" (click)="close.emit()">
+          <h2 id="nb-cheat-title" class="text-sm font-semibold text-ink-50">{{ t('cheat.title') }}</h2>
+          <span class="text-[10.5px] text-ink-500">{{ t('cheat.hint') }}</span>
+          <button type="button" class="btn btn-ghost btn-icon ml-auto" [attr.aria-label]="t('cheat.close')" (click)="close.emit()">
             <nb-icon name="x" [size]="16" />
           </button>
         </div>
@@ -38,21 +40,21 @@ import { Icon, KIND_ICON } from './icons';
           }
           <div class="relative ml-auto w-full sm:w-48">
             <nb-icon name="search" [size]="12" class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-500" />
-            <input class="field min-h-8 pl-7" [ngModel]="q()" (ngModelChange)="q.set($event)" name="cheatq" placeholder="search commands…" autocomplete="off" />
+            <input class="field min-h-8 pl-7" [ngModel]="q()" (ngModelChange)="q.set($event)" name="cheatq" [placeholder]="t('cheat.search')" autocomplete="off" />
           </div>
         </div>
         <div class="scroll-thin min-h-0 flex-1 overflow-auto p-2">
           @if (loading()) {
-            <div class="flex items-center gap-2 px-3 py-6 text-xs text-ink-400"><span class="spinner"></span> Loading…</div>
+            <div class="flex items-center gap-2 px-3 py-6 text-xs text-ink-400"><span class="spinner"></span> {{ t('cheat.loading') }}</div>
           } @else if (!filtered().length) {
-            <div class="px-3 py-6 text-center text-xs text-ink-500">No commands match “{{ q() }}”.</div>
+            <div class="px-3 py-6 text-center text-xs text-ink-500">{{ t('cheat.none', { q: q() }) }}</div>
           }
           @for (r of filtered(); track r.cmd) {
             <button
               type="button"
               class="group flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-ink-800"
               (click)="run.emit(firstWords(r.cmd))"
-              [title]="'Insert ' + firstWords(r.cmd)"
+              [title]="t('cheat.insert', { cmd: firstWords(r.cmd) })"
             >
               <code class="min-w-0 flex-1 font-mono text-[11.5px] text-brand-200 break-words">{{ r.cmd }}</code>
               <span class="min-w-0 flex-1 text-[11px] leading-snug text-ink-300">{{ r.help }}</span>
@@ -65,6 +67,12 @@ import { Icon, KIND_ICON } from './icons';
   `,
 })
 export class CheatSheet {
+  readonly i18n = inject(I18n);
+
+  t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params);
+  }
+
   kind = input('workstation');
   kinds = input<{ id: string; kind: string; label: string }[]>([]);
   rows = input<{ cmd: string; help: string }[]>([]);

@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
 import type { PacketEvent } from './api';
 import { Icon } from './icons';
+import { I18n } from './i18n/i18n';
+import type { MessageKey } from './i18n/en';
 
 /** Packet inspector + engine activity log. Drops always show the engine's reason verbatim. */
 @Component({
@@ -14,13 +16,13 @@ import { Icon } from './icons';
     <div class="flex shrink-0 items-center gap-1 border-b border-ink-800 px-2 py-1">
       <div class="seg">
         <button type="button" class="seg-item" [ngClass]="{ 'seg-item-on': tab() === 'packets' }" (click)="tab.set('packets')">
-          <nb-icon name="activity" [size]="12" /> Packets
+          <nb-icon name="activity" [size]="12" /> {{ t('pkt.packets') }}
           @if (packets().length) {
             <span class="rounded-full bg-ink-600 px-1.5 text-[9.5px] text-ink-100">{{ packets().length }}</span>
           }
         </button>
         <button type="button" class="seg-item" [ngClass]="{ 'seg-item-on': tab() === 'log' }" (click)="tab.set('log')">
-          <nb-icon name="list" [size]="12" /> Log
+          <nb-icon name="list" [size]="12" /> {{ t('pkt.log') }}
         </button>
       </div>
       @if (tab() === 'packets') {
@@ -31,7 +33,7 @@ import { Icon } from './icons';
             [ngModel]="q()"
             (ngModelChange)="q.set($event)"
             name="pktq"
-            placeholder="filter…"
+            [placeholder]="t('pkt.filter')"
             autocomplete="off"
           />
         </div>
@@ -41,9 +43,9 @@ import { Icon } from './icons';
           [ngClass]="dropsOnly() ? 'bg-danger-500/15 text-danger-300' : 'btn-ghost text-ink-400'"
           [attr.aria-pressed]="dropsOnly()"
           (click)="dropsOnly.set(!dropsOnly())"
-          title="Show only dropped packets"
+          [title]="t('pkt.dropsTitle')"
         >
-          drops
+          {{ t('pkt.drops') }}
         </button>
         @if (focusDevice(); as fd) {
           <button
@@ -52,7 +54,7 @@ import { Icon } from './icons';
             [ngClass]="onlyFocus() ? 'bg-brand-500/15 text-brand-200' : 'btn-ghost text-ink-400'"
             [attr.aria-pressed]="onlyFocus()"
             (click)="onlyFocusChange.emit(!onlyFocus())"
-            [title]="'Capture: only packets seen at ' + fd"
+            [title]="t('pkt.capture', { name: fd })"
           >
             {{ fd }}
           </button>
@@ -66,7 +68,7 @@ import { Icon } from './icons';
           <div class="flex h-full flex-col items-center justify-center gap-2 px-4 py-6 text-center text-ink-500">
             <nb-icon name="activity" [size]="22" class="text-ink-600" />
             <div class="text-[11px] leading-snug">
-              {{ packets().length ? 'No packets match this filter.' : 'Run a ping or Check and every hop shows up here with the exact drop reason.' }}
+              {{ packets().length ? t('pkt.emptyFilter') : t('pkt.empty') }}
             </div>
           </div>
         }
@@ -76,13 +78,13 @@ import { Icon } from './icons';
             [ngClass]="selected()?.id === p.id ? 'border-brand-500/50 bg-ink-800/80' : 'border-transparent hover:bg-ink-800/50'"
           >
             <button type="button" class="flex w-full items-start gap-2 px-2 py-1.5 text-left" (click)="toggle(p)">
-              <span class="mt-0.5 chip shrink-0" [ngClass]="!p.drop ? 'chip-ok' : isPolicy(p) ? 'chip-warn' : 'chip-danger'">{{ !p.drop ? 'ok' : isPolicy(p) ? 'denied' : 'drop' }}</span>
+              <span class="mt-0.5 chip shrink-0" [ngClass]="!p.drop ? 'chip-ok' : isPolicy(p) ? 'chip-warn' : 'chip-danger'">{{ !p.drop ? t('pkt.ok') : isPolicy(p) ? t('pkt.denied') : t('pkt.drop') }}</span>
               <div class="min-w-0 flex-1">
                 <div class="flex min-w-0 items-center gap-1.5 font-mono text-[10.5px]">
                   <span class="rounded bg-ink-700/80 px-1 text-[9.5px] uppercase text-ink-200">{{ p.proto }}</span>
                   <span class="truncate text-ink-100">{{ addrLine(p) }}</span>
                   @if (p.simulated) {
-                    <span class="chip chip-warn">simulated</span>
+                    <span class="chip chip-warn">{{ t('pkt.simulated') }}</span>
                   }
                 </div>
                 <div class="truncate text-[10.5px] text-ink-400">
@@ -97,9 +99,9 @@ import { Icon } from './icons';
             @if (selected()?.id === p.id) {
               <div class="border-t border-ink-700/60 px-2 py-2 text-[10.5px] leading-5 text-ink-200">
                 <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-                  <span class="text-ink-500">Result</span>
-                  <span [ngClass]="p.drop ? 'text-danger-300' : 'text-ok-300'">{{ p.drop ? 'dropped' : 'forwarded' }} — {{ p.reason }}</span>
-                  <span class="text-ink-500">Hop</span>
+                  <span class="text-ink-500">{{ t('pkt.result') }}</span>
+                  <span [ngClass]="p.drop ? 'text-danger-300' : 'text-ok-300'">{{ p.drop ? t('pkt.dropped') : t('pkt.forwarded') }} — {{ p.reason }}</span>
+                  <span class="text-ink-500">{{ t('pkt.hop') }}</span>
                   <span class="font-mono">{{ p.from.device }}:{{ p.from.iface }}{{ p.to ? ' → ' + p.to.device + ':' + p.to.iface : '' }}</span>
                   @if (p.srcIp || p.dstIp) {
                     <span class="text-ink-500">{{ p.srcIp?.includes(':') ? 'IPv6' : 'IPv4' }}</span>
@@ -114,10 +116,10 @@ import { Icon } from './icons';
                 </div>
                 <div class="mt-2 flex flex-wrap gap-1.5">
                   <button type="button" class="btn btn-sm btn-secondary" (click)="replay.emit(p)">
-                    <nb-icon name="play" [size]="11" /> Show on canvas
+                    <nb-icon name="play" [size]="11" /> {{ t('pkt.showCanvas') }}
                   </button>
                   <button type="button" class="btn btn-sm btn-eve" (click)="explain.emit(p)">
-                    <nb-icon name="sparkles" [size]="11" /> Ask Agent why
+                    <nb-icon name="sparkles" [size]="11" /> {{ t('pkt.askWhy') }}
                   </button>
                 </div>
               </div>
@@ -128,7 +130,7 @@ import { Icon } from './icons';
     } @else {
       <div class="scroll-thin min-h-0 flex-1 overflow-auto p-2 font-mono text-[10.5px] leading-5">
         @if (!log().length) {
-          <div class="px-2 py-6 text-center text-ink-500">Engine activity (adds, cables, configs, checks) appears here.</div>
+          <div class="px-2 py-6 text-center text-ink-500">{{ t('pkt.logEmpty') }}</div>
         }
         @for (e of logRows(); track $index) {
           <div class="flex gap-2 text-ink-300">
@@ -141,6 +143,12 @@ import { Icon } from './icons';
   `,
 })
 export class Packets {
+  readonly i18n = inject(I18n);
+
+  t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params);
+  }
+
   packets = input<PacketEvent[]>([]);
   selected = input<PacketEvent | null>(null);
   advanced = input(false);
@@ -173,7 +181,7 @@ export class Packets {
   logRows = computed(() =>
     [...this.log()].reverse().map((e) => {
       const d = new Date(e.t);
-      const time = Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const time = Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString(this.i18n.locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       return { time, msg: e.msg };
     }),
   );

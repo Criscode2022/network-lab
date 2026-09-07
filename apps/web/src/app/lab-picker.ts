@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, ElementRef, HostListener, computed,
 import { NgClass } from '@angular/common';
 import type { LabSummary, SavedLab } from './api';
 import { Icon } from './icons';
+import { I18n } from './i18n/i18n';
+import type { MessageKey } from './i18n/en';
 
 /** Header lab switcher: builtin curriculum with pass badges, plus the signed-in user's saved labs. */
 @Component({
@@ -22,9 +24,9 @@ import { Icon } from './icons';
         @if (currentIndex() > 0) {
           <span class="chip chip-brand shrink-0 px-1.5">{{ currentIndex() }}</span>
         } @else if (currentId() && labs().length) {
-          <span class="chip chip-muted shrink-0 px-1.5">custom</span>
+          <span class="chip chip-muted shrink-0 px-1.5">{{ t('lab.custom') }}</span>
         }
-        <span class="truncate">{{ currentName() || 'Choose a lab' }}</span>
+        <span class="truncate">{{ currentName() || t('lab.choose') }}</span>
       </span>
       <nb-icon name="chevron-down" [size]="14" class="shrink-0 text-ink-400 transition-transform" [class.rotate-180]="open()" />
     </button>
@@ -37,8 +39,8 @@ import { Icon } from './icons';
       >
         <div class="flex items-center justify-between border-b border-ink-700 px-3 py-2">
           <div>
-            <div class="text-xs font-semibold text-ink-50">Labs</div>
-            <div class="text-[10.5px] text-ink-400">{{ passedCount() }} of {{ builtinCount() }} passed</div>
+            <div class="text-xs font-semibold text-ink-50">{{ t('lab.labs') }}</div>
+            <div class="text-[10.5px] text-ink-400">{{ t('lab.passedOf', { passed: passedCount(), total: builtinCount() }) }}</div>
           </div>
           <div class="h-1.5 w-28 overflow-hidden rounded-full bg-ink-700">
             <div class="h-full rounded-full bg-ok-400 transition-all" [style.width.%]="builtinCount() ? (passedCount() / builtinCount()) * 100 : 0"></div>
@@ -74,7 +76,7 @@ import { Icon } from './icons';
           }
           @if (signedIn()) {
             <div class="mt-2 mb-1 flex items-center justify-between px-2.5">
-              <span class="section-title">My labs</span>
+              <span class="section-title">{{ t('lab.mine') }}</span>
               <span class="text-[10px] text-ink-500">{{ mine().length }}</span>
             </div>
             @for (m of mine(); track m.id) {
@@ -83,21 +85,21 @@ import { Icon } from './icons';
                   <nb-icon name="save" [size]="14" class="mt-0.5 shrink-0 text-ink-400" />
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-xs font-medium text-ink-50">{{ m.name }}</span>
-                    <span class="block text-[10px] text-ink-500">{{ when(m.updatedAt) }} · {{ m.json.devices?.length ?? 0 }} devices</span>
+                    <span class="block text-[10px] text-ink-500">{{ when(m.updatedAt) }} · {{ t('lab.devicesN', { n: m.json.devices?.length ?? 0 }) }}</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   class="btn btn-ghost btn-icon h-7 w-7 text-ink-500 hover:text-danger-300"
-                  aria-label="Delete saved lab"
-                  title="Delete saved lab"
+                  [attr.aria-label]="t('lab.deleteSaved')"
+                  [title]="t('lab.deleteSaved')"
                   (click)="deleteMine.emit(m.id)"
                 >
                   <nb-icon name="trash" [size]="13" />
                 </button>
               </div>
             } @empty {
-              <p class="px-2.5 pb-2 text-[10.5px] text-ink-500">Nothing saved yet. Use ⋯ → Save a copy.</p>
+              <p class="px-2.5 pb-2 text-[10.5px] text-ink-500">{{ t('lab.emptyMine') }}</p>
             }
           }
         </div>
@@ -106,6 +108,12 @@ import { Icon } from './icons';
   `,
 })
 export class LabPicker {
+  readonly i18n = inject(I18n);
+
+  t(key: MessageKey, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params);
+  }
+
   labs = input<LabSummary[]>([]);
   currentId = input<string | null>(null);
   currentName = input<string>('');
@@ -140,10 +148,10 @@ export class LabPicker {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
     const diff = Date.now() - d.getTime();
-    if (diff < 60_000) return 'just now';
-    if (diff < 3_600_000) return `${Math.round(diff / 60_000)} min ago`;
-    if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)} h ago`;
-    return d.toLocaleDateString();
+    if (diff < 60_000) return this.t('lab.justNow');
+    if (diff < 3_600_000) return this.t('lab.minAgo', { n: Math.round(diff / 60_000) });
+    if (diff < 86_400_000) return this.t('lab.hAgo', { n: Math.round(diff / 3_600_000) });
+    return d.toLocaleDateString(this.i18n.locale());
   }
 
   @HostListener('document:pointerdown', ['$event'])

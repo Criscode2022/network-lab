@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, output } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Icon, type IconName } from './icons';
+import { I18n } from './i18n/i18n';
 
 export type ToastKind = 'info' | 'success' | 'error' | 'warn';
 
@@ -48,7 +49,7 @@ export interface Toast {
             {{ a.label }}
           </button>
         }
-        <button type="button" class="btn btn-ghost btn-icon h-6 w-6 shrink-0 text-ink-400" aria-label="Dismiss" (click)="dismiss.emit(t.id)">
+        <button type="button" class="btn btn-ghost btn-icon h-6 w-6 shrink-0 text-ink-400" [attr.aria-label]="i18n.t('toast.dismiss')" (click)="dismiss.emit(t.id)">
           <nb-icon name="x" [size]="12" />
         </button>
       </div>
@@ -56,6 +57,7 @@ export interface Toast {
   `,
 })
 export class Toasts {
+  readonly i18n = inject(I18n);
   items = input<Toast[]>([]);
   bottom = input('1rem');
   dismiss = output<number>();
