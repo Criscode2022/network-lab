@@ -36,6 +36,8 @@ export const DE: Record<MessageKey, string> = {
   'header.switchSimple': 'Zu Einfach wechseln',
   'header.switchAdvanced': 'Zu Erweitert wechseln',
   'header.signIn': 'Anmelden',
+  'header.save': 'Speichern',
+  'header.saveTitle': 'Dieses Labor mit Name und Beschreibung speichern',
 
   'menu.lab': 'Labor',
   'menu.view': 'Ansicht',
@@ -47,8 +49,9 @@ export const DE: Record<MessageKey, string> = {
   'menu.saveCheckpoint': 'Sicherungspunkt speichern',
   'menu.checkpoints': 'Sicherungspunkte: Wiederherstellen / Diff…',
   'menu.checkpointsShort': 'Sicherungspunkte…',
-  'menu.saveCopy': 'Kopie auf meinem Konto speichern…',
-  'menu.saveCopyShort': 'Kopie speichern…',
+  'menu.saveCopy': 'Labor speichern…',
+  'menu.saveCopyShort': 'Labor speichern…',
+  'menu.myLabs': 'Meine Labore…',
   'menu.reset': 'Labor auf Startzustand zurücksetzen',
   'menu.resetShort': 'Labor zurücksetzen',
   'menu.tidy': 'Layout aufräumen',
@@ -423,7 +426,7 @@ export const DE: Record<MessageKey, string> = {
   'help.basics.p3':
     'Schalten Sie Basis in der Kopfzeile aus, wenn Sie den vollständigen Editor mit Terminal, Paketen und Agent wollen.',
   'help.lab.p1':
-    'Die Laborauswahl enthält die Übungen nach Schwierigkeit. Jede hat ein Ziel — was funktionieren muss, wenn Sie Prüfen drücken.',
+    'Die linke Auswahl ist der Übungslehrplan nach Schwierigkeit. Rechts liegen Ihre gespeicherten eigenen Labore — Name, Beschreibung und Topologie. Jedes Übungslabor hat ein Ziel — was funktionieren muss, wenn Sie Prüfen drücken.',
   'help.lab.p2':
     'Die ersten drei sind Ein-Schritt-Labore: ein Kabel stecken, eine Adresse setzen, einen Port aktivieren. Studienlabore funktionieren bereits; Fehlerlabore starten kaputt und sagen Ihnen, was zu reparieren ist.',
   'help.check.p1':
@@ -503,6 +506,8 @@ export const DE: Record<MessageKey, string> = {
   'confirm.deleteBody':
     'Die Kabel werden mitgelöscht. Sie können das für ein paar Sekunden über die Benachrichtigung rückgängig machen.',
   'confirm.delete': 'Löschen',
+  'confirm.deleteSavedTitle': '„{name}“ löschen?',
+  'confirm.deleteSavedBody': 'Das Labor wird aus Meine Labore entfernt. Die Arbeitsfläche bleibt, bis Sie etwas anderes öffnen.',
   'confirm.resetTitle': 'Dieses Labor zurücksetzen?',
   'confirm.resetBody':
     'Jede Änderung — Kabel, Adressen, Konfiguration — wird verworfen und das Labor kehrt in den Startzustand zurück.',
@@ -521,7 +526,7 @@ export const DE: Record<MessageKey, string> = {
   'auth.loginHint':
     'Ihre Labore werden mit diesem Konto synchronisiert und folgen Ihnen auf andere Geräte.',
   'auth.registerHint':
-    'Das Labor, an dem Sie gerade arbeiten, wird auf das neue Konto kopiert.',
+    'In diesem Browser gespeicherte Labore werden auf das neue Konto kopiert.',
   'auth.email': 'E-Mail',
   'auth.password': 'Passwort',
   'auth.wait': 'Bitte warten…',
@@ -529,11 +534,18 @@ export const DE: Record<MessageKey, string> = {
   'auth.savedMany': '{n} gespeicherte Labore',
   'auth.signOut': 'Abmelden',
 
-  'saveAs.title': 'Kopie speichern',
+  'saveAs.title': 'Labor speichern',
   'saveAs.body':
-    'Speichert die aktuelle Topologie und Konfiguration unter Ihrem Konto.',
-  'saveAs.name': 'Laborname',
+    'Speichert die aktuelle Topologie und Konfiguration auf Ihrem Konto. Öffnen Sie es später unter Meine Labore auf jedem Gerät.',
+  'saveAs.bodyGuest':
+    'Speichert dieses Labor in diesem Browser. Melden Sie sich später an, um es auf Ihrem Konto und anderen Geräten zu behalten.',
+  'saveAs.name': 'Name',
+  'saveAs.desc': 'Beschreibung',
+  'saveAs.descPh': 'Woran sollen Sie sich bei diesem Labor erinnern?',
   'saveAs.save': 'Speichern',
+  'saveAs.saveNew': 'Als neu speichern',
+  'saveAs.update': 'Aktualisieren',
+  'saveAs.updateHint': 'Ersetzt die gespeicherte Kopie von „{name}“.',
   'saveAs.saving': 'Wird gespeichert…',
 
   'shortcuts.title': 'Tastenkürzel',
@@ -663,8 +675,17 @@ export const DE: Record<MessageKey, string> = {
   'lab.labs': 'Labore',
   'lab.passedOf': '{passed} von {total} bestanden',
   'lab.mine': 'Meine Labore',
+  'lab.savedN': '{n} gespeichert',
   'lab.deleteSaved': 'Gespeichertes Labor löschen',
-  'lab.emptyMine': 'Noch nichts gespeichert. Nutzen Sie ⋯ → Kopie speichern.',
+  'lab.emptyMine': 'Noch nichts gespeichert. Nutzen Sie Labor speichern, um diese Topologie zu behalten.',
+  'lab.browser': 'Dieser Browser',
+  'lab.open': 'Öffnen',
+  'lab.saveCurrent': 'Aktuelles Labor speichern…',
+  'lab.libraryTitle': 'Meine Labore',
+  'lab.libraryGuest': 'Nur in diesem Browser gespeichert. Melden Sie sich an, um sie mit Ihrem Konto zu synchronisieren.',
+  'lab.libraryAccount': 'Auf Ihrem Konto gespeicherte Labore. Öffnen Sie eines, um weiterzuarbeiten.',
+  'lab.filter': 'Gespeicherte Labore suchen…',
+  'lab.noMatch': 'Kein gespeichertes Labor entspricht „{q}“.',
   'lab.devicesN': '{n} Geräte',
   'lab.justNow': 'gerade eben',
   'lab.minAgo': 'vor {n} Min.',
@@ -781,6 +802,9 @@ export const DE: Record<MessageKey, string> = {
   'toast.resetOk': 'Labor auf den Startzustand zurückgesetzt.',
   'toast.signInToSave': 'Melden Sie sich an, um Labore auf Ihrem Konto zu speichern.',
   'toast.savedAccount': '„{name}“ auf Ihrem Konto gespeichert.',
+  'toast.savedLocal': '„{name}“ in diesem Browser gespeichert.',
+  'toast.savedUpdated': '„{name}“ aktualisiert.',
+  'toast.promotedLabs': '{n} Browser-Labore auf Ihr Konto kopiert.',
   'toast.savedDeleted': 'Gespeichertes Labor gelöscht.',
   'toast.noTerm': '{name} ist unmanaged: es hat kein Terminal.',
   'toast.noCli': '{name} ist unmanaged: es hat kein CLI und keine Management-Schnittstelle.',

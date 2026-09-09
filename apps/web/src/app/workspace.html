@@ -14,12 +14,8 @@
       [currentId]="api.state()?.id ?? null"
       [currentName]="api.state()?.name ?? ''"
       [passed]="passed()"
-      [mine]="myLabs()"
-      [signedIn]="!api.guest()"
       [compact]="isNarrow()"
       (pick)="loadLab($event)"
-      (pickMine)="openSaved($event)"
-      (deleteMine)="deleteSaved($event)"
     />
 
     @if (basicMode()) {
@@ -28,7 +24,35 @@
       </button>
     }
 
-    <div class="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
+    <div class="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 md:gap-2">
+      <nb-mine-picker
+        class="min-w-0 max-w-[9.5rem] sm:max-w-[14rem] md:max-w-none"
+        [mine]="myLabs()"
+        [currentId]="api.state()?.id ?? null"
+        [localOnly]="api.guest()"
+        [compact]="isNarrow()"
+        (pick)="openSaved($event)"
+        (deleteMine)="askDeleteSaved($event)"
+        (openLibrary)="openLibrary()"
+      />
+
+      <button
+        type="button"
+        class="btn btn-secondary shrink-0"
+        [class.btn-icon]="isNarrow()"
+        [class.min-h-9]="isNarrow()"
+        [class.w-9]="isNarrow()"
+        [disabled]="loading()"
+        [attr.aria-label]="t('header.save')"
+        [title]="t('header.saveTitle')"
+        (click)="openSaveAs()"
+      >
+        <nb-icon name="save" [size]="14" class="text-brand-300" />
+        @if (!isNarrow()) {
+          {{ t('header.save') }}
+        }
+      </button>
+
       <button type="button" class="btn btn-primary relative min-h-9 md:min-h-8" [disabled]="checkBusy() || loading()" (click)="doCheck()" [title]="t('header.checkTitle')">
         @if (checkBusy()) {
           <span class="spinner h-3.5 w-3.5 border-white/40 border-t-white"></span>
@@ -104,6 +128,7 @@
                 <button type="button" class="menu-item" role="menuitem" (click)="saveCheckpoint()"><nb-icon name="bookmark" [size]="14" class="text-ink-400" /> {{ t('menu.saveCheckpoint') }}</button>
                 <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); checkpointsOpen.set(true)"><nb-icon name="clock" [size]="14" class="text-ink-400" /> {{ t('menu.checkpoints') }} @if (labCheckpoints().length) { <span class="chip chip-muted ml-auto">{{ labCheckpoints().length }}</span> }</button>
                 <button type="button" class="menu-item" role="menuitem" (click)="openSaveAs()"><nb-icon name="save" [size]="14" class="text-ink-400" /> {{ t('menu.saveCopy') }}</button>
+                <button type="button" class="menu-item" role="menuitem" (click)="openLibrary()"><nb-icon name="book" [size]="14" class="text-ink-400" /> {{ t('menu.myLabs') }}</button>
                 <button type="button" class="menu-item" role="menuitem" (click)="menuOpen.set(false); askReset()"><nb-icon name="reset" [size]="14" class="text-ink-400" /> {{ t('menu.reset') }}</button>
                 <button type="button" class="menu-item" role="menuitem" (click)="tidyUp()"><nb-icon name="tidy" [size]="14" class="text-ink-400" /> {{ t('menu.tidy') }}</button>
                 <div class="section-title px-2.5 pt-2 pb-1">{{ t('menu.view') }}</div>
@@ -162,6 +187,7 @@
               <button type="button" class="menu-item" (click)="moreOpen.set(false); saveCheckpoint()"><nb-icon name="bookmark" [size]="14" class="text-ink-400" /> {{ t('menu.saveCheckpoint') }}</button>
               <button type="button" class="menu-item" (click)="moreOpen.set(false); checkpointsOpen.set(true)"><nb-icon name="clock" [size]="14" class="text-ink-400" /> {{ t('menu.checkpointsShort') }}</button>
               <button type="button" class="menu-item" (click)="moreOpen.set(false); openSaveAs()"><nb-icon name="save" [size]="14" class="text-ink-400" /> {{ t('menu.saveCopyShort') }}</button>
+              <button type="button" class="menu-item" (click)="moreOpen.set(false); openLibrary()"><nb-icon name="book" [size]="14" class="text-ink-400" /> {{ t('menu.myLabs') }}</button>
               <button type="button" class="menu-item" (click)="moreOpen.set(false); askReset()"><nb-icon name="reset" [size]="14" class="text-ink-400" /> {{ t('menu.resetShort') }}</button>
               <button type="button" class="menu-item" (click)="moreOpen.set(false); copyReport()"><nb-icon name="file" [size]="14" class="text-ink-400" /> {{ t('menu.copyReportShort') }}</button>
               <button type="button" class="menu-item" (click)="moreOpen.set(false); tidyUp()"><nb-icon name="tidy" [size]="14" class="text-ink-400" /> {{ t('menu.tidy') }}</button>
@@ -1592,6 +1618,19 @@
   </div>
 }
 
+@if (confirmDelSaved(); as saved) {
+  <div class="backdrop flex items-center justify-center p-4" (click)="confirmDelSaved.set(null)">
+    <div class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" role="alertdialog" aria-modal="true">
+      <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="trash" [size]="16" class="text-danger-400" /> {{ t('confirm.deleteSavedTitle', { name: saved.name }) }}</div>
+      <p class="mt-2 text-xs leading-relaxed text-ink-300">{{ t('confirm.deleteSavedBody') }}</p>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="btn btn-secondary" (click)="confirmDelSaved.set(null)">{{ t('mode.cancel') }}</button>
+        <button type="button" class="btn bg-danger-500 text-white hover:bg-danger-400" data-confirm-primary autofocus (click)="deleteSaved()">{{ t('confirm.delete') }}</button>
+      </div>
+    </div>
+  </div>
+}
+
 @if (confirmReset()) {
   <div class="backdrop flex items-center justify-center p-4" (click)="confirmReset.set(false)">
     <div class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" role="alertdialog" aria-modal="true">
@@ -1656,18 +1695,87 @@
   </div>
 }
 
-<!-- ======================================================================= Save as -->
+<!-- ======================================================================= Save lab -->
 @if (saveAsOpen()) {
   <div class="backdrop flex items-center justify-center p-4" (click)="saveAsOpen.set(false)">
-    <form class="card w-full max-w-sm p-5 animate-pop" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveAs()" role="dialog" aria-modal="true">
+    <form class="card w-full max-w-md p-5 animate-pop" (click)="$event.stopPropagation()" (submit)="$event.preventDefault(); saveLab(false)" role="dialog" aria-modal="true">
       <div class="flex items-center gap-2 text-sm font-semibold text-ink-50"><nb-icon name="save" [size]="16" class="text-brand-300" /> {{ t('saveAs.title') }}</div>
-      <p class="mt-1 text-xs text-ink-400">{{ t('saveAs.body') }}</p>
-      <input class="field field-lg mt-3" [(ngModel)]="saveAsName" name="labname" [placeholder]="t('saveAs.name')" required autofocus />
-      <div class="mt-4 flex justify-end gap-2">
+      <p class="mt-1 text-xs leading-relaxed text-ink-400">{{ api.guest() ? t('saveAs.bodyGuest') : t('saveAs.body') }}</p>
+      <label class="section-title mt-4 mb-1 block">{{ t('saveAs.name') }}</label>
+      <input class="field field-lg" [(ngModel)]="saveAsName" name="labname" [placeholder]="t('saveAs.name')" required autofocus />
+      <label class="section-title mt-3 mb-1 block">{{ t('saveAs.desc') }}</label>
+      <textarea class="field min-h-20 py-2" rows="3" [(ngModel)]="saveAsDesc" name="labdesc" [placeholder]="t('saveAs.descPh')"></textarea>
+      @if (saveCanUpdate()) {
+        <p class="mt-2 text-[11px] text-ink-500">{{ t('saveAs.updateHint', { name: saveAsName.trim() || api.state()?.name || '' }) }}</p>
+      }
+      <div class="mt-4 flex flex-wrap justify-end gap-2">
         <button type="button" class="btn btn-secondary btn-lg" (click)="saveAsOpen.set(false)">{{ t('mode.cancel') }}</button>
-        <button type="submit" class="btn btn-primary btn-lg" [disabled]="saveAsBusy()">{{ saveAsBusy() ? t('saveAs.saving') : t('saveAs.save') }}</button>
+        @if (saveCanUpdate()) {
+          <button type="button" class="btn btn-secondary btn-lg" [disabled]="saveAsBusy() || !saveAsName.trim()" (click)="saveLab(true)">{{ t('saveAs.saveNew') }}</button>
+          <button type="submit" class="btn btn-primary btn-lg" [disabled]="saveAsBusy() || !saveAsName.trim()">{{ saveAsBusy() ? t('saveAs.saving') : t('saveAs.update') }}</button>
+        } @else {
+          <button type="submit" class="btn btn-primary btn-lg" [disabled]="saveAsBusy() || !saveAsName.trim()">{{ saveAsBusy() ? t('saveAs.saving') : t('saveAs.save') }}</button>
+        }
       </div>
     </form>
+  </div>
+}
+
+<!-- ======================================================================= My labs -->
+@if (libraryOpen()) {
+  <div class="backdrop flex items-end justify-center p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" (click)="libraryOpen.set(false)">
+    <div class="card flex max-h-[min(36rem,88dvh)] w-full max-w-lg flex-col overflow-hidden animate-pop" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div class="flex items-start gap-2 border-b border-ink-800 px-5 py-4">
+        <nb-icon name="save" [size]="16" class="mt-0.5 text-brand-300" />
+        <div class="min-w-0 flex-1">
+          <h2 class="text-sm font-semibold text-ink-50">{{ t('lab.libraryTitle') }}</h2>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-ink-400">{{ api.guest() ? t('lab.libraryGuest') : t('lab.libraryAccount') }}</p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" [attr.aria-label]="t('status.close')" (click)="libraryOpen.set(false)"><nb-icon name="x" [size]="16" /></button>
+      </div>
+      <div class="border-b border-ink-800 px-5 py-2.5">
+        <input class="field" [ngModel]="libraryQ()" (ngModelChange)="libraryQ.set($event)" name="labfilter" [placeholder]="t('lab.filter')" />
+      </div>
+      <div class="scroll-thin min-h-0 flex-1 overflow-auto p-2">
+        @for (m of filteredMine(); track m.id) {
+          <div class="flex items-start gap-2 rounded-xl px-2.5 py-2.5 hover:bg-ink-800/80" [class.ring-1]="m.id === api.state()?.id" [class.ring-brand-500/40]="m.id === api.state()?.id">
+            <button type="button" class="flex min-w-0 flex-1 items-start gap-2.5 text-left" (click)="openSaved(m.id)">
+              <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-ink-800 text-ink-300 ring-1 ring-ink-700">
+                <nb-icon name="save" [size]="14" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-1.5">
+                  <span class="truncate text-sm font-medium text-ink-50">{{ m.name }}</span>
+                  @if (api.guest()) {
+                    <span class="chip chip-muted shrink-0 px-1.5">{{ t('lab.browser') }}</span>
+                  }
+                </span>
+                @if (labCardBlurb(m); as note) {
+                  <span class="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-ink-400">{{ note }}</span>
+                }
+                <span class="mt-1 block text-[10px] text-ink-500">{{ savedWhen(m.updatedAt) }} · {{ t('lab.devicesN', { n: m.json.devices?.length ?? 0 }) }}</span>
+              </span>
+            </button>
+            <div class="flex shrink-0 flex-col gap-1">
+              <button type="button" class="btn btn-secondary btn-sm" (click)="openSaved(m.id)">{{ t('lab.open') }}</button>
+              <button type="button" class="btn btn-ghost btn-sm text-ink-400 hover:text-danger-300" (click)="askDeleteSaved(m.id)">{{ t('confirm.delete') }}</button>
+            </div>
+          </div>
+        } @empty {
+          <div class="px-4 py-8 text-center">
+            <p class="text-xs text-ink-400">{{ libraryQ().trim() ? t('lab.noMatch', { q: libraryQ().trim() }) : t('lab.emptyMine') }}</p>
+            @if (!libraryQ().trim()) {
+              <button type="button" class="btn btn-primary mt-3" (click)="openSaveAs()"><nb-icon name="save" [size]="14" /> {{ t('lab.saveCurrent') }}</button>
+            }
+          </div>
+        }
+      </div>
+      @if (filteredMine().length) {
+        <div class="border-t border-ink-800 px-4 py-3">
+          <button type="button" class="btn btn-secondary w-full" (click)="openSaveAs()"><nb-icon name="save" [size]="14" /> {{ t('lab.saveCurrent') }}</button>
+        </div>
+      }
+    </div>
   </div>
 }
 

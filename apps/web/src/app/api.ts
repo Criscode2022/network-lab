@@ -413,14 +413,12 @@ export class Api {
     const r = await this.json<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     this.setToken(r.token);
     this.warning.set(null);
-    await this.promoteGuestLab();
   }
 
   async register(email: string, password: string): Promise<void> {
     const r = await this.json<{ token: string }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) });
     this.setToken(r.token);
     this.warning.set(null);
-    await this.promoteGuestLab();
   }
 
   async logout(): Promise<void> {
@@ -446,16 +444,6 @@ export class Api {
       localStorage.setItem(GUEST_LAB_KEY, JSON.stringify(snap));
     } catch {
       /* quota / private mode */
-    }
-  }
-
-  private async promoteGuestLab(): Promise<void> {
-    const lab = this.readGuestLab();
-    if (!lab || typeof lab !== 'object') return;
-    try {
-      await this.json('/labs', { method: 'POST', body: JSON.stringify(lab) });
-    } catch {
-      /* account save is optional */
     }
   }
 

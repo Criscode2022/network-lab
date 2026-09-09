@@ -36,6 +36,8 @@ export const FR: Record<MessageKey, string> = {
   'header.switchSimple': 'Passer en Simple',
   'header.switchAdvanced': 'Passer en Avancé',
   'header.signIn': 'Connexion',
+  'header.save': 'Enregistrer',
+  'header.saveTitle': 'Enregistrer ce laboratoire avec un nom et une description',
 
   'menu.lab': 'Labo',
   'menu.view': 'Affichage',
@@ -47,8 +49,9 @@ export const FR: Record<MessageKey, string> = {
   'menu.saveCheckpoint': 'Enregistrer un point de restauration',
   'menu.checkpoints': 'Points de restauration : restaurer / comparer…',
   'menu.checkpointsShort': 'Points de restauration…',
-  'menu.saveCopy': 'Enregistrer une copie sur mon compte…',
-  'menu.saveCopyShort': 'Enregistrer une copie…',
+  'menu.saveCopy': 'Enregistrer le laboratoire…',
+  'menu.saveCopyShort': 'Enregistrer le labo…',
+  'menu.myLabs': 'Mes laboratoires…',
   'menu.reset': 'Réinitialiser le laboratoire',
   'menu.resetShort': 'Réinitialiser',
   'menu.tidy': 'Ranger la disposition',
@@ -423,7 +426,7 @@ export const FR: Record<MessageKey, string> = {
   'help.basics.p3':
     'Désactivez Basique dans l’en-tête si vous voulez l’éditeur complet avec un terminal, les paquets et l’Agent.',
   'help.lab.p1':
-    'Le sélecteur de laboratoires contient les scénarios d’entraînement par ordre de difficulté. Chacun a un objectif — ce qui doit fonctionner quand vous appuyez sur Vérifier.',
+    'Le sélecteur de gauche est le programme d’entraînement par difficulté. Celui de droite contient vos laboratoires personnalisés : nom, description et topologie. Chaque laboratoire d’entraînement a un objectif — ce qui doit fonctionner quand vous appuyez sur Vérifier.',
   'help.lab.p2':
     'Les trois premiers sont des laboratoires à une seule correction : brancher un câble, ajouter une adresse, activer un port. Les laboratoires d’étude fonctionnent déjà ; les laboratoires à panne commencent cassés et vous disent quoi réparer.',
   'help.check.p1':
@@ -503,6 +506,8 @@ export const FR: Record<MessageKey, string> = {
   'confirm.deleteBody':
     'Ses câbles partent avec lui. Vous pouvez annuler depuis la notification pendant quelques secondes.',
   'confirm.delete': 'Supprimer',
+  'confirm.deleteSavedTitle': 'Supprimer « {name} » ?',
+  'confirm.deleteSavedBody': 'Le laboratoire est retiré de Mes laboratoires. Le canevas ne change pas tant que vous n’en ouvrez pas un autre.',
   'confirm.resetTitle': 'Réinitialiser ce laboratoire ?',
   'confirm.resetBody':
     'Tous les changements que vous avez faits — câbles, adresses, configuration — sont abandonnés et le laboratoire revient à son état de départ.',
@@ -521,7 +526,7 @@ export const FR: Record<MessageKey, string> = {
   'auth.loginHint':
     'Vos laboratoires seront synchronisés sur ce compte et vous suivront d’un appareil à l’autre.',
   'auth.registerHint':
-    'Le laboratoire sur lequel vous travaillez maintenant est copié vers le nouveau compte.',
+    'Les laboratoires enregistrés dans ce navigateur sont copiés vers le nouveau compte.',
   'auth.email': 'e-mail',
   'auth.password': 'mot de passe',
   'auth.wait': 'Veuillez patienter…',
@@ -529,11 +534,18 @@ export const FR: Record<MessageKey, string> = {
   'auth.savedMany': '{n} laboratoires enregistrés',
   'auth.signOut': 'Déconnexion',
 
-  'saveAs.title': 'Enregistrer une copie',
+  'saveAs.title': 'Enregistrer le laboratoire',
   'saveAs.body':
-    'Enregistre la topologie et la configuration actuelles sur votre compte.',
-  'saveAs.name': 'Nom du laboratoire',
+    'Enregistre la topologie et la configuration actuelles sur votre compte. Ouvrez-le plus tard depuis Mes laboratoires sur n’importe quel appareil.',
+  'saveAs.bodyGuest':
+    'Enregistre ce laboratoire dans ce navigateur. Connectez-vous plus tard pour le garder sur votre compte et vos autres appareils.',
+  'saveAs.name': 'Nom',
+  'saveAs.desc': 'Description',
+  'saveAs.descPh': 'Que devriez-vous retenir de ce laboratoire ?',
   'saveAs.save': 'Enregistrer',
+  'saveAs.saveNew': 'Enregistrer comme nouveau',
+  'saveAs.update': 'Mettre à jour',
+  'saveAs.updateHint': 'Remplace la copie enregistrée de « {name} ».',
   'saveAs.saving': 'Enregistrement…',
 
   'shortcuts.title': 'Raccourcis clavier',
@@ -663,8 +675,17 @@ export const FR: Record<MessageKey, string> = {
   'lab.labs': 'Laboratoires',
   'lab.passedOf': '{passed} sur {total} réussis',
   'lab.mine': 'Mes laboratoires',
+  'lab.savedN': '{n} enregistrés',
   'lab.deleteSaved': 'Supprimer le laboratoire enregistré',
-  'lab.emptyMine': 'Rien d’enregistré pour l’instant. Utilisez ⋯ → Enregistrer une copie.',
+  'lab.emptyMine': 'Rien d’enregistré pour l’instant. Utilisez Enregistrer le laboratoire pour garder cette topologie.',
+  'lab.browser': 'Ce navigateur',
+  'lab.open': 'Ouvrir',
+  'lab.saveCurrent': 'Enregistrer le laboratoire actuel…',
+  'lab.libraryTitle': 'Mes laboratoires',
+  'lab.libraryGuest': 'Stockés uniquement dans ce navigateur. Connectez-vous pour les synchroniser sur votre compte.',
+  'lab.libraryAccount': 'Laboratoires enregistrés sur votre compte. Ouvrez-en un pour continuer.',
+  'lab.filter': 'Rechercher des laboratoires…',
+  'lab.noMatch': 'Aucun laboratoire enregistré ne correspond à « {q} ».',
   'lab.devicesN': '{n} équipements',
   'lab.justNow': 'à l’instant',
   'lab.minAgo': 'il y a {n} min',
@@ -780,6 +801,9 @@ export const FR: Record<MessageKey, string> = {
   'toast.resetOk': 'Laboratoire réinitialisé à son état de départ.',
   'toast.signInToSave': 'Connectez-vous pour enregistrer des laboratoires sur votre compte.',
   'toast.savedAccount': '« {name} » enregistré sur votre compte.',
+  'toast.savedLocal': '« {name} » enregistré dans ce navigateur.',
+  'toast.savedUpdated': '« {name} » mis à jour.',
+  'toast.promotedLabs': '{n} laboratoires du navigateur copiés sur votre compte.',
   'toast.savedDeleted': 'Laboratoire enregistré supprimé.',
   'toast.noTerm': '{name} est non administrable : il n’a pas de terminal.',
   'toast.noCli':

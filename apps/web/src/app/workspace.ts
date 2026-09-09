@@ -43,9 +43,11 @@ import { Terminal, quickCommandsFor, type TermLine } from './terminal';
 import { Packets } from './packets';
 import { Toasts, type Toast, type ToastKind } from './toasts';
 import { LabPicker } from './lab-picker';
+import { MinePicker } from './mine-picker';
 import { CheatSheet } from './cheat-sheet';
 import { I18n, type Locale } from './i18n/i18n';
 import type { MessageKey } from './i18n/en';
+import { LabLibrary, isCustomLabId, labBlurb, newCustomLabId } from './lab-library';
 
 type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status' | 'ping' | 'gateway' | 'dhcp' | 'hints' | 'troubleshoot' | 'checkpoints';
 type MobileTab = 'canvas' | 'palette' | 'inspect' | 'term' | 'eve';
@@ -160,11 +162,13 @@ const SUBNET_COLORS = ['text-ok-300', 'text-sky-300', 'text-amber-300', 'text-fu
 
 @Component({
   selector: 'app-workspace',
-  imports: [FormsModule, NgClass, NgTemplateOutlet, Icon, Flag, Terminal, Packets, Toasts, LabPicker, CheatSheet],
+  imports: [FormsModule, NgClass, NgTemplateOutlet, Icon, Flag, Terminal, Packets, Toasts, LabPicker, MinePicker, CheatSheet],
   templateUrl: './workspace.html',
 })
 export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly api = inject(Api);
+  readonly library = inject(LabLibrary);
+  readonly myLabs = this.library.items;
   readonly eve = inject(EveClient);
   readonly i18n = inject(I18n);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -214,7 +218,6 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private builtinIds = new Set<string>();
   loading = signal(true);
   loadError = signal<string | null>(null);
-  myLabs = signal<SavedLab[]>([]);
   passed = signal<string[]>(this.readJson<string[]>(PASSED_KEY, []));
   checkResult = signal<(CheckResult & { at: number }) | null>(null);
   checkBusy = signal(false);
@@ -358,7 +361,20 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   password = '';
   saveAsOpen = signal(false);
   saveAsName = '';
+  saveAsDesc = '';
   saveAsBusy = signal(false);
+  libraryOpen = signal(false);
+  libraryQ = signal('');
+  confirmDelSaved = signal<{ id: string; name: string } | null>(null);
+  readonly filteredMine = computed(() => {
+    const q = this.libraryQ().trim().toLowerCase();
+    const list = this.myLabs();
+    if (!q) return list;
+    return list.filter((l) => {
+      const blurb = labBlurb(l).toLowerCase();
+      return l.name.toLowerCase().includes(q) || blurb.includes(q);
+    });
+  });
   shortcutsOpen = signal(false);
   aboutOpen = signal(false);
   welcomeOpen = signal(false);
@@ -601,9 +617,6 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.labs.set(b.labs);
       this.builtinIds = new Set(b.labs.map((l) => l.id));
       const guestLab = this.api.readGuestLab();
-      if (guestLab?.id && guestLab.name && !b.labs.some((l) => l.id === guestLab.id)) {
-        this.labs.set([{ id: guestLab.id, name: `${guestLab.name} (this browser)`, goal: guestLab.goal ?? '', custom: true }, ...b.labs]);
-      }
       let how: 'shared' | 'attached' | 'opened' = 'opened';
       const shared = this.readShareHash();
       if (shared) {
@@ -624,7 +637,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.afterOpen(how === 'attached');
       if (how === 'shared') this.toast(this.t('toast.openedShared'), 'success');
       if (how === 'attached') this.toast(this.t('toast.resumed'), 'info');
-      if (!this.api.guest()) void this.loadMyLabs();
+      void this.loadMyLabs();
       if (how !== 'shared' && localStorage.getItem(WELCOME_KEY) !== '1') this.welcomeOpen.set(true);
     } catch (e) {
       this.loadError.set(this.errMsg(e));
@@ -765,7 +778,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async openSaved(id: string) {
-    await this.loadLab(id);
+    this.libraryOpen.set(false);
+    const row = this.library.getById(id);
+    this.loading.set(true);
+    try {
+      if (row?.json) await this.api.open(undefined, row.json);
+      else await this.api.open(id);
+      this.afterOpen();
+      this.toast(this.t('toast.loaded', { name: this.api.state()?.name ?? row?.name ?? '' }), 'info');
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      this.loading.set(false);
+    }
   }
 
   async goNextLab() {
@@ -793,53 +818,88 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async loadMyLabs() {
-    if (this.api.guest()) {
-      this.myLabs.set([]);
-      return;
-    }
+  async loadMyLabs(forceRefresh = false) {
     try {
-      const r = await this.api.listLabs();
-      this.myLabs.set(r.labs);
+      await this.library.getAll(forceRefresh);
     } catch {
-      this.myLabs.set([]);
+      /* picker stays on the last good list */
     }
+  }
+
+  saveCanUpdate(): boolean {
+    const id = this.api.state()?.id;
+    return !!id && isCustomLabId(id) && this.library.owns(id);
   }
 
   openSaveAs() {
     this.menuOpen.set(false);
-    if (this.api.guest()) {
-      this.authOpen.set(true);
-      this.toast(this.t('toast.signInToSave'), 'info');
-      return;
-    }
-    this.saveAsName = this.api.state()?.name ?? 'My lab';
+    this.moreOpen.set(false);
+    this.libraryOpen.set(false);
+    const st = this.api.state();
+    const existing = st?.id ? this.library.getById(st.id) : undefined;
+    this.saveAsName = existing?.name ?? st?.name ?? 'My lab';
+    this.saveAsDesc = existing?.json.description ?? st?.description ?? '';
     this.saveAsOpen.set(true);
   }
 
-  async saveAs() {
+  openLibrary() {
+    this.menuOpen.set(false);
+    this.moreOpen.set(false);
+    this.libraryQ.set('');
+    this.libraryOpen.set(true);
+    void this.loadMyLabs();
+  }
+
+  labCardBlurb(lab: SavedLab): string {
+    return labBlurb(lab);
+  }
+
+  savedWhen(iso: string): string {
+    const ts = Date.parse(iso);
+    return Number.isFinite(ts) ? this.when(ts) : '';
+  }
+
+  async saveLab(asNew = false) {
     const name = this.saveAsName.trim();
     if (!name) return;
     this.saveAsBusy.set(true);
     try {
       const snap = await this.api.snapshot();
       if (!snap) throw new Error('Nothing to save yet');
-      const id = `nb-${Math.random().toString(36).slice(2, 8)}-${Date.now().toString(36)}`;
-      await this.api.saveLabAs({ ...snap, id, name });
-      await this.loadMyLabs();
+      const update = !asNew && this.saveCanUpdate();
+      const id = update ? snap.id : newCustomLabId(name);
+      const lab = {
+        ...snap,
+        id,
+        name,
+        description: this.saveAsDesc.trim() || undefined,
+      };
+      await this.library.save(lab);
       this.saveAsOpen.set(false);
-      this.toast(this.t('toast.savedAccount', { name }), 'success');
+      this.loading.set(true);
+      await this.api.open(undefined, lab);
+      this.afterOpen();
+      const key = update ? 'toast.savedUpdated' : this.api.guest() ? 'toast.savedLocal' : 'toast.savedAccount';
+      this.toast(this.t(key, { name }), 'success');
     } catch (e) {
       this.fail(e);
     } finally {
       this.saveAsBusy.set(false);
+      this.loading.set(false);
     }
   }
 
-  async deleteSaved(id: string) {
+  askDeleteSaved(id: string) {
+    const row = this.library.getById(id);
+    this.confirmDelSaved.set({ id, name: row?.name ?? id });
+  }
+
+  async deleteSaved(id?: string) {
+    const target = id ?? this.confirmDelSaved()?.id;
+    if (!target) return;
     try {
-      await this.api.deleteLab(id);
-      this.myLabs.update((l) => l.filter((x) => x.id !== id));
+      await this.library.delete(target);
+      this.confirmDelSaved.set(null);
       this.toast(this.t('toast.savedDeleted'), 'info');
     } catch (e) {
       this.fail(e);
@@ -3045,7 +3105,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       this.password = '';
       this.toast(this.t('toast.signedIn', { email }), 'success');
       this.bindEve();
-      void this.loadMyLabs();
+      const promoted = await this.library.promoteLocal();
+      if (promoted) this.toast(this.t('toast.promotedLabs', { n: promoted }), 'success');
+      else await this.loadMyLabs(true);
     } catch (e) {
       this.authError.set(this.errMsg(e));
     } finally {
@@ -3057,7 +3119,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.menuOpen.set(false);
     try {
       await this.api.logout();
-      this.myLabs.set([]);
+      this.library.invalidateCache();
+      await this.loadMyLabs(true);
       this.authOpen.set(false);
       this.toast(this.t('toast.signedOut'), 'info');
     } catch (e) {
@@ -3882,8 +3945,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       };
       this.labEditOpen.set(false);
       this.loading.set(true);
+      if (isCustomLabId(lab.id)) await this.library.save(lab);
       await this.api.open(undefined, lab);
-      this.labs.update((list) => [{ id: lab.id, name: this.t('lab.thisBrowser', { name: lab.name }), goal: lab.goal ?? '', custom: true }, ...list.filter((l) => l.id !== lab.id && !l.custom)]);
       this.afterOpen();
       this.toast(this.t('toast.labUpdated'), 'success');
     } catch (e) {
@@ -3917,6 +3980,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     act('report', this.t('menu.copyReport'), 'file', () => this.copyReport());
     act('json', this.t('menu.downloadJson'), 'download', () => this.saveJson(), 'Ctrl+S');
     act('saveas', this.t('menu.saveCopy'), 'save', () => this.openSaveAs());
+    act('mylabs', this.t('menu.myLabs'), 'book', () => this.openLibrary());
     act('reset', this.t('menu.reset'), 'reset', () => this.askReset());
     act('cheat', this.t('menu.cheat'), 'book', () => this.openCheat());
     act('keys', this.t('menu.shortcuts'), 'keyboard', () => this.shortcutsOpen.set(true), '?');
@@ -3933,6 +3997,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       items.push({ id: `term-${d.id}`, group: devices, label: this.t('cmd.termOn', { name: d.name }), icon: 'terminal', run: () => this.openTerminalFor(d) });
     }
     const labs = this.t('cmd.groupLabs');
+    for (const l of this.myLabs()) {
+      items.push({ id: `mine-${l.id}`, group: labs, label: this.t('cmd.openLab', { name: l.name }), hint: labBlurb(l) || this.t('lab.mine'), icon: 'save', run: () => this.openSaved(l.id) });
+    }
     for (const l of this.labs()) items.push({ id: `lab-${l.id}`, group: labs, label: this.t('cmd.openLab', { name: l.name }), hint: l.goal, icon: 'flag', run: () => this.loadLab(l.id) });
     return items;
   }
@@ -4096,6 +4163,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       if (this.showCheat()) return this.showCheat.set(false);
       if (this.authOpen()) return this.authOpen.set(false);
       if (this.saveAsOpen()) return this.saveAsOpen.set(false);
+      if (this.libraryOpen()) return this.libraryOpen.set(false);
+      if (this.confirmDelSaved()) return this.confirmDelSaved.set(null);
       if (this.aboutOpen()) return this.aboutOpen.set(false);
       if (this.welcomeOpen()) return this.dismissWelcome();
       if (this.confirmReset()) return this.confirmReset.set(false);
