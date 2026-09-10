@@ -3,10 +3,12 @@ import { Injectable, signal } from '@angular/core';
 const LOCAL =
   typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 
-/** Browser talks to the Vercel Eve host in production, not the Railway Nest proxy. */
-export const EVE_HOST = LOCAL
-  ? 'http://127.0.0.1:4010'
-  : 'https://netbench-eve-criscode2022s-projects.vercel.app';
+/** Documented local port (`eve dev --port 4010`). `eve dev` without flags still binds 2000. */
+const LOCAL_HOSTS = ['http://127.0.0.1:4010', 'http://127.0.0.1:2000'] as const;
+export const EVE_PROD = 'https://netbench-eve-criscode2022s-projects.vercel.app';
+
+/** Browser talks to a local eve process in development, the Vercel Eve host in production. */
+export const EVE_HOST = LOCAL ? LOCAL_HOSTS[0] : EVE_PROD;
 
 export interface EveOption {
   id: string;
@@ -47,6 +49,9 @@ const MAX_STREAM_RECONNECTS = 6;
 const STREAM_BACKOFF = [1000, 2000, 4000, 8000, 12_000, 15_000];
 /** Codes eve uses when the model call itself failed; the host rotates models, so a re-send is worth it. */
 const MODEL_FAILURE_RE = /MODEL|PROVIDER|GATEWAY|UPSTREAM|TIMEOUT|RATE|429|5\d\d/i;
+/** Missing / rejected Gateway credentials will not succeed on retry. */
+const AUTH_FAILURE_RE =
+  /no credentials|gateway-auth-missing|authentication failed|VERCEL_OIDC|AI_GATEWAY_API_KEY|unauthorized|\b401\b/i;
 
 interface EveEvent {
   type: string;
@@ -66,6 +71,7 @@ interface EveEvent {
     finishReason?: string;
     code?: string;
     error?: string | { message?: string };
+    details?: { hint?: string; semanticErrorId?: string; message?: string };
     result?: { toolName?: string; isError?: boolean };
     status?: string;
   } & Record<string, unknown>;
@@ -75,7 +81,8 @@ type InputResponse = { requestId: string; optionId?: string; text?: string };
 
 @Injectable({ providedIn: 'root' })
 export class EveClient {
-  readonly host = EVE_HOST;
+  host = EVE_HOST;
+  private hostReady: Promise<string> | null = null;
   sessionId = signal<string | null>(null);
   msgs = signal<EveChatMsg[]>([]);
   /** The request the user must answer (always a question or a manual approval); the next one follows automatically. */
@@ -174,6 +181,30 @@ export class EveClient {
     return `${this.context()}\n\n${text}`;
   }
 
+  /** Local `eve dev` defaults to :2000; our scripts bind :4010. Probe both before giving up. */
+  private async ensureHost(): Promise<string> {
+    if (!LOCAL) return EVE_PROD;
+    if (this.hostReady) return this.hostReady;
+    this.hostReady = (async () => {
+      for (const h of LOCAL_HOSTS) {
+        try {
+          const r = await fetch(`${h}/eve/v1/health`, { signal: AbortSignal.timeout(2500) });
+          if (r.ok) {
+            this.host = h;
+            return h;
+          }
+        } catch {
+          /* try the next documented port */
+        }
+      }
+      this.hostReady = null;
+      throw new Error(
+        'Local Agent is not running. Start it with npm run dev (eve should listen on http://127.0.0.1:4010).',
+      );
+    })();
+    return this.hostReady;
+  }
+
   async send(text: string, opts: { retry?: boolean; fresh?: boolean } = {}): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -220,7 +251,17 @@ export class EveClient {
         this.busy.set(false);
         return;
       }
-      this.fail(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      if (/Failed to fetch|NetworkError|ECONNREFUSED|Load failed/i.test(raw)) {
+        this.hostReady = null;
+        this.fail(
+          LOCAL
+            ? 'Cannot reach the local Agent. Start it with npm run dev (eve on http://127.0.0.1:4010).'
+            : raw,
+        );
+        return;
+      }
+      this.fail(raw);
     }
   }
 
@@ -228,6 +269,17 @@ export class EveClient {
   private fail(msg: string): void {
     this.busy.set(false);
     this.error.set(msg);
+    if (AUTH_FAILURE_RE.test(msg)) {
+      this.retrying.set(0);
+      this.retryAt.set(null);
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      this.msgs.update((m) => {
+        const prev = m[m.length - 1];
+        return prev?.role === 'eve' && prev.text === msg ? m : [...m, { role: 'eve', text: msg }];
+      });
+      return;
+    }
     const last = this.lastSent();
     if (last && this.retries < MAX_RETRIES) {
       const base = RETRY_DELAYS[Math.min(this.retries, RETRY_DELAYS.length - 1)];
@@ -293,7 +345,8 @@ export class EveClient {
   private async cancelSession(id: string): Promise<void> {
     this.stopping.set(true);
     try {
-      const response = await fetch(`${this.host}/eve/v1/session/${encodeURIComponent(id)}/cancel`, {
+      const host = await this.ensureHost();
+      const response = await fetch(`${host}/eve/v1/session/${encodeURIComponent(id)}/cancel`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
@@ -406,7 +459,8 @@ export class EveClient {
   }
 
   private async postJson(path: string, body: unknown): Promise<{ ok?: boolean; sessionId?: string; code?: string; error?: string; status: number }> {
-    const r = await fetch(`${this.host}${path}`, {
+    const host = await this.ensureHost();
+    const r = await fetch(`${host}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -460,7 +514,8 @@ export class EveClient {
   }
 
   private async consumeStream(id: string, startIndex: number, ac: AbortController): Promise<void> {
-    const r = await fetch(`${this.host}/eve/v1/session/${id}/stream?startIndex=${startIndex}`, { signal: ac.signal });
+    const host = await this.ensureHost();
+    const r = await fetch(`${host}/eve/v1/session/${id}/stream?startIndex=${startIndex}`, { signal: ac.signal });
     if (!r.ok || !r.body) {
       throw new Error(`Agent stream HTTP ${r.status}`);
     }
@@ -590,7 +645,9 @@ export class EveClient {
       const nested = typeof err === 'string' ? err : err?.message;
       const raw = nested || (typeof rec['message'] === 'string' ? rec['message'] : '') || 'Agent request failed';
       const code = typeof rec['code'] === 'string' ? rec['code'] : '';
-      const msg = code && !raw.startsWith(code) ? `${code}: ${raw}` : raw;
+      const hint = data.details?.hint;
+      const combined = hint && !raw.includes(hint) ? `${raw} ${hint}` : raw;
+      const msg = code && !combined.startsWith(code) ? `${code}: ${combined}` : combined;
       if (t === 'step.failed') {
         // eve may retry the step itself or end the turn; remember the message and wait for the turn's verdict.
         this.stepFailure = msg;
