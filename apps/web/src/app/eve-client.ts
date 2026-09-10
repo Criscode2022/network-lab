@@ -268,6 +268,9 @@ export class EveClient {
   /** Records a failure and schedules an automatic re-send with backoff, else surfaces the error with a manual Retry. */
   private fail(msg: string): void {
     this.busy.set(false);
+    if (AUTH_FAILURE_RE.test(msg) && LOCAL && !/login:vercel|link:eve/i.test(msg)) {
+      msg = `${msg} Local fix: npm run login:vercel && npm run link:eve, then restart npm run dev.`;
+    }
     this.error.set(msg);
     if (AUTH_FAILURE_RE.test(msg)) {
       this.retrying.set(0);

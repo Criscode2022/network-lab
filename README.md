@@ -31,17 +31,14 @@ cp .env.example .env
 npm install
 npm test -w @netbench/engine
 npm test -w @netbench/api
-# terminal 1
-npm run start:dev -w @netbench/api
-# terminal 2
-npm start -w @netbench/web
-# terminal 3 (optional)
-npm run dev -w @netbench/eve-agent
+npm run login:vercel    # once — same Vercel account as production Eve
+npm run link:eve        # once — writes AI Gateway OIDC into apps/eve-agent/.env.local
+npm run dev             # API :3001 + UI :4200 + Eve :4010
 ```
 
 - UI: http://localhost:4200
 - API: http://localhost:3001/api/health
-- Eve: `eve dev` (needs `AI_GATEWAY_API_KEY` locally; on Vercel use OIDC + AI Gateway — **no raw provider keys**)
+- Eve: local `eve dev` on `:4010` uses the **same AI Gateway** as production (OIDC from `npm run link:eve`). Tools still talk to Nest on `:3001`, not Railway. Re-run `npm run link:eve` if the OIDC token expires (~24h). Alternative: set `AI_GATEWAY_API_KEY` in `.env`.
 
 Guest mode works without an account; the lab is saved in this browser and restored on reload. Sign in to keep it on your account and other devices. Email/password and magic-link tokens are implemented (magic link is returned by the API when email sending is not configured).
 
@@ -77,13 +74,12 @@ Lab JSON schema: `packages/engine/schema/lab.schema.json`.
 4. **Eve** — from `apps/eve-agent`. Preferred: Vercel (`eve link` / `eve deploy`, OIDC + AI Gateway). Self-host: `apps/eve-agent/Dockerfile` on a long-running Node host (`eve build && eve start`). Off localhost, tools call `https://api-production-caeb.up.railway.app`.
 
 ```bash
-cd apps/eve-agent
-npx eve link
-npx eve deploy
-# or: npx eve build && npx eve start --host 0.0.0.0 --port 8080
+npm run login:vercel      # once, if `vercel whoami` says Logged out
+npm run link:eve          # link apps/eve-agent → Vercel project netbench-eve
+npm run deploy:eve        # production deploy of the Eve agent (also: npm run deploy)
 ```
 
-On Vercel: OIDC + AI Gateway (`minimax/minimax-m3`; Sonnet is blocked on the Gateway free tier). Locally: `AI_GATEWAY_API_KEY`. Set `NETBENCH_API_URL` to the public Nest URL.
+On Vercel: OIDC + AI Gateway (`minimax/minimax-m3`; Sonnet is blocked on the Gateway free tier). Local `npm run dev` links that same project and writes `.env.local`, then talks to Nest on `:3001`. Set `NETBENCH_API_URL` to the public Nest URL only on hosted Eve.
 
 Health:
 - API `GET https://api-production-caeb.up.railway.app/api/health`

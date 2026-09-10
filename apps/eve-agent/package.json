@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "eve dev --host 127.0.0.1 --port 4010 --no-ui",
+    "dev": "node ./dev.mjs",
+    "dev:plain": "eve dev --host 127.0.0.1 --port 4010 --no-ui",
+    "link": "node ./link.mjs",
     "build": "eve build",
-    "start": "eve start",
-    "deploy": "eve deploy"
+    "start": "eve start --host 127.0.0.1 --port 4010",
+    "deploy": "node ./deploy.mjs"
   },
   "dependencies": {
     "eve": "latest",

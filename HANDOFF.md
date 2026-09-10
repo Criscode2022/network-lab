@@ -357,7 +357,7 @@ eve **0.47.x**. `defineAgent({ model })` only — **no `name`**. Sandbox: just-b
 - `build_lab` takes `spec` (sentence) **or** `lab` (full lab JSON, zod schema in `agent/lib/lab-schema.ts`, ≤ 40 devices / 80 cables). Nest validates with `validateLab`, replays startup lines and returns `startupErrors`, `check` and `summary`, so the builder can fix rejected lines and rebuild. The spec path itself now scales to 12 PCs by adding trunked switches.
 - Subagents: explainer / fixer / builder with skills in `agent/skills/`. Builder instructions carry per-kind startup templates, the port table and an addressing plan.
 - Evals: `apps/eve-agent/evals/*.eval.ts` (shutdown iface, ROAS, OSPF, wifi nmcli, refuse BGP, build office, build campus JSON).
-- Local: `cd apps/eve-agent && npx eve start --host 127.0.0.1 --port 4010` (needs `AI_GATEWAY_API_KEY` in `.env`). `npx eve build` is the compile check (`tsc` is red on pre-existing `.ts`-extension and `sandbox.ts` typing issues).
+- Local: `npm run login:vercel && npm run link:eve` once (same Vercel project `netbench-eve` / AI Gateway OIDC as production), then `npm run dev` (Eve on `127.0.0.1:4010`, Nest on `:3001`). `npx eve build` is the compile check (`tsc` is red on pre-existing `.ts`-extension and `sandbox.ts` typing issues). Deploy: `npm run deploy:eve`.
 - Drawer errors: read `data.message` / `data.error` / `code`, not only `data.error`.
 
 Angular drawer (`eve-client.ts`): the context block prepended to every message carries the whole topology (devices, addresses, gateways, port state), last Check, recent drops and last trace (capped at 40 devices). **HITL by `kind`**: `question` always reaches the user (card with option buttons; `allowFreeform` or option-less questions are answered by typing in the composer — `sendEve()` routes to `eve.answer()`; a typed option label/index resolves the option); `tool-approval` is auto-answered when **Auto-approve** (`nb_eve_auto`, default on) is on; `session-limit` is always answered `continue`. Requests queue (`pendingCount`), auto-answered ones never flash in the card. **Auto-retry**: a failed turn is re-sent up to 3× (2 s / 5 s / 12 s, jittered, `retry in Ns` hints honoured, countdown via `retryAt`) **into the same durable session** so history and the host's model rotation survive; only `session.failed` or a 404/409/410 from eve replaces the session. A `step.failed` followed by an empty `turn.completed`/`session.waiting` (eve's terminal model failure path) counts as a failed turn. **Stream reconnect**: if the NDJSON stream drops mid-turn it reconnects from the cursor up to 6× with backoff (`reconnecting`), deduping by `meta.id`; `message.appended` renders `messageSoFar` so text streams. `action.result` for `apply_*`/`build_lab` triggers `api.refresh()`.
@@ -369,17 +369,10 @@ Angular drawer (`eve-client.ts`): the context block prepended to every message c
 Node **24** (eve 0.47 refuses < 24; root `engines` still says `>=20`, which is stale). Local dev machine runs 24.18.
 
 ```bash
-cp .env.example .env   # JWT_SECRET, optional DATABASE_URL, AI_GATEWAY_API_KEY
+cp .env.example .env   # JWT_SECRET, optional DATABASE_URL
 npm install
-
-# three terminals
-npm run start -w @netbench/api
-# http://127.0.0.1:3001/api/health
-
-cd apps/web && npx ng serve --host 127.0.0.1 --port 4200 --proxy-config proxy.conf.json
-# http://127.0.0.1:4200/
-
-cd apps/eve-agent && npx eve start --host 127.0.0.1 --port 4010
+npm run login:vercel && npm run link:eve   # once — same AI Gateway as production
+npm run dev                                # API :3001 + UI :4200 + Eve :4010
 ```
 
 If API is down, the UI still loads but labs/CLI fail (`ECONNREFUSED 3001`). macOS has **no** `timeout(1)` — use `curl --max-time`.
@@ -409,7 +402,7 @@ Vercel production is public GET 200. Some MCP deploys hit SSO — GitHub-linked 
 | --- | --- |
 | Angular | Vercel project `netbench-www`, GitHub `main`. Root/workspace build via `apps/web/vercel.json` (also rewrites `/api/*` to the Railway API). |
 | API | Railway Docker from **repo root**, `apps/api/Dockerfile` (base `node:24-slim` — eve needs Node ≥ 24). Do not use a root `railway.json` that maps the Nest image onto the web service (already fixed with per-service Dockerfiles). |
-| Eve | `cd apps/eve-agent && npx eve deploy` (OIDC + AI Gateway). The Railway API image also runs `eve start` on `127.0.0.1:4010` (`start.sh`) as a `/eve` proxy; it has no AI Gateway key on Railway, so the **Vercel** Eve host is the one the drawer uses. |
+| Eve | `npm run deploy:eve` (or `npm run deploy`) — `eve deploy` to Vercel project `netbench-eve` (OIDC + AI Gateway). The Railway API image also runs `eve start` on `127.0.0.1:4010` (`start.sh`) as a `/eve` proxy; it has no AI Gateway key on Railway, so the **Vercel** Eve host is the one the drawer uses. |
 | DB | Neon; `sql/schema.sql`. |
 
 Push to `main` auto-deploys Vercel www + Eve. **Railway does not auto-deploy right now** — see 11.1.
