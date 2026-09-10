@@ -248,8 +248,6 @@ export const FR: Record<MessageKey, string> = {
   'inspect.unmanagedPorts': 'Les ports non administrables sont toujours activés',
   'inspect.backCanvas': 'Retour au canevas',
 
-  'agent.subtitleOn': 'Instructeur du laboratoire · applique les corrections directement',
-  'agent.subtitleOff': 'Instructeur du laboratoire · demande avant de modifier le laboratoire',
   'agent.autoApprove': 'Approbation auto',
   'agent.autoApproveTitle':
     'Quand c’est activé, les changements de l’Agent s’exécutent sans clic sur Approuver (chacun a tout de même besoin d’un jeton émis par l’hôte)',

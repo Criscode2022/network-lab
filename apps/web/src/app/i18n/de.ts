@@ -249,8 +249,6 @@ export const DE: Record<MessageKey, string> = {
   'inspect.unmanagedPorts': 'Unmanaged Ports sind immer aktiviert',
   'inspect.backCanvas': 'Zurück zur Zeichenfläche',
 
-  'agent.subtitleOn': 'Laborleiter · wendet Korrekturen direkt an',
-  'agent.subtitleOff': 'Laborleiter · fragt, bevor das Labor geändert wird',
   'agent.autoApprove': 'Automatisch genehmigen',
   'agent.autoApproveTitle':
     'Wenn aktiv, laufen die Änderungen des Agenten ohne Klick auf Genehmigen (jede braucht weiterhin ein vom Host ausgestelltes Token)',

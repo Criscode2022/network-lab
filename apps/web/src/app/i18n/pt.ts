@@ -237,8 +237,6 @@ export const PT: Record<MessageKey, string> = {
   'inspect.unmanagedPorts': 'As portas não geridas estão sempre ativas',
   'inspect.backCanvas': 'Voltar à tela',
 
-  'agent.subtitleOn': 'Instrutor do lab · aplica correções diretamente',
-  'agent.subtitleOff': 'Instrutor do lab · pergunta antes de alterar o lab',
   'agent.autoApprove': 'Aprovar automaticamente',
   'agent.autoApproveTitle': 'Quando ativo, as alterações do Agent correm sem clicar em Aprovar (cada uma continua a precisar de um token emitido pelo servidor)',
   'agent.stop': 'Parar',

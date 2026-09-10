@@ -235,8 +235,6 @@ export const EN = {
   'inspect.unmanagedPorts': 'Unmanaged ports are always enabled',
   'inspect.backCanvas': 'Back to canvas',
 
-  'agent.subtitleOn': 'Lab instructor · applies fixes directly',
-  'agent.subtitleOff': 'Lab instructor · asks before changing the lab',
   'agent.autoApprove': 'Auto-approve',
   'agent.autoApproveTitle': "When on, the Agent's changes run without an Approve click (each still needs a host-minted token)",
   'agent.stop': 'Stop',
