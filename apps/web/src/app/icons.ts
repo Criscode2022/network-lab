@@ -63,6 +63,7 @@ export type IconName =
   | 'eye-off'
   | 'clock'
   | 'undo'
+  | 'redo'
   | 'basic'
   | 'expand'
   | 'collapse'
@@ -335,6 +336,10 @@ export type IconName =
         @case ('undo') {
           <svg:path d="M3 7v6h6" />
           <svg:path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+        }
+        @case ('redo') {
+          <svg:path d="M21 7v6h-6" />
+          <svg:path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
         }
         @case ('basic') {
           <svg:rect width="14" height="20" x="5" y="2" rx="2" />

@@ -270,6 +270,16 @@ export class Api {
   private cliWaiters: Array<(msg: WsMsg) => void> = [];
   private lastLab: LabJson | null = null;
   private lastLabId: string | null = null;
+
+  /**
+   * Wrap a lab mutation so the host can record undo history.
+   * Set from Workspace once LabHistory is constructed (avoids a circular inject).
+   */
+  mutateGate?: <T>(fn: () => Promise<T>) => Promise<T>;
+
+  peekLab(): LabJson | null {
+    return this.lastLab;
+  }
   private recovering: Promise<boolean> | null = null;
 
   constructor() {
@@ -589,10 +599,13 @@ export class Api {
   }
 
   async edit(patch: unknown, move?: { id: string; x: number; y: number }[]) {
-    const id = this.sessionId();
-    const r = await this.json<{ state: LabState }>(`/sessions/${id}/edit`, { method: 'POST', body: JSON.stringify({ patch, move }) });
-    this.state.set(r.state);
-    this.persistSoon();
+    const run = async () => {
+      const id = this.sessionId();
+      const r = await this.json<{ state: LabState }>(`/sessions/${id}/edit`, { method: 'POST', body: JSON.stringify({ patch, move }) });
+      this.state.set(r.state);
+      this.persistSoon();
+    };
+    return this.mutateGate ? this.mutateGate(run) : run();
   }
 
   async confirm(purpose: string) {
@@ -601,22 +614,28 @@ export class Api {
   }
 
   async applyPatch(patch: unknown, confirmToken: string) {
-    const id = this.sessionId();
-    const r = await this.json<{ state: LabState }>(`/sessions/${id}/patch`, { method: 'POST', body: JSON.stringify({ patch, confirmToken }) });
-    this.state.set(r.state);
-    this.persistSoon();
+    const run = async () => {
+      const id = this.sessionId();
+      const r = await this.json<{ state: LabState }>(`/sessions/${id}/patch`, { method: 'POST', body: JSON.stringify({ patch, confirmToken }) });
+      this.state.set(r.state);
+      this.persistSoon();
+    };
+    return this.mutateGate ? this.mutateGate(run) : run();
   }
 
   async applyConfig(deviceId: string, commands: string[], confirmToken: string) {
-    const id = this.sessionId();
-    const r = await this.json<{ state: LabState }>(`/sessions/${id}/config`, {
-      method: 'POST',
-      body: JSON.stringify({ deviceId, commands, confirmToken }),
-    });
-    if (r.state) {
-      this.state.set(r.state);
-      this.persistSoon();
-    } else await this.refresh();
+    const run = async () => {
+      const id = this.sessionId();
+      const r = await this.json<{ state: LabState }>(`/sessions/${id}/config`, {
+        method: 'POST',
+        body: JSON.stringify({ deviceId, commands, confirmToken }),
+      });
+      if (r.state) {
+        this.state.set(r.state);
+        this.persistSoon();
+      } else await this.refresh();
+    };
+    return this.mutateGate ? this.mutateGate(run) : run();
   }
 
   async highlight(deviceIds: string[]) {

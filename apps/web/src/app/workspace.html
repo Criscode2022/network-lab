@@ -36,6 +36,29 @@
         (openLibrary)="openLibrary()"
       />
 
+      <div class="flex shrink-0 items-center">
+        <button
+          type="button"
+          class="btn btn-ghost btn-icon min-h-9 w-9 md:min-h-8 md:w-8"
+          [disabled]="!hist.canUndo() || hist.busy() || loading()"
+          [attr.aria-label]="t('header.undo')"
+          [title]="t('header.undoTitle')"
+          (click)="undoLab()"
+        >
+          <nb-icon name="undo" [size]="15" />
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-icon min-h-9 w-9 md:min-h-8 md:w-8"
+          [disabled]="!hist.canRedo() || hist.busy() || loading()"
+          [attr.aria-label]="t('header.redo')"
+          [title]="t('header.redoTitle')"
+          (click)="redoLab()"
+        >
+          <nb-icon name="redo" [size]="15" />
+        </button>
+      </div>
+
       <button
         type="button"
         class="btn btn-secondary shrink-0"

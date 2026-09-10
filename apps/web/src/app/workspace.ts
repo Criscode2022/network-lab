@@ -48,6 +48,7 @@ import { CheatSheet } from './cheat-sheet';
 import { I18n, type Locale } from './i18n/i18n';
 import type { MessageKey } from './i18n/en';
 import { LabLibrary, isCustomLabId, labBlurb, newCustomLabId } from './lab-library';
+import { LabHistory } from './lab-history';
 
 type HelpId = 'basics' | 'lab' | 'check' | 'goal' | 'cable' | 'add' | 'ports' | 'ipv4' | 'status' | 'ping' | 'gateway' | 'dhcp' | 'hints' | 'troubleshoot' | 'checkpoints';
 type MobileTab = 'canvas' | 'palette' | 'inspect' | 'term' | 'eve';
@@ -168,6 +169,7 @@ const SUBNET_COLORS = ['text-ok-300', 'text-sky-300', 'text-amber-300', 'text-fu
 export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   readonly api = inject(Api);
   readonly library = inject(LabLibrary);
+  readonly hist = inject(LabHistory);
   readonly myLabs = this.library.items;
   readonly eve = inject(EveClient);
   readonly i18n = inject(I18n);
@@ -473,6 +475,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       { keys: ['F'], what: this.t('shortcuts.fit') },
       { keys: ['Shift', 'F'], what: this.t('shortcuts.focus') },
       { keys: ['+', '−', '0'], what: this.t('shortcuts.zoom') },
+      { keys: ['Ctrl', 'Z'], what: this.t('shortcuts.undo') },
+      { keys: ['Ctrl', 'Y'], what: this.t('shortcuts.redo') },
       { keys: ['Ctrl', 'S'], what: this.t('shortcuts.download') },
       { keys: ['Ctrl', 'Enter'], what: this.t('shortcuts.check') },
       { keys: ['↑', '↓'], what: this.t('shortcuts.history') },
@@ -564,6 +568,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.mq = window.matchMedia('(max-width: 767px)');
     this.onMq(this.mq);
     this.mq.addEventListener('change', this.onMq);
+    this.api.mutateGate = (fn) => this.hist.around(fn);
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('pagehide', this.flushGuest);
     this.saveTimer = setInterval(() => {
@@ -590,6 +595,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.stopMonitor();
     if (this.saveTimer) clearInterval(this.saveTimer);
     for (const t of this.toastTimers.values()) clearTimeout(t);
+    this.api.mutateGate = undefined;
     this.api.disconnectWs();
     this.eve.stop();
   }
@@ -660,7 +666,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.boot();
   }
 
-  private afterOpen(attached = false) {
+  private afterOpen(attached = false, keepHistory = false) {
     const st = this.api.state();
     const first = st?.devices[0];
     this.selectedId.set(first?.id ?? null);
@@ -680,6 +686,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.bindEve();
     this.writeAutosave();
     void this.loadVocab(first?.kind ?? 'workstation', first?.switchProfile);
+    if (!keepHistory) void this.hist.seed();
     requestAnimationFrame(() => (this.isNarrow() ? this.fitIfNarrow() : this.fitToView()));
   }
 
@@ -2960,6 +2967,36 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.basicSheet.set(false);
   }
 
+  async undoLab(): Promise<void> {
+    if (!this.hist.canUndo() || this.hist.busy() || this.loading()) return;
+    this.loading.set(true);
+    try {
+      if (await this.hist.undo()) {
+        this.afterOpen(false, true);
+        this.toast(this.t('toast.undone'), 'info');
+      }
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  async redoLab(): Promise<void> {
+    if (!this.hist.canRedo() || this.hist.busy() || this.loading()) return;
+    this.loading.set(true);
+    try {
+      if (await this.hist.redo()) {
+        this.afterOpen(false, true);
+        this.toast(this.t('toast.redone'), 'info');
+      }
+    } catch (e) {
+      this.fail(e);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
   /** Lays devices out in tiers (edge → core → access → hosts) using engine `move`. */
   async tidyUp() {
     this.menuOpen.set(false);
@@ -3966,6 +4003,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const items: PaletteItem[] = [];
     const actions = this.t('cmd.groupActions');
     const act = (id: string, label: string, icon: IconName, run: () => unknown, hint?: string) => items.push({ id, group: actions, label, icon, run, hint });
+    act('undo', this.t('header.undo'), 'undo', () => this.undoLab(), 'Ctrl+Z');
+    act('redo', this.t('header.redo'), 'redo', () => this.redoLab(), 'Ctrl+Y');
     act('check', this.t('cmd.runCheck'), 'circle-check', () => this.doCheck(), 'Ctrl+Enter');
     if (this.failedChecks().length) act('troubleshoot', this.t('cmd.troubleshoot'), 'stethoscope', () => this.troubleshoot());
     act('tidy', this.t('menu.tidy'), 'tidy', () => this.tidyUp());
@@ -4132,6 +4171,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     const inField = !!target?.closest('input,textarea,select,[contenteditable]');
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 'c' && target?.closest('input[name="cli"]')) {
       this.cancelPing();
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
+      if (inField) return;
+      ev.preventDefault();
+      if (ev.shiftKey) void this.redoLab();
+      else void this.undoLab();
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'y') {
+      if (inField) return;
+      ev.preventDefault();
+      void this.redoLab();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') {
