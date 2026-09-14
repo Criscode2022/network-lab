@@ -12,7 +12,6 @@
   <span class="flex min-w-0 items-center gap-2">
     <nb-icon name="book" [size]="14" class="shrink-0" [class.text-brand-300]="active()" [class.text-ink-400]="!active()" />
     @if (active()) {
-      <span class="chip chip-brand shrink-0 px-1.5">{{ t('lab.custom') }}</span>
       <span class="truncate">{{ current()?.name }}</span>
     } @else {
       <span class="truncate">{{ t('lab.mine') }}</span>
