@@ -1,0 +1,32 @@
+---
+description: Angular components use external HTML templates, never inline template strings
+globs: apps/web/**/*.ts
+alwaysApply: false
+---
+
+# External Angular templates
+
+Every `@Component` must use `templateUrl` pointing at a sibling `.html` file. Do not put markup in `template: \`...\`` or `template: '...'`.
+
+```typescript
+// ❌ BAD
+@Component({
+  selector: 'nb-mine-picker',
+  template: `<button type="button">{{ t('lab.mine') }}</button>`,
+})
+
+// ✅ GOOD
+@Component({
+  selector: 'nb-mine-picker',
+  templateUrl: './mine-picker.html',
+})
+```
+
+```html
+<!-- mine-picker.html -->
+<button type="button">{{ t('lab.mine') }}</button>
+```
+
+- Name the file after the class file: `foo.ts` → `foo.html`.
+- Keep class logic in `.ts`. Keep markup only in `.html`.
+- Inline `host` / `styles` metadata is fine. Inline `template` is not, even for a single `<router-outlet />`.

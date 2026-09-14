@@ -1,0 +1,63 @@
+<button
+  type="button"
+  class="btn btn-secondary max-w-full min-w-0 justify-between gap-2 md:min-w-56"
+  [class.min-h-9]="compact()"
+  [class.ring-1]="onSyllabus()"
+  [class.ring-brand-500/40]="onSyllabus()"
+  aria-haspopup="listbox"
+  [attr.aria-expanded]="open()"
+  [attr.aria-label]="t('lab.labs')"
+  (click)="open.set(!open())"
+>
+  <span class="flex min-w-0 items-center gap-2">
+    @if (currentIndex() > 0) {
+      <span class="chip chip-brand shrink-0 px-1.5">{{ currentIndex() }}</span>
+      <span class="truncate">{{ currentName() }}</span>
+    } @else {
+      <span class="chip chip-muted shrink-0 px-1.5">{{ t('lab.labs') }}</span>
+      <span class="truncate text-ink-300">{{ t('lab.choose') }}</span>
+    }
+  </span>
+  <nb-icon name="chevron-down" [size]="14" class="shrink-0 text-ink-400 transition-transform" [class.rotate-180]="open()" />
+</button>
+
+@if (open()) {
+  <div class="card absolute left-0 z-40 mt-1.5 w-[min(92vw,28rem)] overflow-hidden animate-pop" role="listbox" [attr.aria-label]="t('lab.labs')">
+    <div class="flex items-center justify-between border-b border-ink-700 px-3 py-2">
+      <div>
+        <div class="text-xs font-semibold text-ink-50">{{ t('lab.labs') }}</div>
+        <div class="text-[10.5px] text-ink-400">{{ t('lab.passedOf', { passed: passedCount(), total: builtinCount() }) }}</div>
+      </div>
+      <div class="h-1.5 w-28 overflow-hidden rounded-full bg-ink-700">
+        <div class="h-full rounded-full bg-ok-400 transition-all" [style.width.%]="builtinCount() ? (passedCount() / builtinCount()) * 100 : 0"></div>
+      </div>
+    </div>
+    <div class="scroll-thin max-h-[60dvh] overflow-auto p-1.5">
+      @for (l of syllabus(); track l.id) {
+        <button
+          type="button"
+          class="menu-item items-start"
+          [ngClass]="{ 'bg-ink-800 ring-1 ring-brand-500/40': l.id === currentId() }"
+          role="option"
+          [attr.aria-selected]="l.id === currentId()"
+          (click)="choose(l.id)"
+        >
+          <span
+            class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold"
+            [ngClass]="passed().includes(l.id) ? 'bg-ok-500/20 text-ok-300' : 'bg-ink-700 text-ink-300'"
+          >
+            @if (passed().includes(l.id)) {
+              <nb-icon name="check" [size]="12" />
+            } @else {
+              {{ numberOf(l.id) }}
+            }
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-xs font-medium text-ink-50">{{ l.name }}</span>
+            <span class="mt-0.5 line-clamp-2 block text-[10.5px] leading-snug text-ink-400">{{ l.goal }}</span>
+          </span>
+        </button>
+      }
+    </div>
+  </div>
+}
