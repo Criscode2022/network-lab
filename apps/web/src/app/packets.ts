@@ -15,30 +15,30 @@ import type { MessageKey } from './i18n/en';
   templateUrl: './packets.html',
 })
 export class Packets {
-  readonly i18n = inject(I18n);
+  private readonly i18n = inject(I18n);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  packets = input<PacketEvent[]>([]);
-  selected = input<PacketEvent | null>(null);
-  advanced = input(false);
-  log = input<{ t: string; msg: string }[]>([]);
+  public readonly packets = input<PacketEvent[]>([]);
+  public readonly selected = input<PacketEvent | null>(null);
+  public readonly advanced = input(false);
+  public readonly log = input<{ t: string; msg: string }[]>([]);
   /** Selected device name; enables the “capture on this device” toggle. */
-  focusDevice = input<string | null>(null);
-  onlyFocus = input(false);
+  public readonly focusDevice = input<string | null>(null);
+  public readonly onlyFocus = input(false);
 
-  onlyFocusChange = output<boolean>();
-  select = output<PacketEvent | null>();
-  explain = output<PacketEvent>();
-  replay = output<PacketEvent>();
+  public readonly onlyFocusChange = output<boolean>();
+  public readonly select = output<PacketEvent | null>();
+  public readonly explain = output<PacketEvent>();
+  public readonly replay = output<PacketEvent>();
 
-  tab = signal<'packets' | 'log'>('packets');
-  dropsOnly = signal(false);
-  q = signal('');
+  protected readonly tab = signal<'packets' | 'log'>('packets');
+  protected readonly dropsOnly = signal(false);
+  protected readonly q = signal('');
 
-  filtered = computed(() => {
+  protected readonly filtered = computed(() => {
     const drops = this.dropsOnly();
     const q = this.q().trim().toLowerCase();
     const rows = [...this.packets()].reverse();
@@ -50,7 +50,7 @@ export class Packets {
     });
   });
 
-  logRows = computed(() =>
+  protected readonly logRows = computed(() =>
     [...this.log()].reverse().map((e) => {
       const d = new Date(e.t);
       const time = Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString(this.i18n.locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -58,18 +58,18 @@ export class Packets {
     }),
   );
 
-  addrLine(p: PacketEvent) {
+  protected addrLine(p: PacketEvent) {
     const src = p.srcIp || (this.advanced() ? p.srcMac : '');
     const dst = p.dstIp || (this.advanced() ? p.dstMac : '');
     return src && dst ? `${src} → ${dst}` : p.proto === 'arp' ? 'who-has / is-at' : '';
   }
 
-  toggle(p: PacketEvent) {
+  protected toggle(p: PacketEvent) {
     this.select.emit(this.selected()?.id === p.id ? null : p);
   }
 
   /** ACL/firewall drops are configured decisions; shown as “denied” rather than a fault. */
-  isPolicy(p: PacketEvent) {
+  protected isPolicy(p: PacketEvent) {
     return p.reason.startsWith('ACL drop');
   }
 }

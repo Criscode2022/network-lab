@@ -14,45 +14,45 @@ import type { MessageKey } from './i18n/en';
   templateUrl: './lab-picker.html',
 })
 export class LabPicker {
-  readonly i18n = inject(I18n);
+  private readonly i18n = inject(I18n);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  labs = input<LabSummary[]>([]);
-  currentId = input<string | null>(null);
-  currentName = input<string>('');
-  passed = input<string[]>([]);
-  compact = input(false);
+  public readonly labs = input<LabSummary[]>([]);
+  public readonly currentId = input<string | null>(null);
+  public readonly currentName = input<string>('');
+  public readonly passed = input<string[]>([]);
+  public readonly compact = input(false);
 
-  pick = output<string>();
+  public readonly pick = output<string>();
 
-  open = signal(false);
-  private el = inject<ElementRef<HTMLElement>>(ElementRef);
+  protected readonly open = signal(false);
+  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
 
-  syllabus = computed(() => this.labs().filter((l) => !l.custom));
-  currentIndex = computed(() => this.syllabus().findIndex((l) => l.id === this.currentId()) + 1);
-  onSyllabus = computed(() => this.currentIndex() > 0);
-  passedCount = computed(() => this.syllabus().filter((l) => this.passed().includes(l.id)).length);
-  builtinCount = computed(() => this.syllabus().length);
+  protected readonly syllabus = computed(() => this.labs().filter((l) => !l.custom));
+  protected readonly currentIndex = computed(() => this.syllabus().findIndex((l) => l.id === this.currentId()) + 1);
+  protected readonly onSyllabus = computed(() => this.currentIndex() > 0);
+  protected readonly passedCount = computed(() => this.syllabus().filter((l) => this.passed().includes(l.id)).length);
+  protected readonly builtinCount = computed(() => this.syllabus().length);
 
-  numberOf(id: string) {
+  protected numberOf(id: string) {
     return this.syllabus().findIndex((l) => l.id === id) + 1;
   }
 
-  choose(id: string) {
+  protected choose(id: string) {
     this.open.set(false);
     this.pick.emit(id);
   }
 
   @HostListener('document:pointerdown', ['$event'])
-  onDoc(ev: PointerEvent) {
+  protected onDoc(ev: PointerEvent) {
     if (this.open() && !this.el.nativeElement.contains(ev.target as Node)) this.open.set(false);
   }
 
   @HostListener('document:keydown.escape')
-  onEsc() {
+  protected onEsc() {
     this.open.set(false);
   }
 }

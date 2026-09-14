@@ -167,14 +167,14 @@ const SUBNET_COLORS = ['text-ok-300', 'text-sky-300', 'text-amber-300', 'text-fu
   templateUrl: './workspace.html',
 })
 export class Workspace implements OnInit, AfterViewInit, OnDestroy {
-  readonly api = inject(Api);
-  readonly library = inject(LabLibrary);
-  readonly hist = inject(LabHistory);
-  readonly myLabs = this.library.items;
-  readonly eve = inject(EveClient);
-  readonly i18n = inject(I18n);
+  protected readonly api = inject(Api);
+  private readonly library = inject(LabLibrary);
+  protected readonly hist = inject(LabHistory);
+  protected readonly myLabs = this.library.items;
+  protected readonly eve = inject(EveClient);
+  protected readonly i18n = inject(I18n);
   private readonly cdr = inject(ChangeDetectorRef);
-  readonly cheatKinds = computed(() => {
+  protected readonly cheatKinds = computed(() => {
     this.i18n.locale();
     return PALETTE.flatMap((p) =>
       p.kind === 'switch'
@@ -182,10 +182,9 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         : [{ ...p, label: this.kindLabel(p.kind), hint: this.deviceHint(p.kind) }],
     );
   });
-  readonly CABLE_TYPES = CABLE_TYPES;
   /** Type the single palette Switch tile will place next. Default unmanaged. */
-  paletteSwitchProfile = signal<SwitchProfile>('unmanaged');
-  devicePalette = computed(() => {
+  private readonly paletteSwitchProfile = signal<SwitchProfile>('unmanaged');
+  protected readonly devicePalette = computed(() => {
     this.i18n.locale();
     const profile = this.paletteSwitchProfile();
     return PALETTE.map((p) =>
@@ -194,21 +193,20 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
         : { ...p, label: this.kindLabel(p.kind), hint: this.deviceHint(p.kind) },
     );
   });
-  readonly KIND_ICON = KIND_ICON;
-  langOpen = signal(false);
+  protected readonly langOpen = signal(false);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  ckptStatus(status: string): string {
+  protected ckptStatus(status: string): string {
     if (status === 'added' || status === 'removed' || status === 'changed') {
       return this.t(`ckpt.${status}` as MessageKey);
     }
     return status;
   }
 
-  setLocale(locale: Locale): void {
+  protected setLocale(locale: Locale): void {
     this.i18n.setLocale(locale);
     this.langOpen.set(false);
     this.menuOpen.set(false);
@@ -216,29 +214,29 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   // ---- lab / session -------------------------------------------------------
-  labs = signal<LabSummary[]>([]);
+  protected readonly labs = signal<LabSummary[]>([]);
   private builtinIds = new Set<string>();
-  loading = signal(true);
-  loadError = signal<string | null>(null);
-  passed = signal<string[]>(this.readJson<string[]>(PASSED_KEY, []));
-  checkResult = signal<(CheckResult & { at: number }) | null>(null);
-  checkBusy = signal(false);
-  checkOpen = signal(true);
-  goalOpen = signal(typeof window === 'undefined' || window.innerWidth >= 768);
+  protected readonly loading = signal(true);
+  protected readonly loadError = signal<string | null>(null);
+  protected readonly passed = signal<string[]>(this.readJson<string[]>(PASSED_KEY, []));
+  protected readonly checkResult = signal<(CheckResult & { at: number }) | null>(null);
+  protected readonly checkBusy = signal(false);
+  protected readonly checkOpen = signal(true);
+  protected readonly goalOpen = signal(typeof window === 'undefined' || window.innerWidth >= 768);
 
   // ---- selection / canvas --------------------------------------------------
-  selectedId = signal<string | null>(null);
-  pan = signal({ x: 40, y: 40, s: 1 });
-  @ViewChild('stage') stage?: ElementRef<HTMLElement>;
-  private terminal = viewChild(Terminal);
-  dragging: { id: string; ox: number; oy: number } | null = null;
-  panning: { x: number; y: number; px: number; py: number } | null = null;
-  private pointers = new Map<number, { x: number; y: number }>();
+  protected readonly selectedId = signal<string | null>(null);
+  protected readonly pan = signal({ x: 40, y: 40, s: 1 });
+  @ViewChild('stage') private stage?: ElementRef<HTMLElement>;
+  private readonly terminal = viewChild(Terminal);
+  private dragging: { id: string; ox: number; oy: number } | null = null;
+  private panning: { x: number; y: number; px: number; py: number } | null = null;
+  private readonly pointers = new Map<number, { x: number; y: number }>();
   private pinch: { dist: number; s: number; x: number; y: number; mx: number; my: number } | null = null;
   private gesture: { s: number; x: number; y: number; cx: number; cy: number } | null = null;
   private stageEl: HTMLElement | null = null;
   private pendingFit = false;
-  private guarded = new WeakSet<HTMLElement>();
+  private readonly guarded = new WeakSet<HTMLElement>();
   private tapAt: { x: number; y: number } | null = null;
   private moved = false;
   private paletteHold: { pointerId: number; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -253,40 +251,40 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     y: number;
     active: boolean;
   } | null = null;
-  paletteGhost = signal<{ item: DevicePaletteItem; x: number; y: number; overCanvas: boolean } | null>(null);
+  protected readonly paletteGhost = signal<{ item: DevicePaletteItem; x: number; y: number; overCanvas: boolean } | null>(null);
   private canvasSwitchHold: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private canvasSwitchHoldFired = false;
-  cableFrom = signal<{ id: string; iface: string } | null>(null);
-  cableKind = signal<CableMedia>('ethernet');
-  cableArmed = signal(false);
-  cableCursor = signal<{ x: number; y: number } | null>(null);
-  selectedLinkId = signal<string | null>(null);
-  showFreePorts = signal(false);
-  placing = signal<string | null>(null);
-  animPkts = signal<{ id: string; x1: number; y1: number; x2: number; y2: number; drop?: boolean }[]>([]);
-  trace = signal<TraceView | null>(null);
-  activeHop = signal<string | null>(null);
+  protected readonly cableFrom = signal<{ id: string; iface: string } | null>(null);
+  protected readonly cableKind = signal<CableMedia>('ethernet');
+  protected readonly cableArmed = signal(false);
+  protected readonly cableCursor = signal<{ x: number; y: number } | null>(null);
+  protected readonly selectedLinkId = signal<string | null>(null);
+  protected readonly showFreePorts = signal(false);
+  protected readonly placing = signal<string | null>(null);
+  protected readonly animPkts = signal<{ id: string; x1: number; y1: number; x2: number; y2: number; drop?: boolean }[]>([]);
+  protected readonly trace = signal<TraceView | null>(null);
+  private readonly activeHop = signal<string | null>(null);
   private replayToken = 0;
-  private recentAnim = new Map<string, number>();
+  private readonly recentAnim = new Map<string, number>();
 
   // ---- modes ---------------------------------------------------------------
-  advanced = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_advanced') === '1');
-  basic = signal(typeof localStorage === 'undefined' || localStorage.getItem('nb_basic') !== '0');
-  isNarrow = signal(typeof window !== 'undefined' && window.innerWidth < 768);
-  mobileTab = signal<MobileTab>('canvas');
-  eveOpen = signal(this.initialEveOpen());
+  protected readonly advanced = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_advanced') === '1');
+  private readonly basic = signal(typeof localStorage === 'undefined' || localStorage.getItem('nb_basic') !== '0');
+  protected readonly isNarrow = signal(typeof window !== 'undefined' && window.innerWidth < 768);
+  protected readonly mobileTab = signal<MobileTab>('canvas');
+  protected readonly eveOpen = signal(this.initialEveOpen());
   /** Focus mode: canvas only, thin header, floating toolbar. Desktop only. */
-  focus = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_focus') === '1');
-  focusTerm = signal(false);
-  focusAddOpen = signal(false);
+  protected readonly focus = signal(typeof localStorage !== 'undefined' && localStorage.getItem('nb_focus') === '1');
+  protected readonly focusTerm = signal(false);
+  protected readonly focusAddOpen = signal(false);
   /** Focus-mode sidebars (kept apart from the normal-mode Eve preference so focus always starts canvas-only). */
-  focusEve = signal(false);
-  focusInspect = signal(false);
-  basicSheet = signal(false);
-  addOpen = signal(false);
-  moreOpen = signal(false);
-  menuOpen = signal(false);
-  readonly mobileTabs = computed(() => {
+  protected readonly focusEve = signal(false);
+  private readonly focusInspect = signal(false);
+  protected readonly basicSheet = signal(false);
+  protected readonly addOpen = signal(false);
+  protected readonly moreOpen = signal(false);
+  protected readonly menuOpen = signal(false);
+  protected readonly mobileTabs = computed(() => {
     this.i18n.locale();
     return [
       { id: 'canvas' as MobileTab, label: this.t('nav.canvas'), icon: 'network' as IconName },
@@ -297,7 +295,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     ];
   });
   /** Basic mode keeps the canvas front and centre but still gets Eve one tap away. */
-  readonly basicTabs = computed(() => {
+  protected readonly basicTabs = computed(() => {
     this.i18n.locale();
     return [
       { id: 'canvas' as MobileTab, label: this.t('nav.canvas'), icon: 'network' as IconName },
@@ -307,68 +305,68 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   private mq: MediaQueryList | null = null;
 
   // ---- inspector tools -----------------------------------------------------
-  inspectorTab = signal<'ifaces' | 'run' | 'routing'>('ifaces');
-  ipInput = '10.0.0.30';
-  ipPrefix = 24;
-  ipBusy = signal(false);
-  gwInput = '';
-  gwBusy = signal(false);
-  gwEdit = signal(false);
+  protected readonly inspectorTab = signal<'ifaces' | 'run' | 'routing'>('ifaces');
+  protected ipInput = '10.0.0.30';
+  protected ipPrefix = 24;
+  protected readonly ipBusy = signal(false);
+  protected gwInput = '';
+  protected readonly gwBusy = signal(false);
+  protected readonly gwEdit = signal(false);
   /** Interface whose IPv4 is being edited in the inspector. */
-  ipEdit = signal<string | null>(null);
-  ipEditValue = '';
-  ipEditPrefix = 24;
-  wifiSsid = '';
-  wifiPsk = '';
-  wifiBusy = signal(false);
-  wifiOpen = signal(false);
-  dhcpOpen = signal(false);
-  dhcpEditName = signal<string | null>(null);
-  dhcpName = '';
-  dhcpNetwork = '';
-  dhcpPrefix = 24;
-  dhcpGateway = '';
-  dhcpDns = '';
-  dhcpExStart = '';
-  dhcpExEnd = '';
-  dhcpBusy = signal(false);
-  dhcpHelperEdit = signal<string | null>(null);
-  dhcpHelperInput = '';
-  reach = signal<ReachState | null>(null);
-  confirmDel = signal<DeviceState | null>(null);
-  confirmReset = signal(false);
-  confirmSwitch = signal<{ device: DeviceState; next: SwitchProfile } | null>(null);
+  protected readonly ipEdit = signal<string | null>(null);
+  protected ipEditValue = '';
+  protected ipEditPrefix = 24;
+  protected wifiSsid = '';
+  protected wifiPsk = '';
+  protected readonly wifiBusy = signal(false);
+  protected readonly wifiOpen = signal(false);
+  protected readonly dhcpOpen = signal(false);
+  protected readonly dhcpEditName = signal<string | null>(null);
+  protected dhcpName = '';
+  protected dhcpNetwork = '';
+  protected dhcpPrefix = 24;
+  protected dhcpGateway = '';
+  protected dhcpDns = '';
+  protected dhcpExStart = '';
+  protected dhcpExEnd = '';
+  protected readonly dhcpBusy = signal(false);
+  protected readonly dhcpHelperEdit = signal<string | null>(null);
+  protected dhcpHelperInput = '';
+  protected readonly reach = signal<ReachState | null>(null);
+  protected readonly confirmDel = signal<DeviceState | null>(null);
+  protected readonly confirmReset = signal(false);
+  protected readonly confirmSwitch = signal<{ device: DeviceState; next: SwitchProfile } | null>(null);
 
   // ---- dock / terminal -----------------------------------------------------
-  termDevice = signal<string | null>(null);
-  private buffers = signal<Record<string, TermLine[]>>({});
-  termLines = computed(() => this.buffers()[this.termDevice() ?? ''] ?? []);
-  termBusy = signal(false);
-  selectedPkt = signal<PacketEvent | null>(null);
-  dockH = signal(this.readNumber(DOCK_KEY, 232));
+  protected readonly termDevice = signal<string | null>(null);
+  private readonly buffers = signal<Record<string, TermLine[]>>({});
+  protected readonly termLines = computed(() => this.buffers()[this.termDevice() ?? ''] ?? []);
+  protected readonly termBusy = signal(false);
+  protected readonly selectedPkt = signal<PacketEvent | null>(null);
+  protected readonly dockH = signal(this.readNumber(DOCK_KEY, 232));
   private dockDrag: { y: number; h: number } | null = null;
-  private vocabCache = new Map<string, string[]>();
-  vocab = signal<string[]>([]);
+  private readonly vocabCache = new Map<string, string[]>();
+  protected readonly vocab = signal<string[]>([]);
 
   // ---- dialogs -------------------------------------------------------------
-  showCheat = signal(false);
-  cheatKind = signal('workstation');
-  cheatRows = signal<{ cmd: string; help: string }[]>([]);
-  cheatLoading = signal(false);
-  authOpen = signal(false);
-  authMode = signal<'login' | 'register'>('login');
-  authError = signal<string | null>(null);
-  authBusy = signal(false);
-  email = '';
-  password = '';
-  saveAsOpen = signal(false);
-  saveAsName = '';
-  saveAsDesc = '';
-  saveAsBusy = signal(false);
-  libraryOpen = signal(false);
-  libraryQ = signal('');
-  confirmDelSaved = signal<{ id: string; name: string } | null>(null);
-  readonly filteredMine = computed(() => {
+  protected readonly showCheat = signal(false);
+  protected readonly cheatKind = signal('workstation');
+  protected readonly cheatRows = signal<{ cmd: string; help: string }[]>([]);
+  protected readonly cheatLoading = signal(false);
+  protected readonly authOpen = signal(false);
+  protected readonly authMode = signal<'login' | 'register'>('login');
+  protected readonly authError = signal<string | null>(null);
+  protected readonly authBusy = signal(false);
+  protected email = '';
+  protected password = '';
+  protected readonly saveAsOpen = signal(false);
+  protected saveAsName = '';
+  protected saveAsDesc = '';
+  protected readonly saveAsBusy = signal(false);
+  protected readonly libraryOpen = signal(false);
+  protected readonly libraryQ = signal('');
+  protected readonly confirmDelSaved = signal<{ id: string; name: string } | null>(null);
+  protected readonly filteredMine = computed(() => {
     const q = this.libraryQ().trim().toLowerCase();
     const list = this.myLabs();
     if (!q) return list;
@@ -377,27 +375,27 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       return l.name.toLowerCase().includes(q) || blurb.includes(q);
     });
   });
-  shortcutsOpen = signal(false);
-  aboutOpen = signal(false);
-  welcomeOpen = signal(false);
-  helpOpen = signal<HelpId | 'hub' | null>(null);
-  toasts = signal<Toast[]>([]);
+  protected readonly shortcutsOpen = signal(false);
+  protected readonly aboutOpen = signal(false);
+  protected readonly welcomeOpen = signal(false);
+  protected readonly helpOpen = signal<HelpId | 'hub' | null>(null);
+  protected readonly toasts = signal<Toast[]>([]);
   private toastSeq = 0;
-  private toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   // ---- troubleshoot / monitor / checkpoints / editor / palette / view --------
-  diagnosis = signal<Diagnosis | null>(null);
-  diagBusy = signal(false);
-  monitor = signal<MonitorState | null>(null);
+  protected readonly diagnosis = signal<Diagnosis | null>(null);
+  protected readonly diagBusy = signal(false);
+  protected readonly monitor = signal<MonitorState | null>(null);
   private monitorTimer: ReturnType<typeof setInterval> | null = null;
-  checkpoints = signal<Checkpoint[]>(this.readJson<Checkpoint[]>(CKPT_KEY, []));
-  checkpointsOpen = signal(false);
-  ckptName = '';
-  diff = signal<{ against: Checkpoint; rows: ConfigDiff[]; links: { added: string[]; removed: string[] } } | null>(null);
-  labEditOpen = signal(false);
-  labEdit = { name: '', goal: '', description: '' };
-  labChecks = signal<LabCheck[]>([]);
-  newCheck: { type: LabCheck['type']; src: string; dst: string; family: 'v4' | 'v6'; expect: 'allow' | 'deny'; client: string; device: string; a: string; b: string } = {
+  private readonly checkpoints = signal<Checkpoint[]>(this.readJson<Checkpoint[]>(CKPT_KEY, []));
+  protected readonly checkpointsOpen = signal(false);
+  protected ckptName = '';
+  protected readonly diff = signal<{ against: Checkpoint; rows: ConfigDiff[]; links: { added: string[]; removed: string[] } } | null>(null);
+  protected readonly labEditOpen = signal(false);
+  protected labEdit = { name: '', goal: '', description: '' };
+  protected readonly labChecks = signal<LabCheck[]>([]);
+  protected newCheck: { type: LabCheck['type']; src: string; dst: string; family: 'v4' | 'v6'; expect: 'allow' | 'deny'; client: string; device: string; a: string; b: string } = {
     type: 'ping',
     src: '',
     dst: '',
@@ -408,17 +406,17 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     a: '',
     b: '',
   };
-  labEditBusy = signal(false);
-  paletteOpen = signal(false);
-  paletteQ = signal('');
-  paletteIdx = signal(0);
-  view = signal<ViewOptions>({ subnet: true, vlan: true, anim: true, ...this.readJson<Partial<ViewOptions>>(VIEW_KEY, {}) });
-  pktOnlySelected = signal(false);
+  protected readonly labEditBusy = signal(false);
+  protected readonly paletteOpen = signal(false);
+  protected readonly paletteQ = signal('');
+  protected readonly paletteIdx = signal(0);
+  protected readonly view = signal<ViewOptions>({ subnet: true, vlan: true, anim: true, ...this.readJson<Partial<ViewOptions>>(VIEW_KEY, {}) });
+  protected readonly pktOnlySelected = signal(false);
 
   // ---- eve -----------------------------------------------------------------
-  eveInput = '';
-  eveMode = signal<'chat' | 'build'>('chat');
-  pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[]; requestId?: string } | null>(null);
+  protected eveInput = '';
+  protected readonly eveMode = signal<'chat' | 'build'>('chat');
+  protected readonly pending = signal<{ title: string; patch?: unknown; deviceId?: string; commands?: string[]; requestId?: string } | null>(null);
   private saveTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly HELP_BODY: Record<HelpId, MessageKey[]> = {
@@ -439,7 +437,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     hints: ['help.hints.p1', 'help.hints.p2'],
   };
 
-  readonly helpTopicIds: HelpId[] = [
+  private readonly helpTopicIds: HelpId[] = [
     'basics',
     'lab',
     'goal',
@@ -457,12 +455,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     'checkpoints',
   ];
 
-  readonly helpTopics = computed(() => {
+  protected readonly helpTopics = computed(() => {
     this.i18n.locale();
     return this.helpTopicIds.map((id) => ({ id, title: this.t(`help.${id}` as MessageKey) }));
   });
 
-  readonly shortcuts = computed(() => {
+  protected readonly shortcuts = computed(() => {
     this.i18n.locale();
     return [
       { keys: ['Ctrl', 'K'], what: this.t('shortcuts.palette') },
@@ -487,31 +485,31 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   });
 
   // ---- computed --------------------------------------------------------------
-  selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
-  helpView = computed(() => this.helpContent());
-  worldW = computed(() => {
+  protected readonly selected = computed(() => this.api.state()?.devices.find((d) => d.id === this.selectedId()) ?? null);
+  protected readonly helpView = computed(() => this.helpContent());
+  protected readonly worldW = computed(() => {
     let m = 4000;
     for (const d of this.api.state()?.devices ?? []) m = Math.max(m, d.x + 400);
     return m;
   });
-  worldH = computed(() => {
+  protected readonly worldH = computed(() => {
     let m = 3000;
     for (const d of this.api.state()?.devices ?? []) m = Math.max(m, d.y + 300);
     return m;
   });
-  gridPos = computed(() => `${this.pan().x}px ${this.pan().y}px`);
-  gridSize = computed(() => `${GRID * this.pan().s}px ${GRID * this.pan().s}px`);
-  zoomPct = computed(() => Math.round(this.pan().s * 100));
-  hints = computed(() => {
+  protected readonly gridPos = computed(() => `${this.pan().x}px ${this.pan().y}px`);
+  protected readonly gridSize = computed(() => `${GRID * this.pan().s}px ${GRID * this.pan().s}px`);
+  protected readonly zoomPct = computed(() => Math.round(this.pan().s * 100));
+  protected readonly hints = computed(() => {
     const d = this.selected();
     return d ? this.hintsFor(d) : [];
   });
-  labIndex = computed(() => this.labs().findIndex((l) => l.id === this.api.state()?.id));
-  nextLab = computed(() => {
+  private readonly labIndex = computed(() => this.labs().findIndex((l) => l.id === this.api.state()?.id));
+  protected readonly nextLab = computed(() => {
     const i = this.labIndex();
     return i >= 0 ? (this.labs()[i + 1] ?? null) : null;
   });
-  checklist = computed(() => {
+  protected readonly checklist = computed(() => {
     const st = this.api.state();
     if (!st) return [];
     const last = this.checkResult() ?? st.lastCheck;
@@ -520,15 +518,15 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       return { label: this.checkLabel(c), ok: r ? r.ok : null, reason: r?.reason ?? '', result: r };
     });
   });
-  failedChecks = computed(() => this.checkResult()?.results.filter((r) => !r.ok) ?? []);
-  guestLabel = computed(() => (this.api.guest() ? 'Guest' : (this.api.email() ?? 'Account')));
-  quickCmds = computed(() => {
+  protected readonly failedChecks = computed(() => this.checkResult()?.results.filter((r) => !r.ok) ?? []);
+  private readonly guestLabel = computed(() => (this.api.guest() ? 'Guest' : (this.api.email() ?? 'Account')));
+  protected readonly quickCmds = computed(() => {
     const st = this.api.state();
     const d = st?.devices.find((x) => x.id === this.termDevice());
     return d ? quickCommandsFor(d, st?.devices ?? []) : [];
   });
   /** Subnet → colour class, assigned in order of first appearance so the same network always shares a colour. */
-  subnetColors = computed(() => {
+  private readonly subnetColors = computed(() => {
     const m = new Map<string, string>();
     for (const d of this.api.state()?.devices ?? []) {
       for (const i of d.ifaces) {
@@ -541,14 +539,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
     return m;
   });
-  paletteItems = computed(() => {
+  protected readonly paletteItems = computed(() => {
     this.i18n.locale();
     const q = this.paletteQ().trim().toLowerCase();
     const items = this.buildPalette();
     if (!q) return items.slice(0, 40);
     return items.filter((i) => `${i.group} ${i.label} ${i.hint ?? ''}`.toLowerCase().includes(q)).slice(0, 40);
   });
-  visiblePacketsFiltered = computed(() => {
+  protected readonly visiblePacketsFiltered = computed(() => {
     const sel = this.selected();
     const all = this.visiblePackets();
     if (!this.pktOnlySelected() || !sel) return all;
@@ -559,7 +557,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // lifecycle
   // ===========================================================================
 
-  async ngOnInit() {
+  public async ngOnInit() {
     this.api.onPackets = (events) => this.animate(events);
     this.api.onRecovered = () => {
       this.toast(this.t('toast.restoredSnapshot'), 'warn', undefined, 7000);
@@ -580,13 +578,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.boot();
   }
 
-  ngAfterViewInit() {
+  public ngAfterViewInit() {
     const el = this.stage?.nativeElement;
     if (el) this.guardCanvas(el);
     requestAnimationFrame(() => this.fitIfNarrow());
   }
 
-  ngOnDestroy() {
+  public ngOnDestroy() {
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('pagehide', this.flushGuest);
     this.mq?.removeEventListener('change', this.onMq);
@@ -600,7 +598,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.eve.stop();
   }
 
-  private flushGuest = () => {
+  private readonly flushGuest = () => {
     this.writeAutosave();
     void this.api.save().catch(() => undefined);
   };
@@ -662,7 +660,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async retryBoot() {
+  protected async retryBoot() {
     await this.boot();
   }
 
@@ -690,7 +688,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => (this.isNarrow() ? this.fitIfNarrow() : this.fitToView()));
   }
 
-  private onMq = (e: MediaQueryList | MediaQueryListEvent) => {
+  private readonly onMq = (e: MediaQueryList | MediaQueryListEvent) => {
     const narrow = e.matches;
     const was = this.isNarrow();
     this.isNarrow.set(narrow);
@@ -722,7 +720,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // toasts / errors
   // ===========================================================================
 
-  toast(text: string, kind: ToastKind = 'info', action?: Toast['action'], ms = kind === 'error' ? 8000 : 4500) {
+  private toast(text: string, kind: ToastKind = 'info', action?: Toast['action'], ms = kind === 'error' ? 8000 : 4500) {
     const id = ++this.toastSeq;
     this.toasts.update((t) => [...t.slice(-3), { id, kind, text, action }]);
     this.toastTimers.set(
@@ -731,7 +729,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  dismissToast(id: number) {
+  protected dismissToast(id: number) {
     const t = this.toastTimers.get(id);
     if (t) clearTimeout(t);
     this.toastTimers.delete(id);
@@ -739,11 +737,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Kept for the canvas hint bar call sites; hints are toasts now. */
-  showHint(msg: string) {
+  private showHint(msg: string) {
     this.toast(msg, 'info');
   }
 
-  errMsg(e: unknown) {
+  private errMsg(e: unknown) {
     if (e instanceof ApiError) return e.message;
     if (e instanceof Error) return e.message;
     return String(e);
@@ -771,7 +769,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // labs
   // ===========================================================================
 
-  async loadLab(id: string) {
+  protected async loadLab(id: string) {
     this.loading.set(true);
     try {
       await this.api.open(id);
@@ -784,7 +782,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async openSaved(id: string) {
+  protected async openSaved(id: string) {
     this.libraryOpen.set(false);
     const row = this.library.getById(id);
     this.loading.set(true);
@@ -800,12 +798,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async goNextLab() {
+  protected async goNextLab() {
     const n = this.nextLab();
     if (n) await this.loadLab(n.id);
   }
 
-  async resetLab() {
+  protected async resetLab() {
     this.confirmReset.set(false);
     const st = this.api.state();
     if (!st) return;
@@ -825,7 +823,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async loadMyLabs(forceRefresh = false) {
+  private async loadMyLabs(forceRefresh = false) {
     try {
       await this.library.getAll(forceRefresh);
     } catch {
@@ -833,12 +831,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  saveCanUpdate(): boolean {
+  protected saveCanUpdate(): boolean {
     const id = this.api.state()?.id;
     return !!id && isCustomLabId(id) && this.library.owns(id);
   }
 
-  openSaveAs() {
+  protected openSaveAs() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     this.libraryOpen.set(false);
@@ -849,7 +847,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.saveAsOpen.set(true);
   }
 
-  openLibrary() {
+  protected openLibrary() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     this.libraryQ.set('');
@@ -857,16 +855,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     void this.loadMyLabs();
   }
 
-  labCardBlurb(lab: SavedLab): string {
+  protected labCardBlurb(lab: SavedLab): string {
     return labBlurb(lab);
   }
 
-  savedWhen(iso: string): string {
+  protected savedWhen(iso: string): string {
     const ts = Date.parse(iso);
     return Number.isFinite(ts) ? this.when(ts) : '';
   }
 
-  async saveLab(asNew = false) {
+  protected async saveLab(asNew = false) {
     const name = this.saveAsName.trim();
     if (!name) return;
     this.saveAsBusy.set(true);
@@ -896,12 +894,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  askDeleteSaved(id: string) {
+  protected askDeleteSaved(id: string) {
     const row = this.library.getById(id);
     this.confirmDelSaved.set({ id, name: row?.name ?? id });
   }
 
-  async deleteSaved(id?: string) {
+  protected async deleteSaved(id?: string) {
     const target = id ?? this.confirmDelSaved()?.id;
     if (!target) return;
     try {
@@ -928,7 +926,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // check
   // ===========================================================================
 
-  async doCheck() {
+  protected async doCheck() {
     if (this.checkBusy()) return;
     this.checkBusy.set(true);
     const before = new Set((this.api.state()?.packets ?? []).map((p) => p.id));
@@ -950,7 +948,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  checkLabel(c: LabCheck): string {
+  protected checkLabel(c: LabCheck): string {
     switch (c.type) {
       case 'ping':
         return this.t(c.family === 'v6' ? 'check.ping6' : 'check.ping', { src: c.src, dst: c.dst });
@@ -967,11 +965,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  resultLabel(r: CheckItemResult) {
+  protected resultLabel(r: CheckItemResult) {
     return this.checkLabel(r.check);
   }
 
-  async explainCheck() {
+  protected async explainCheck() {
     const failed = this.failedChecks();
     if (!failed.length) return;
     this.openEve();
@@ -985,12 +983,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // ===========================================================================
 
   /** Active state for the mobile tab bar (Basic mode folds every non-Eve tab into Canvas). */
-  showTab(tab: MobileTab) {
+  protected showTab(tab: MobileTab) {
     if (this.basicMode()) return tab === 'eve' ? this.mobileTab() === 'eve' : this.mobileTab() !== 'eve';
     return this.mobileTab() === tab;
   }
 
-  setTab(tab: MobileTab) {
+  protected setTab(tab: MobileTab) {
     if (this.basicMode() && tab !== 'canvas' && tab !== 'eve') tab = 'canvas';
     this.mobileTab.set(tab);
     this.moreOpen.set(false);
@@ -1007,11 +1005,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (tab === 'term') requestAnimationFrame(() => this.terminal()?.focus());
   }
 
-  toggleAdvanced() {
+  protected toggleAdvanced() {
     this.setAdvanced(!this.advanced());
   }
 
-  setAdvanced(next: boolean) {
+  protected setAdvanced(next: boolean) {
     this.advanced.set(next);
     if (!next) {
       this.cableKind.set('ethernet');
@@ -1025,16 +1023,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  basicMode() {
+  protected basicMode() {
     return this.isNarrow() && this.basic();
   }
 
   /** Advanced inspector/cables/ports. Basic mobile always stays simple. */
-  advUi() {
+  protected advUi() {
     return this.advanced() && !this.basicMode();
   }
 
-  toggleBasic() {
+  protected toggleBasic() {
     const next = !this.basic();
     this.basic.set(next);
     try {
@@ -1054,25 +1052,25 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  toggleEve() {
+  protected toggleEve() {
     if (this.focusMode()) this.setFocusEve(!this.focusEve());
     else if (this.isNarrow()) this.setTab(this.mobileTab() === 'eve' ? 'canvas' : 'eve');
     else this.setEveOpen(!this.eveOpen());
   }
 
-  openEve() {
+  protected openEve() {
     if (this.focusMode()) this.setFocusEve(true);
     else if (this.isNarrow()) this.setTab('eve');
     else this.setEveOpen(true);
   }
 
-  closeEve() {
+  protected closeEve() {
     if (this.focusMode()) this.setFocusEve(false);
     else if (this.isNarrow()) this.setTab('canvas');
     else this.setEveOpen(false);
   }
 
-  setEveOpen(open: boolean) {
+  private setEveOpen(open: boolean) {
     this.eveOpen.set(open);
     this.rememberEve(open);
     requestAnimationFrame(() => this.fitToView());
@@ -1086,11 +1084,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Desktop focus mode is active (mobile has Basic mode instead). */
-  focusMode() {
+  protected focusMode() {
     return this.focus() && !this.isNarrow();
   }
 
-  toggleFocus() {
+  protected toggleFocus() {
     const next = !this.focus();
     this.focus.set(next);
     try {
@@ -1108,7 +1106,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => this.fitToView());
   }
 
-  toggleFocusTerm() {
+  protected toggleFocusTerm() {
     const target = this.api.state()?.devices.find((d) => d.id === this.termDevice());
     if (!this.focusTerm() && target && this.isUnmanagedSwitch(target)) {
       this.toast(this.t('toast.noTerm', { name: target.name }), 'info');
@@ -1120,7 +1118,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Full inspector for the device. In focus mode it opens as a sidebar instead of leaving focus. */
-  openDetails(d: DeviceState) {
+  protected openDetails(d: DeviceState) {
     this.selectDevice(d);
     if (this.focusMode()) {
       this.focusInspect.set(true);
@@ -1128,31 +1126,31 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  showPalette() {
+  protected showPalette() {
     if (this.basicMode() || this.focusMode()) return false;
     return !this.isNarrow() || this.mobileTab() === 'palette';
   }
-  showCanvas() {
+  protected showCanvas() {
     if (this.basicMode()) return this.mobileTab() !== 'eve';
     return !this.isNarrow() || this.mobileTab() === 'canvas';
   }
-  showInspect() {
+  protected showInspect() {
     if (this.basicMode()) return false;
     if (this.focusMode()) return this.focusInspect() && !!this.selectedId();
     return !this.isNarrow() || this.mobileTab() === 'inspect';
   }
-  showEve() {
+  protected showEve() {
     if (this.focusMode()) return this.focusEve();
     if (this.basicMode()) return this.mobileTab() === 'eve';
     return this.isNarrow() ? this.mobileTab() === 'eve' : this.eveOpen();
   }
-  showTerm() {
+  protected showTerm() {
     if (this.basicMode()) return false;
     if (this.focusMode()) return this.focusTerm();
     return !this.isNarrow() || this.mobileTab() === 'term';
   }
 
-  closeInspect() {
+  protected closeInspect() {
     if (this.isNarrow()) this.setTab('canvas');
     else if (this.focusMode()) {
       this.focusInspect.set(false);
@@ -1160,13 +1158,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     } else this.selectedId.set(null);
   }
 
-  openHelp(id: HelpId | 'hub', ev?: Event) {
+  protected openHelp(id: HelpId | 'hub', ev?: Event) {
     ev?.stopPropagation();
     ev?.preventDefault();
     this.helpOpen.set(id);
   }
 
-  helpContent() {
+  private helpContent() {
     const id = this.helpOpen();
     if (!id || id === 'hub') return null;
     const title = this.t(`help.${id}` as MessageKey);
@@ -1179,7 +1177,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { title, body };
   }
 
-  dismissWelcome(start = false) {
+  protected dismissWelcome(start = false) {
     this.welcomeOpen.set(false);
     try {
       localStorage.setItem(WELCOME_KEY, '1');
@@ -1194,7 +1192,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // labels / device helpers
   // ===========================================================================
 
-  kindLabel(k: string, switchProfile?: SwitchProfile) {
+  protected kindLabel(k: string, switchProfile?: SwitchProfile) {
     if (k === 'switch') {
       if (switchProfile === 'unmanaged') return this.t('device.unmanaged');
       if (switchProfile === 'multilayer') return this.t('device.multilayer');
@@ -1212,7 +1210,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return keys[k] ? this.t(keys[k]) : k;
   }
 
-  deviceHint(k: string, switchProfile?: SwitchProfile) {
+  private deviceHint(k: string, switchProfile?: SwitchProfile) {
     if (k === 'switch') {
       if (switchProfile === 'unmanaged') return this.t('device.unmanagedHint');
       if (switchProfile === 'multilayer') return this.t('device.multilayerHint');
@@ -1231,43 +1229,43 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return keys[k] ? this.t(keys[k]) : '';
   }
 
-  switchProfile(d: DeviceState): SwitchProfile | undefined {
+  protected switchProfile(d: DeviceState): SwitchProfile | undefined {
     return d.kind === 'switch' ? (d.switchProfile ?? 'managed-l2') : undefined;
   }
 
-  isUnmanagedSwitch(d: DeviceState): boolean {
+  protected isUnmanagedSwitch(d: DeviceState): boolean {
     return this.switchProfile(d) === 'unmanaged';
   }
 
-  isMultilayerSwitch(d: DeviceState): boolean {
+  protected isMultilayerSwitch(d: DeviceState): boolean {
     return this.switchProfile(d) === 'multilayer';
   }
 
-  canServeDhcp(d: DeviceState): boolean {
+  protected canServeDhcp(d: DeviceState): boolean {
     return d.kind === 'router' || this.isMultilayerSwitch(d);
   }
 
-  showsDhcpSection(d: DeviceState): boolean {
+  protected showsDhcpSection(d: DeviceState): boolean {
     return this.canServeDhcp(d) || (d.kind === 'switch' && !this.isUnmanagedSwitch(d));
   }
 
-  dhcpPoolsOf(d: DeviceState) {
+  protected dhcpPoolsOf(d: DeviceState) {
     return d.dhcpPools ?? [];
   }
 
-  dhcpExcludedOf(d: DeviceState) {
+  protected dhcpExcludedOf(d: DeviceState) {
     return d.dhcpExcluded ?? [];
   }
 
-  dhcpBindingsOf(d: DeviceState) {
+  protected dhcpBindingsOf(d: DeviceState) {
     return d.dhcpBindings ?? [];
   }
 
-  dhcpRelayIfaces(d: DeviceState) {
+  protected dhcpRelayIfaces(d: DeviceState) {
     return d.ifaces.filter((i) => !i.isRadio && (i.ipv4 || i.helperAddress));
   }
 
-  dhcpPoolSummary(p: NonNullable<DeviceState['dhcpPools']>[number]): string {
+  protected dhcpPoolSummary(p: NonNullable<DeviceState['dhcpPools']>[number]): string {
     const bits: string[] = [];
     if (p.network) bits.push(`${p.network}/${p.prefix ?? 24}`);
     if (p.gateway) bits.push(this.t('dhcp.summaryGw', { ip: p.gateway }));
@@ -1275,23 +1273,23 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return bits.join(' · ') || this.t('dhcp.noNetwork');
   }
 
-  dhcpRangeLabel(range: { start: string; end: string }): string {
+  protected dhcpRangeLabel(range: { start: string; end: string }): string {
     return range.end && range.end !== range.start ? `${range.start} – ${range.end}` : range.start;
   }
 
-  nextSwitchProfileOf(d: DeviceState): SwitchProfile {
+  protected nextSwitchProfileOf(d: DeviceState): SwitchProfile {
     return nextSwitchProfile(this.switchProfile(d) ?? 'unmanaged');
   }
 
-  nextPaletteSwitchProfile(): SwitchProfile {
+  protected nextPaletteSwitchProfile(): SwitchProfile {
     return nextSwitchProfile(this.paletteSwitchProfile());
   }
 
-  kindIcon(k: string): IconName {
+  protected kindIcon(k: string): IconName {
     return KIND_ICON[k] ?? 'pc';
   }
 
-  kindColor(k: string) {
+  protected kindColor(k: string) {
     const m: Record<string, string> = {
       workstation: 'bg-sky-950/85 border-sky-500/40',
       server: 'bg-indigo-950/85 border-indigo-400/40',
@@ -1305,7 +1303,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return m[k] ?? 'bg-ink-800 border-ink-600';
   }
 
-  kindAccent(k: string) {
+  protected kindAccent(k: string) {
     const m: Record<string, string> = {
       workstation: 'text-sky-300',
       server: 'text-indigo-300',
@@ -1319,16 +1317,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return m[k] ?? 'text-ink-300';
   }
 
-  isLinux(d: DeviceState) {
+  protected isLinux(d: DeviceState) {
     return LINUX_KINDS.has(d.kind);
   }
 
-  primaryIpv4(d: DeviceState): string | null {
+  protected primaryIpv4(d: DeviceState): string | null {
     for (const i of d.ifaces) if (i.ipv4?.ip) return `${i.ipv4.ip}/${i.ipv4.prefix}`;
     return null;
   }
 
-  primaryIpv6(d: DeviceState): string | null {
+  protected primaryIpv6(d: DeviceState): string | null {
     for (const i of d.ifaces) {
       const g = i.ipv6.find((v) => !v.ip.toLowerCase().startsWith('fe80:'));
       if (g) return `${g.ip}/${g.prefix}`;
@@ -1336,21 +1334,21 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return null;
   }
 
-  ipv4Rows(d: DeviceState) {
+  protected ipv4Rows(d: DeviceState) {
     return d.ifaces
       .filter((i) => i.ipv4?.ip)
       .map((i) => ({ name: i.name, ip: `${i.ipv4!.ip}/${i.ipv4!.prefix}`, status: this.linkStatus(i), up: i.operUp }));
   }
 
-  canAddIpv4(d: DeviceState) {
+  protected canAddIpv4(d: DeviceState) {
     return (d.kind !== 'switch' || this.isMultilayerSwitch(d)) && this.ipv4Rows(d).length === 0;
   }
 
-  ipIface(d: DeviceState) {
+  private ipIface(d: DeviceState) {
     return d.ifaces.find((i) => !i.isRadio && !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'))?.name ?? 'eth0';
   }
 
-  prepareIpv4Form(d: DeviceState) {
+  protected prepareIpv4Form(d: DeviceState) {
     if (!this.canAddIpv4(d)) return;
     const s = this.suggestIpv4();
     this.ipInput = s.ip;
@@ -1375,7 +1373,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return this.fmtV4(this.maskOf(prefix));
   }
 
-  suggestIpv4() {
+  private suggestIpv4() {
     const used = new Set<number>();
     const nets = new Map<string, { network: number; prefix: number; count: number }>();
     for (const d of this.api.state()?.devices ?? []) {
@@ -1402,13 +1400,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Default gateway as the engine reports it in running-config (`ip route 0.0.0.0 0.0.0.0 GW` or `ip default-gateway`). */
-  gatewayOf(d: DeviceState): string | null {
+  protected gatewayOf(d: DeviceState): string | null {
     const m = d.runningConfig.match(/^ip route 0\.0\.0\.0 0\.0\.0\.0 (\S+)/m) ?? d.runningConfig.match(/^ip default-gateway (\S+)/m);
     return m?.[1] ?? null;
   }
 
   /** Router/firewall/cloud address on this host's own subnet, else the .1 of that subnet. */
-  suggestGateway(d: DeviceState): string | null {
+  protected suggestGateway(d: DeviceState): string | null {
     const own = d.ifaces.find((i) => i.ipv4?.ip)?.ipv4;
     if (!own) return null;
     const n = this.parseV4(own.ip);
@@ -1427,7 +1425,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Other subnets exist, so a host with no gateway will not get past its own network. */
-  needsGateway(d: DeviceState) {
+  protected needsGateway(d: DeviceState) {
     if (!(d.kind === 'workstation' || d.kind === 'server')) return false;
     const own = d.ifaces.find((i) => i.ipv4?.ip)?.ipv4;
     if (!own || this.gatewayOf(d)) return false;
@@ -1443,12 +1441,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  prepareGatewayForm(d: DeviceState) {
+  protected prepareGatewayForm(d: DeviceState) {
     this.gwInput = this.suggestGateway(d) ?? '';
   }
 
   /** Gateway set, but not inside the host's own IPv4 subnet — it can never be reached at layer 2. */
-  gatewayOffSubnet(d: DeviceState): string | null {
+  protected gatewayOffSubnet(d: DeviceState): string | null {
     const gw = this.gatewayOf(d);
     const own = d.ifaces.find((i) => i.ipv4?.ip)?.ipv4;
     if (!gw || !own) return null;
@@ -1460,26 +1458,26 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Gateway set and on-subnet, but no device in the lab owns that address. */
-  gatewayUnowned(d: DeviceState): string | null {
+  protected gatewayUnowned(d: DeviceState): string | null {
     const gw = this.gatewayOf(d);
     if (!gw || this.gatewayOffSubnet(d)) return null;
     const owner = (this.api.state()?.devices ?? []).some((x) => x.id !== d.id && x.ifaces.some((i) => i.ipv4?.ip === gw));
     return owner ? null : gw;
   }
 
-  startGatewayEdit(d: DeviceState) {
+  protected startGatewayEdit(d: DeviceState) {
     this.gwInput = this.suggestGateway(d) ?? this.gatewayOf(d) ?? '';
     this.gwEdit.set(true);
   }
 
-  startIpEdit(d: DeviceState, iface: string) {
+  protected startIpEdit(d: DeviceState, iface: string) {
     const i = d.ifaces.find((x) => x.name === iface);
     this.ipEditValue = i?.ipv4?.ip ?? '';
     this.ipEditPrefix = i?.ipv4?.prefix ?? 24;
     this.ipEdit.set(iface);
   }
 
-  linkStatus(i: IfaceState) {
+  protected linkStatus(i: IfaceState) {
     if (i.isRadio && !i.adminUp) return this.t('status.radioOff');
     if (i.status === 'Wrong cable') return this.t('status.wrongCable');
     if (i.status) return i.status;
@@ -1488,41 +1486,41 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return this.t('status.up');
   }
 
-  statusChipClass(i: IfaceState) {
+  protected statusChipClass(i: IfaceState) {
     if (i.operUp) return 'chip-ok';
     if (i.peer && !i.operUp) return 'chip-warn';
     return 'chip-muted';
   }
 
-  statusChipClassFor(d: DeviceState, name: string) {
+  protected statusChipClassFor(d: DeviceState, name: string) {
     const i = d.ifaces.find((x) => x.name === name);
     return i ? this.statusChipClass(i) : 'chip-muted';
   }
 
-  statusToggleTitle(d: DeviceState, iface: string) {
+  protected statusToggleTitle(d: DeviceState, iface: string) {
     const i = d.ifaces.find((x) => x.name === iface);
     if (!i) return 'Toggle port';
     if (i.isRadio) return i.adminUp ? 'Click to disable Wi-Fi radio' : 'Click to enable Wi-Fi radio';
     return i.adminUp ? 'Click to disable this port (shutdown)' : 'Click to enable this port (no shutdown)';
   }
 
-  deviceLed(d: DeviceState): 'up' | 'warn' | 'off' {
+  protected deviceLed(d: DeviceState): 'up' | 'warn' | 'off' {
     const used = d.ifaces.filter((i) => this.peerOf(d, i.name) || (i.isRadio && d.associatedSsid));
     if (!used.length) return 'off';
     if (used.some((i) => i.operUp)) return 'up';
     return 'warn';
   }
 
-  ipv6Rows(i: IfaceState) {
+  protected ipv6Rows(i: IfaceState) {
     const rows = i.ipv6.map((v) => ({ ip: `${v.ip}/${v.prefix}`, linkLocal: v.ip.toLowerCase().startsWith('fe80:') }));
     return [...rows.filter((r) => !r.linkLocal), ...rows.filter((r) => r.linkLocal)];
   }
 
-  cardIfaces(d: DeviceState) {
+  protected cardIfaces(d: DeviceState) {
     return d.ifaces.filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan'));
   }
 
-  cableRows(d: DeviceState) {
+  private cableRows(d: DeviceState) {
     const rows: { mine: string; peer: string; peerIface: string; linkId: string; cable: string; kind: string }[] = [];
     for (const l of this.api.state()?.links ?? []) {
       const side = l.a.deviceId === d.id ? 'a' : l.b.deviceId === d.id ? 'b' : null;
@@ -1541,7 +1539,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return rows;
   }
 
-  peerOf(d: DeviceState, iface: string): IfacePeer | null {
+  private peerOf(d: DeviceState, iface: string): IfacePeer | null {
     const i = d.ifaces.find((x) => x.name.toLowerCase() === iface.toLowerCase());
     if (i?.peer) return i.peer;
     const row = this.cableRows(d).find((c) => c.mine.toLowerCase() === iface.toLowerCase());
@@ -1549,7 +1547,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { device: row.peer, deviceId: '', iface: row.peerIface, linkId: row.linkId, cable: row.cable as IfacePeer['cable'] };
   }
 
-  portRows(d: DeviceState) {
+  private portRows(d: DeviceState) {
     return d.ifaces
       .filter((i) => !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan') && !i.isRadio)
       .map((i) => {
@@ -1558,22 +1556,22 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
-  usedPortRows(d: DeviceState) {
+  protected usedPortRows(d: DeviceState) {
     return this.portRows(d).filter((p) => p.used);
   }
 
-  freePortRows(d: DeviceState) {
+  protected freePortRows(d: DeviceState) {
     return this.portRows(d).filter((p) => !p.used);
   }
 
-  shortPort(name: string) {
+  protected shortPort(name: string) {
     if (name.toLowerCase() === 'wlan0') return 'wifi';
     const gi = name.match(/^Gi0\/(\d+)$/i);
     if (gi) return gi[1];
     return name;
   }
 
-  portChipClass(d: DeviceState, i: IfaceState) {
+  protected portChipClass(d: DeviceState, i: IfaceState) {
     const peer = this.peerOf(d, i.name);
     const hover = 'cursor-pointer transition hover:ring-1 hover:ring-brand-400/70 hover:brightness-125';
     if (i.isRadio) return `${hover} ${i.operUp ? 'bg-violet-600/80 text-violet-50' : 'border border-violet-500/50 text-violet-300'}`;
@@ -1583,7 +1581,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return `${hover} border border-ink-500 text-ink-300`;
   }
 
-  portTitle(d: DeviceState, i: IfaceState) {
+  protected portTitle(d: DeviceState, i: IfaceState) {
     const p = this.peerOf(d, i.name);
     const st = this.linkStatus(i);
     if (this.cableArmed() || this.cableFrom()) {
@@ -1594,7 +1592,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return `${i.name} ${st} — click to ${i.adminUp ? 'disable' : 'enable'}`;
   }
 
-  cableLabel(id: CableMedia | string | undefined) {
+  protected cableLabel(id: CableMedia | string | undefined) {
     if (id === 'radio') return this.t('cable.wifi');
     if (id === 'straight') return this.t('cable.straight');
     if (id === 'crossover') return this.t('cable.crossover');
@@ -1602,7 +1600,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return this.t('cable.ethernet');
   }
 
-  visibleCables() {
+  protected visibleCables() {
     const rows = this.advUi() ? CABLE_TYPES : CABLE_TYPES.filter((c) => !c.advanced);
     const hints: Record<string, MessageKey> = {
       ethernet: 'cable.ethernetHint',
@@ -1617,27 +1615,27 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }));
   }
 
-  effectiveCable(): CableMedia {
+  protected effectiveCable(): CableMedia {
     return this.advUi() ? this.cableKind() : 'ethernet';
   }
 
-  devName(id: string) {
+  protected devName(id: string) {
     return this.api.state()?.devices.find((d) => d.id === id)?.name ?? id;
   }
 
-  devByName(name: string) {
+  private devByName(name: string) {
     const k = name.toLowerCase();
     return this.api.state()?.devices.find((d) => d.name.toLowerCase() === k || d.id.toLowerCase() === k || d.hostname.toLowerCase() === k) ?? null;
   }
 
-  visiblePackets() {
+  private visiblePackets() {
     const all = this.api.state()?.packets ?? [];
     if (this.advanced()) return all;
     const v4 = all.filter((p) => !p.srcIp?.includes(':'));
     return v4;
   }
 
-  activityLog() {
+  protected activityLog() {
     return this.api.state()?.activity ?? [];
   }
 
@@ -1645,7 +1643,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // hints (diagnostics from engine state — never a forwarding guess)
   // ===========================================================================
 
-  hintsFor(d: DeviceState): Hint[] {
+  private hintsFor(d: DeviceState): Hint[] {
     const out: Hint[] = [];
     const st = this.api.state();
     if (!st) return out;
@@ -1823,16 +1821,16 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  promptFor(d: DeviceState | null | undefined) {
+  private promptFor(d: DeviceState | null | undefined) {
     if (!d) return '#';
     return this.isLinux(d) ? `root@${d.hostname}:~#` : `${d.hostname}#`;
   }
 
-  prompt() {
+  protected prompt() {
     return this.promptFor(this.api.state()?.devices.find((x) => x.id === this.termDevice()));
   }
 
-  async runCli(d: DeviceState, line: string) {
+  private async runCli(d: DeviceState, line: string) {
     this.pushLine(d.id, { text: `${this.promptFor(d)} ${line}`, cmd: true });
     const r = await this.api.cli(d.id, line);
     if (r.output) this.pushLine(d.id, { text: r.output, err: r.error });
@@ -1840,7 +1838,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Runs commands in order, stops at the first error. Returns whether all succeeded. */
-  async runCommands(d: DeviceState, cmds: string[], doneMsg?: string): Promise<boolean> {
+  protected async runCommands(d: DeviceState, cmds: string[], doneMsg?: string): Promise<boolean> {
     this.termDevice.set(d.id);
     try {
       for (const line of cmds) {
@@ -1859,7 +1857,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async runLine(line: string) {
+  protected async runLine(line: string) {
     const id = this.termDevice();
     const d = this.api.state()?.devices.find((x) => x.id === id);
     if (!d || !line.trim()) return;
@@ -1879,25 +1877,25 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  clearTerm() {
+  protected clearTerm() {
     const id = this.termDevice();
     if (!id) return;
     this.buffers.update((b) => ({ ...b, [id]: [] }));
   }
 
-  cancelPing() {
+  protected cancelPing() {
     const id = this.termDevice();
     if (id) this.pushLine(id, { text: '^C', sys: true });
     this.api.cancelPing();
   }
 
-  selectTermDevice(id: string) {
+  protected selectTermDevice(id: string) {
     this.termDevice.set(id);
     const d = this.api.state()?.devices.find((x) => x.id === id);
     if (d) void this.loadVocab(d.kind, d.switchProfile);
   }
 
-  openTerminalFor(d: DeviceState) {
+  protected openTerminalFor(d: DeviceState) {
     if (this.isUnmanagedSwitch(d)) {
       this.toast(this.t('toast.noCli', { name: d.name }), 'info');
       return;
@@ -1934,13 +1932,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  insertCommand(cmd: string) {
+  protected insertCommand(cmd: string) {
     this.showCheat.set(false);
     if (this.isNarrow()) this.setTab('term');
     requestAnimationFrame(() => this.terminal()?.setText(cmd));
   }
 
-  async openCheat() {
+  protected async openCheat() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     const selected = this.selected();
@@ -1952,7 +1950,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.setCheatKind(kind);
   }
 
-  async setCheatKind(id: string) {
+  protected async setCheatKind(id: string) {
     const kinds = this.cheatKinds();
     const item = kinds.find((entry) => entry.id === id) ?? kinds.find((entry) => entry.kind === id);
     if (!item) return;
@@ -1973,7 +1971,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // device actions
   // ===========================================================================
 
-  async applyIpv4(d: DeviceState) {
+  protected async applyIpv4(d: DeviceState) {
     const ip = this.ipInput.trim();
     if (this.parseV4(ip) == null) {
       this.toast(this.t('toast.badIpv4'), 'warn');
@@ -2001,7 +1999,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Sets a missing gateway, or replaces the current one (Linux `ip route replace`, Cisco `no ip route` + `ip route`). */
-  async setGateway(d: DeviceState, gw?: string) {
+  protected async setGateway(d: DeviceState, gw?: string) {
     const target = (gw ?? this.gwInput).trim();
     if (this.parseV4(target) == null) {
       this.toast(this.t('toast.badGw'), 'warn');
@@ -2026,7 +2024,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async removeGateway(d: DeviceState) {
+  protected async removeGateway(d: DeviceState) {
     const current = this.gatewayOf(d);
     if (!current) return;
     const cmds = this.isLinux(d)
@@ -2039,7 +2037,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Re-addresses one interface: Linux del + add (routes via the old subnet go with it), Cisco overwrites. */
-  async changeIpv4(d: DeviceState, iface: string, ip?: string, prefix?: number) {
+  protected async changeIpv4(d: DeviceState, iface: string, ip?: string, prefix?: number) {
     if (this.isUnmanagedSwitch(d)) {
       this.toast(this.t('toast.noIpIfaces', { name: d.name }), 'info');
       return;
@@ -2074,7 +2072,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async toggleIface(d: DeviceState, iface: string, ev?: Event) {
+  protected async toggleIface(d: DeviceState, iface: string, ev?: Event) {
     ev?.stopPropagation();
     ev?.preventDefault();
     if (this.isUnmanagedSwitch(d)) {
@@ -2090,7 +2088,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.runCommands(d, cmds, this.t(enable ? 'toast.portOn' : 'toast.portOff', { name: d.name, iface }));
   }
 
-  async runDhcp(d: DeviceState) {
+  protected async runDhcp(d: DeviceState) {
     const iface = d.associatedSsid ? (d.ifaces.find((i) => i.isRadio)?.name ?? 'wlan0') : this.ipIface(d);
     const ok = await this.runCommands(d, [`dhclient ${iface}`]);
     if (ok) {
@@ -2108,7 +2106,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { name: 'LAN', network, prefix, gateway: iface.ipv4.ip, dns: '' };
   }
 
-  startDhcpPool(d: DeviceState, pool?: NonNullable<DeviceState['dhcpPools']>[number]) {
+  protected startDhcpPool(d: DeviceState, pool?: NonNullable<DeviceState['dhcpPools']>[number]) {
     if (pool) {
       this.dhcpEditName.set(pool.name);
       this.dhcpName = pool.name;
@@ -2128,12 +2126,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.dhcpOpen.set(true);
   }
 
-  cancelDhcpPool() {
+  protected cancelDhcpPool() {
     this.dhcpOpen.set(false);
     this.dhcpEditName.set(null);
   }
 
-  async saveDhcpPool(d: DeviceState) {
+  protected async saveDhcpPool(d: DeviceState) {
     if (!this.canServeDhcp(d)) {
       this.toast(this.t('toast.dhcpNeedL3', { name: d.name }), 'info');
       return;
@@ -2181,7 +2179,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async removeDhcpPool(d: DeviceState, name: string) {
+  protected async removeDhcpPool(d: DeviceState, name: string) {
     this.dhcpBusy.set(true);
     try {
       const ok = await this.runCommands(d, ['enable', 'conf t', `no ip dhcp pool ${name}`, 'end'], this.t('toast.poolRemoved', { name: d.name, pool: name }));
@@ -2191,7 +2189,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async addDhcpExclusion(d: DeviceState) {
+  protected async addDhcpExclusion(d: DeviceState) {
     const start = this.dhcpExStart.trim();
     const end = this.dhcpExEnd.trim() || start;
     if (this.parseV4(start) == null || this.parseV4(end) == null) {
@@ -2211,7 +2209,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async removeDhcpExclusion(d: DeviceState, range: { start: string; end: string }) {
+  protected async removeDhcpExclusion(d: DeviceState, range: { start: string; end: string }) {
     const end = range.end && range.end !== range.start ? ` ${range.end}` : '';
     await this.runCommands(
       d,
@@ -2220,13 +2218,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  startDhcpHelper(d: DeviceState, iface: string) {
+  protected startDhcpHelper(d: DeviceState, iface: string) {
     const current = d.ifaces.find((i) => i.name === iface)?.helperAddress ?? '';
     this.dhcpHelperEdit.set(iface);
     this.dhcpHelperInput = current;
   }
 
-  async saveDhcpHelper(d: DeviceState, iface: string) {
+  protected async saveDhcpHelper(d: DeviceState, iface: string) {
     const ip = this.dhcpHelperInput.trim();
     if (this.parseV4(ip) == null) {
       this.toast(this.t('toast.dhcpHelper'), 'warn');
@@ -2245,7 +2243,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async removeDhcpHelper(d: DeviceState, iface: string) {
+  protected async removeDhcpHelper(d: DeviceState, iface: string) {
     this.dhcpBusy.set(true);
     try {
       const ok = await this.runCommands(
@@ -2260,7 +2258,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** SSIDs advertised by APs and WLCs, read from their running-config. */
-  wifiNetworks(): { ssid: string; psk?: string; ap: string }[] {
+  protected wifiNetworks(): { ssid: string; psk?: string; ap: string }[] {
     const out: { ssid: string; psk?: string; ap: string }[] = [];
     for (const d of this.api.state()?.devices ?? []) {
       if (d.kind !== 'ap' && d.kind !== 'wlc') continue;
@@ -2279,11 +2277,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return out;
   }
 
-  hasRadio(d: DeviceState) {
+  protected hasRadio(d: DeviceState) {
     return d.kind === 'workstation' && d.ifaces.some((i) => i.isRadio);
   }
 
-  openWifi(d: DeviceState) {
+  protected openWifi(d: DeviceState) {
     const nets = this.wifiNetworks();
     this.wifiSsid = nets[0]?.ssid ?? '';
     this.wifiPsk = nets[0]?.psk ?? '';
@@ -2295,12 +2293,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  pickWifi(ssid: string) {
+  protected pickWifi(ssid: string) {
     this.wifiSsid = ssid;
     this.wifiPsk = this.wifiNetworks().find((w) => w.ssid === ssid)?.psk ?? '';
   }
 
-  async connectWifi(d: DeviceState) {
+  protected async connectWifi(d: DeviceState) {
     const ssid = this.wifiSsid.trim();
     if (!ssid) return;
     const cmd = `nmcli wifi connect ${ssid}${this.wifiPsk.trim() ? ` password ${this.wifiPsk.trim()}` : ''}`;
@@ -2321,7 +2319,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // reach tool: ping + trace
   // ===========================================================================
 
-  reachTargets(d: DeviceState) {
+  protected reachTargets(d: DeviceState) {
     const rows: { label: string; ip: string }[] = [];
     for (const x of this.api.state()?.devices ?? []) {
       if (x.id === d.id) continue;
@@ -2333,23 +2331,23 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return rows;
   }
 
-  openReach(d: DeviceState, target?: string) {
+  protected openReach(d: DeviceState, target?: string) {
     const targets = this.reachTargets(d);
     this.reach.set({ target: target ?? this.reach()?.target ?? targets[0]?.ip ?? '', proto: 'icmp', busy: false, result: null });
     requestAnimationFrame(() => document.querySelector('[data-reach]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   }
 
-  setReachTarget(v: string) {
+  protected setReachTarget(v: string) {
     const r = this.reach();
     if (r) this.reach.set({ ...r, target: v });
   }
 
-  setReachProto(v: 'icmp' | 'ssh') {
+  protected setReachProto(v: 'icmp' | 'ssh') {
     const r = this.reach();
     if (r) this.reach.set({ ...r, proto: v });
   }
 
-  closeReach() {
+  protected closeReach() {
     this.reach.set(null);
   }
 
@@ -2357,7 +2355,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return [...events].reverse().find((e) => e.drop)?.reason ?? null;
   }
 
-  async runPing(d: DeviceState) {
+  protected async runPing(d: DeviceState) {
     const r = this.reach() ?? { target: '', proto: 'icmp' as const, busy: false, result: null };
     const target = r.target.trim();
     if (!target) {
@@ -2383,7 +2381,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async runTrace(d: DeviceState) {
+  protected async runTrace(d: DeviceState) {
     const r = this.reach() ?? { target: '', proto: 'icmp' as const, busy: false, result: null };
     const target = r.target.trim();
     if (!target) {
@@ -2448,14 +2446,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.trace.set({ devices, dropDevice: drop?.from.device, linkIds, ok, reason, label });
   }
 
-  clearTrace() {
+  protected clearTrace() {
     this.trace.set(null);
     this.activeHop.set(null);
     this.replayToken++;
     this.animPkts.set([]);
   }
 
-  traceClass(d: DeviceState) {
+  protected traceClass(d: DeviceState) {
     const t = this.trace();
     if (!t) return '';
     if (t.dropDevice === d.name) return ' ring-2 ring-danger-400 shadow-glow-danger';
@@ -2464,11 +2462,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return '';
   }
 
-  linkInTrace(l: LinkState) {
+  protected linkInTrace(l: LinkState) {
     return this.trace()?.linkIds.includes(l.id) ?? false;
   }
 
-  replayPacket(p: PacketEvent) {
+  protected replayPacket(p: PacketEvent) {
     const all = this.api.state()?.packets ?? [];
     const idx = all.findIndex((x) => x.id === p.id);
     const burst = idx >= 0 ? all.slice(Math.max(0, idx - 12), idx + 1) : [p];
@@ -2518,11 +2516,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { x, y };
   }
 
-  placingItem(): DevicePaletteItem | undefined {
+  protected placingItem(): DevicePaletteItem | undefined {
     return this.devicePalette().find((item) => item.id === this.placing());
   }
 
-  place(item: DevicePaletteItem) {
+  private place(item: DevicePaletteItem) {
     this.addOpen.set(false);
     this.focusAddOpen.set(false);
     this.placing.set(null);
@@ -2531,7 +2529,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => requestAnimationFrame(() => void this.addDevice(item.kind, undefined, item.switchProfile)));
   }
 
-  cyclePaletteSwitch(ev?: Event) {
+  protected cyclePaletteSwitch(ev?: Event) {
     ev?.preventDefault();
     ev?.stopPropagation();
     const next = this.nextPaletteSwitchProfile();
@@ -2539,7 +2537,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.toast(this.t('toast.nextSwitch', { name: this.kindLabel('switch', next) }), 'info');
   }
 
-  cyclePlacedSwitch(d: DeviceState, ev?: Event) {
+  protected cyclePlacedSwitch(d: DeviceState, ev?: Event) {
     ev?.preventDefault();
     ev?.stopPropagation();
     if (d.kind !== 'switch') return;
@@ -2547,13 +2545,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.focusConfirmPrimary();
   }
 
-  switchChangeDetail(next: SwitchProfile): string {
+  protected switchChangeDetail(next: SwitchProfile): string {
     if (next === 'unmanaged') return this.t('confirm.switchUnmanaged');
     if (next === 'managed-l2') return this.t('confirm.switchL2');
     return this.t('confirm.switchL3');
   }
 
-  async doChangeSwitch() {
+  protected async doChangeSwitch() {
     const pending = this.confirmSwitch();
     if (!pending) return;
     this.confirmSwitch.set(null);
@@ -2578,7 +2576,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  onPaletteDeviceClick(item: DevicePaletteItem, ev: Event) {
+  protected onPaletteDeviceClick(item: DevicePaletteItem, ev: Event) {
     if (this.paletteHoldFired) {
       this.paletteHoldFired = false;
       ev.preventDefault();
@@ -2588,7 +2586,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.place(item);
   }
 
-  onPaletteDevicePointerDown(ev: PointerEvent, item: DevicePaletteItem) {
+  protected onPaletteDevicePointerDown(ev: PointerEvent, item: DevicePaletteItem) {
     if (ev.button !== 0) return;
     this.clearPaletteHold();
     this.endPaletteDrag();
@@ -2621,7 +2619,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     };
   }
 
-  onPaletteDevicePointerMove(ev: PointerEvent) {
+  protected onPaletteDevicePointerMove(ev: PointerEvent) {
     if (this.paletteHold && ev.pointerId === this.paletteHold.pointerId) {
       if (Math.hypot(ev.clientX - this.paletteHoldStart.x, ev.clientY - this.paletteHoldStart.y) > 10) this.clearPaletteHold();
     }
@@ -2646,7 +2644,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  onPaletteDevicePointerUp(ev?: PointerEvent) {
+  protected onPaletteDevicePointerUp(ev?: PointerEvent) {
     this.clearPaletteHold();
     const drag = this.paletteDrag;
     const x = ev?.clientX ?? drag?.x;
@@ -2659,7 +2657,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.dropPaletteItemAt(item, x, y);
   }
 
-  onPaletteDeviceContext(ev: Event, item: DevicePaletteItem) {
+  protected onPaletteDeviceContext(ev: Event, item: DevicePaletteItem) {
     if (item.kind !== 'switch') return;
     ev.preventDefault();
     if (this.isNarrow() && !this.paletteHoldFired) this.cyclePaletteSwitch();
@@ -2708,7 +2706,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async addDevice(kind: string, at?: { x: number; y: number }, switchProfile?: SwitchProfile) {
+  private async addDevice(kind: string, at?: { x: number; y: number }, switchProfile?: SwitchProfile) {
     const name = this.nameFor(kind);
     const pos = at ?? this.dropPoint();
     const profile = kind === 'switch' ? (switchProfile ?? this.paletteSwitchProfile()) : switchProfile;
@@ -2736,12 +2734,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  deleteDevice(d: DeviceState) {
+  protected deleteDevice(d: DeviceState) {
     this.confirmDel.set(d);
     this.focusConfirmPrimary();
   }
 
-  askReset(): void {
+  protected askReset(): void {
     this.confirmReset.set(true);
     this.focusConfirmPrimary();
   }
@@ -2753,7 +2751,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  async doDelete() {
+  protected async doDelete() {
     const d = this.confirmDel();
     if (!d) return;
     this.confirmDel.set(null);
@@ -2801,7 +2799,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.toast(this.t('toast.deleted', { name: d.name }), 'info', { label: this.t('toast.undo'), run: () => void restore() });
   }
 
-  async unplug(linkId: string) {
+  protected async unplug(linkId: string) {
     const l = this.api.state()?.links.find((x) => x.id === linkId);
     if (!l) return;
     const undo: UndoLink | null = l.kind === 'radio' ? null : { a: `${l.a.device}:${l.a.iface}`, b: `${l.b.device}:${l.b.iface}`, cable: l.cable };
@@ -2819,7 +2817,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  async replaceCable(l: LinkState, cable: CableMedia = 'ethernet') {
+  private async replaceCable(l: LinkState, cable: CableMedia = 'ethernet') {
     try {
       await this.api.edit({ removeLinks: [l.id] });
       await this.api.edit({ addLinks: [{ a: `${l.a.device}:${l.a.iface}`, b: `${l.b.device}:${l.b.iface}`, cable }] });
@@ -2838,7 +2836,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return d.ifaces.find((i) => !this.peerOf(d, i.name) && !i.isRadio && !i.name.includes('.') && !i.name.toLowerCase().startsWith('vlan')) ?? null;
   }
 
-  armCable(kind?: CableMedia) {
+  protected armCable(kind?: CableMedia) {
     if (kind) this.cableKind.set(kind);
     if (!this.advUi()) this.cableKind.set('ethernet');
     this.cableArmed.set(true);
@@ -2850,19 +2848,19 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     if (this.isNarrow()) this.mobileTab.set('canvas');
   }
 
-  cancelCable() {
+  protected cancelCable() {
     this.cableFrom.set(null);
     this.cableArmed.set(false);
     this.cableCursor.set(null);
   }
 
-  selectedLink(): LinkState | null {
+  protected selectedLink(): LinkState | null {
     const id = this.selectedLinkId();
     if (!id) return null;
     return this.api.state()?.links.find((l) => l.id === id) ?? null;
   }
 
-  startCable(ev: Event, d: DeviceState) {
+  protected startCable(ev: Event, d: DeviceState) {
     ev.stopPropagation();
     ev.preventDefault();
     const from = this.cableFrom();
@@ -2924,7 +2922,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  clickPort(ev: Event, d: DeviceState, iface: string) {
+  protected clickPort(ev: Event, d: DeviceState, iface: string) {
     ev.stopPropagation();
     ev.preventDefault();
     const i = d.ifaces.find((x) => x.name === iface);
@@ -2959,7 +2957,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     void this.finishCable(d, iface);
   }
 
-  selectLink(ev: Event, l: LinkState) {
+  protected selectLink(ev: Event, l: LinkState) {
     ev.stopPropagation();
     ev.preventDefault();
     this.selectedLinkId.set(l.id);
@@ -2967,7 +2965,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.basicSheet.set(false);
   }
 
-  async undoLab(): Promise<void> {
+  protected async undoLab(): Promise<void> {
     if (!this.hist.canUndo() || this.hist.busy() || this.loading()) return;
     this.loading.set(true);
     try {
@@ -2982,7 +2980,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async redoLab(): Promise<void> {
+  protected async redoLab(): Promise<void> {
     if (!this.hist.canRedo() || this.hist.busy() || this.loading()) return;
     this.loading.set(true);
     try {
@@ -2998,7 +2996,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Lays devices out in tiers (edge → core → access → hosts) using engine `move`. */
-  async tidyUp() {
+  protected async tidyUp() {
     this.menuOpen.set(false);
     const st = this.api.state();
     if (!st?.devices.length) return;
@@ -3052,7 +3050,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async copyShareLink() {
+  protected async copyShareLink() {
     this.menuOpen.set(false);
     try {
       const snap = await this.api.snapshot();
@@ -3069,7 +3067,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async copyJson() {
+  protected async copyJson() {
     this.menuOpen.set(false);
     try {
       const snap = await this.api.snapshot();
@@ -3081,7 +3079,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  saveJson() {
+  protected saveJson() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     const st = this.api.state();
@@ -3096,7 +3094,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  async importJson(ev: Event) {
+  protected async importJson(ev: Event) {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     const input = ev.target as HTMLInputElement;
@@ -3121,13 +3119,13 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // auth
   // ===========================================================================
 
-  openAuth() {
+  protected openAuth() {
     this.menuOpen.set(false);
     this.authError.set(null);
     this.authOpen.set(true);
   }
 
-  async doAuth() {
+  protected async doAuth() {
     const email = this.email.trim();
     if (!email || !this.password) {
       this.authError.set('Email and password are required.');
@@ -3152,7 +3150,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async signOut() {
+  protected async signOut() {
     this.menuOpen.set(false);
     try {
       await this.api.logout();
@@ -3219,7 +3217,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return lines.filter(Boolean).join('\n');
   }
 
-  async explain() {
+  protected async explain() {
     const sel = this.selected();
     const pkt = this.selectedPkt();
     if (sel) await this.api.highlight([sel.id]).catch(() => undefined);
@@ -3230,7 +3228,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  async explainPacket(p: PacketEvent) {
+  protected async explainPacket(p: PacketEvent) {
     this.selectedPkt.set(p);
     this.openEve();
     await this.eve.send(
@@ -3238,11 +3236,11 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  async fixLab() {
+  protected async fixLab() {
     await this.eve.send('Fix my lab. Call run_check and get_lab_state first. Apply the smallest junior-admin change with apply_device_config or apply_lab_patch.');
   }
 
-  async sendEve() {
+  protected async sendEve() {
     const t = this.eveInput.trim();
     if (!t) return;
     this.eveInput = '';
@@ -3259,7 +3257,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     await this.eve.send(t);
   }
 
-  async applyPending() {
+  protected async applyPending() {
     const h = this.eve.hitl();
     if (h) {
       const approve = h.options?.find((o) => /approve|allow|yes/i.test(o.id) || /approve|allow|yes/i.test(o.label))?.id ?? 'approve';
@@ -3291,7 +3289,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.pending.set(null);
   }
 
-  discardPending() {
+  protected discardPending() {
     const h = this.eve.hitl();
     if (h) {
       const cancel = h.options?.find((o) => /cancel|deny|reject|no/i.test(o.id) || /cancel|deny|no/i.test(o.label))?.id ?? 'cancel';
@@ -3301,33 +3299,33 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.pending.set(null);
   }
 
-  answerEve(optionId: string) {
+  protected answerEve(optionId: string) {
     const h = this.eve.hitl();
     if (!h) return;
     void this.eve.respond(optionId, h.requestId);
   }
 
-  isApproveOption(o: { id: string; label: string }) {
+  protected isApproveOption(o: { id: string; label: string }) {
     return /approve|allow|yes|continue/i.test(o.id) || /approve|allow|yes/i.test(o.label);
   }
 
-  hitlTitle(h: { kind: string; toolName?: string }) {
+  protected hitlTitle(h: { kind: string; toolName?: string }) {
     if (h.kind === 'question') return 'Agent has a question';
     if (h.kind === 'session-limit') return 'Agent reached a session budget';
     return 'Agent wants to change the lab';
   }
 
   /** Seconds until the next automatic retry (0 when none is scheduled). */
-  retryInSec() {
+  protected retryInSec() {
     const at = this.eve.retryAt();
     return at ? Math.max(0, Math.ceil((at - Date.now()) / 1000)) : 0;
   }
 
-  reachHasTarget(d: DeviceState, target: string) {
+  protected reachHasTarget(d: DeviceState, target: string) {
     return this.reachTargets(d).some((t) => t.ip === target);
   }
 
-  hitlInput(h: { toolInput?: unknown }) {
+  protected hitlInput(h: { toolInput?: unknown }) {
     if (h.toolInput == null) return '';
     try {
       const s = JSON.stringify(h.toolInput, null, 1);
@@ -3369,7 +3367,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return undefined;
   }
 
-  diagnose(reason: string, dropDevice?: string, dropIface?: string, ctx: { src?: string; dst?: string } = {}): Diagnosis {
+  private diagnose(reason: string, dropDevice?: string, dropIface?: string, ctx: { src?: string; dst?: string } = {}): Diagnosis {
     const st = this.api.state();
     const dev = dropDevice ? this.devByName(dropDevice) : null;
     const base = { reason, device: dropDevice, iface: dropIface, commands: [] as Diagnosis['commands'], lookAt: [] as string[] };
@@ -3640,7 +3638,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return this.diagnose(r.reason, undefined, undefined, {});
   }
 
-  async troubleshoot(r?: CheckItemResult) {
+  protected async troubleshoot(r?: CheckItemResult) {
     const target = r ?? this.failedChecks()[0];
     if (!target || this.diagBusy()) return;
     const c = target.check;
@@ -3680,14 +3678,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  troubleshootReach(d: DeviceState) {
+  protected troubleshootReach(d: DeviceState) {
     const r = this.reach();
     if (!r?.result) return;
     const t = this.trace();
     this.diagnosis.set(this.diagnose(r.result.reason, t?.dropDevice ?? d.name, undefined, { src: d.name, dst: r.target }));
   }
 
-  goToDevice(name: string) {
+  protected goToDevice(name: string) {
     const d = this.devByName(name);
     if (!d) return;
     this.diagnosis.set(null);
@@ -3701,7 +3699,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  runDiagCommand(c: { device: string; cmd: string }) {
+  protected runDiagCommand(c: { device: string; cmd: string }) {
     const d = this.devByName(c.device);
     if (!d) return;
     this.diagnosis.set(null);
@@ -3710,14 +3708,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     void this.runLine(c.cmd);
   }
 
-  async applyDiagFix() {
+  protected async applyDiagFix() {
     const fix = this.diagnosis()?.fix;
     if (!fix) return;
     this.diagnosis.set(null);
     await fix.run();
   }
 
-  async askEveDiag() {
+  protected async askEveDiag() {
     const d = this.diagnosis();
     if (!d) return;
     this.diagnosis.set(null);
@@ -3727,7 +3725,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     );
   }
 
-  layerLabel(layer: DiagLayer | string): string {
+  protected layerLabel(layer: DiagLayer | string): string {
     switch (layer) {
       case 'Physical (L1)':
         return this.t('diag.layerL1');
@@ -3746,7 +3744,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  layerChip(layer: DiagLayer) {
+  protected layerChip(layer: DiagLayer) {
     switch (layer) {
       case 'Physical (L1)':
         return 'bg-amber-500/15 text-amber-300';
@@ -3769,7 +3767,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // live monitor — re-runs one reach test every 5 s until it succeeds
   // ===========================================================================
 
-  startMonitor(d: DeviceState) {
+  protected startMonitor(d: DeviceState) {
     const r = this.reach();
     const target = r?.target.trim();
     if (!r || !target) {
@@ -3782,7 +3780,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.monitorTimer = setInterval(() => void this.monitorTick(), MONITOR_MS);
   }
 
-  stopMonitor() {
+  protected stopMonitor() {
     if (this.monitorTimer) clearInterval(this.monitorTimer);
     this.monitorTimer = null;
     this.monitor.set(null);
@@ -3816,8 +3814,8 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // checkpoints — save / restore / diff the lab configuration
   // ===========================================================================
 
-  labCheckpoints = computed(() => this.checkpoints().filter((c) => c.labId === this.api.state()?.id));
-  otherCheckpoints = computed(() => this.checkpoints().filter((c) => c.labId !== this.api.state()?.id));
+  protected readonly labCheckpoints = computed(() => this.checkpoints().filter((c) => c.labId === this.api.state()?.id));
+  protected readonly otherCheckpoints = computed(() => this.checkpoints().filter((c) => c.labId !== this.api.state()?.id));
 
   private persistCheckpoints(list: Checkpoint[]) {
     this.checkpoints.set(list);
@@ -3828,7 +3826,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  async saveCheckpoint(name?: string) {
+  protected async saveCheckpoint(name?: string) {
     this.menuOpen.set(false);
     try {
       const snap = await this.api.snapshot();
@@ -3843,12 +3841,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  deleteCheckpoint(id: string) {
+  protected deleteCheckpoint(id: string) {
     this.persistCheckpoints(this.checkpoints().filter((c) => c.id !== id));
     if (this.diff()?.against.id === id) this.diff.set(null);
   }
 
-  async restoreCheckpoint(c: Checkpoint) {
+  protected async restoreCheckpoint(c: Checkpoint) {
     this.checkpointsOpen.set(false);
     this.loading.set(true);
     try {
@@ -3863,7 +3861,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** What changed since the checkpoint: per-device startup lines (engine-generated) plus cables added/removed. */
-  async diffCheckpoint(c: Checkpoint) {
+  protected async diffCheckpoint(c: Checkpoint) {
     try {
       const now = await this.api.snapshot();
       if (!now) return;
@@ -3893,7 +3891,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  when(ts: number) {
+  protected when(ts: number) {
     const diff = Date.now() - ts;
     if (diff < 60_000) return this.t('time.justNow');
     if (diff < 3_600_000) return this.t('time.minAgo', { n: Math.round(diff / 60_000) });
@@ -3905,7 +3903,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // lab editor — name, goal, description and checks (authoring)
   // ===========================================================================
 
-  openLabEditor() {
+  protected openLabEditor() {
     const st = this.api.state();
     if (!st) return;
     this.menuOpen.set(false);
@@ -3916,7 +3914,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.labEditOpen.set(true);
   }
 
-  addCheck() {
+  protected addCheck() {
     const n = this.newCheck;
     let c: LabCheck | null = null;
     switch (n.type) {
@@ -3944,25 +3942,25 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.newCheck.dst = '';
   }
 
-  removeCheck(i: number) {
+  protected removeCheck(i: number) {
     this.labChecks.update((l) => l.filter((_, idx) => idx !== i));
   }
 
-  deviceNames() {
+  protected deviceNames() {
     return (this.api.state()?.devices ?? []).map((d) => d.name);
   }
 
-  routerNames() {
+  protected routerNames() {
     return (this.api.state()?.devices ?? []).filter((d) => d.kind === 'router').map((d) => d.name);
   }
 
-  labIps() {
+  protected labIps() {
     const out: string[] = [];
     for (const d of this.api.state()?.devices ?? []) for (const i of d.ifaces) if (i.ipv4?.ip) out.push(i.ipv4.ip);
     return out;
   }
 
-  async applyLabEdit() {
+  protected async applyLabEdit() {
     const name = this.labEdit.name.trim();
     if (!name) {
       this.toast(this.t('toast.labName'), 'warn');
@@ -4043,7 +4041,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return items;
   }
 
-  openPalette() {
+  protected openPalette() {
     this.menuOpen.set(false);
     this.moreOpen.set(false);
     this.paletteQ.set('');
@@ -4052,12 +4050,12 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     requestAnimationFrame(() => document.querySelector<HTMLInputElement>('input[name="palette"]')?.focus());
   }
 
-  setPaletteQ(v: string) {
+  protected setPaletteQ(v: string) {
     this.paletteQ.set(v);
     this.paletteIdx.set(0);
   }
 
-  paletteKey(ev: KeyboardEvent) {
+  protected paletteKey(ev: KeyboardEvent) {
     const items = this.paletteItems();
     if (ev.key === 'ArrowDown') {
       ev.preventDefault();
@@ -4072,7 +4070,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  runPalette(item: PaletteItem) {
+  protected runPalette(item: PaletteItem) {
     this.paletteOpen.set(false);
     void item.run();
   }
@@ -4081,7 +4079,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // view options, report
   // ===========================================================================
 
-  toggleView(k: keyof ViewOptions) {
+  protected toggleView(k: keyof ViewOptions) {
     const v = { ...this.view(), [k]: !this.view()[k] };
     this.view.set(v);
     try {
@@ -4091,7 +4089,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  ipClass(d: DeviceState) {
+  protected ipClass(d: DeviceState) {
     if (!this.view().subnet) return 'text-ok-300/90';
     const ip = d.ifaces.find((i) => i.ipv4?.ip)?.ipv4;
     if (!ip) return 'text-ok-300/90';
@@ -4101,7 +4099,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Cable-end label: interface name plus the switch port's VLAN role (v10 / T) when the VLAN overlay is on. */
-  linkLabel(l: LinkState, end: 'a' | 'b') {
+  protected linkLabel(l: LinkState, end: 'a' | 'b') {
     const e = end === 'a' ? l.a : l.b;
     if (!this.view().vlan) return e.iface;
     const d = this.api.state()?.devices.find((x) => x.id === e.deviceId);
@@ -4111,7 +4109,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return i.accessVlan !== 1 ? `${e.iface} v${i.accessVlan}` : e.iface;
   }
 
-  buildReport(): string {
+  private buildReport(): string {
     const st = this.api.state();
     if (!st) return '';
     const L: string[] = [`# ${st.name}`, ''];
@@ -4137,7 +4135,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return L.join('\n');
   }
 
-  async copyReport() {
+  protected async copyReport() {
     this.menuOpen.set(false);
     try {
       const md = this.buildReport();
@@ -4149,7 +4147,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  downloadReport() {
+  protected downloadReport() {
     this.menuOpen.set(false);
     const st = this.api.state();
     const md = this.buildReport();
@@ -4166,7 +4164,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // keyboard
   // ===========================================================================
 
-  private onKey = (ev: KeyboardEvent) => {
+  private readonly onKey = (ev: KeyboardEvent) => {
     const target = ev.target as HTMLElement | null;
     const inField = !!target?.closest('input,textarea,select,[contenteditable]');
     if ((ev.ctrlKey || ev.metaKey) && ev.key === 'c' && target?.closest('input[name="cli"]')) {
@@ -4287,7 +4285,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // canvas: pan / zoom / pointer
   // ===========================================================================
 
-  cardW() {
+  protected cardW() {
     return this.advUi() ? CARD_W_ADV : CARD_W_SIMPLE;
   }
 
@@ -4295,26 +4293,26 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { x: d.x + this.cardW() / 2, y: d.y + ANCHOR_Y };
   }
 
-  worldFromEvent(ev: { clientX: number; clientY: number }, el: HTMLElement) {
+  private worldFromEvent(ev: { clientX: number; clientY: number }, el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const p = this.pan();
     return { x: (ev.clientX - r.left - p.x) / p.s, y: (ev.clientY - r.top - p.y) / p.s };
   }
 
-  onWheel(ev: WheelEvent, el: HTMLElement) {
+  protected onWheel(ev: WheelEvent, el: HTMLElement) {
     ev.preventDefault();
     this.stageEl = el;
     this.zoomAt(ev.clientX, ev.clientY, ev.deltaY > 0 ? 0.9 : 1.1, el);
   }
 
-  zoomBy(factor: number) {
+  protected zoomBy(factor: number) {
     const el = this.stage?.nativeElement ?? this.stageEl;
     if (!el) return;
     const r = el.getBoundingClientRect();
     this.zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor, el);
   }
 
-  resetZoom() {
+  protected resetZoom() {
     const el = this.stage?.nativeElement ?? this.stageEl;
     const p = this.pan();
     if (!el) {
@@ -4327,7 +4325,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.pan.set({ x: cx - ((cx - p.x) * 1) / p.s, y: cy - ((cy - p.y) * 1) / p.s, s: 1 });
   }
 
-  canvasDown(ev: PointerEvent, el: HTMLElement) {
+  protected canvasDown(ev: PointerEvent, el: HTMLElement) {
     this.stageEl = el;
     this.guardCanvas(el);
     this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -4361,7 +4359,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.panning = { x: this.pan().x, y: this.pan().y, px: ev.clientX, py: ev.clientY };
   }
 
-  canvasMove(ev: PointerEvent) {
+  protected canvasMove(ev: PointerEvent) {
     if (this.pointers.has(ev.pointerId)) this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (this.cableFrom()) {
       const el = this.stageEl ?? this.stage?.nativeElement;
@@ -4393,7 +4391,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  canvasUp(ev?: PointerEvent) {
+  protected canvasUp(ev?: PointerEvent) {
     if (ev) this.pointers.delete(ev.pointerId);
     else if (this.pointers.size) return;
     else this.pointers.clear();
@@ -4436,7 +4434,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.tapAt = null;
   }
 
-  startDrag(ev: PointerEvent, d: DeviceState) {
+  protected startDrag(ev: PointerEvent, d: DeviceState) {
     ev.stopPropagation();
     const from = this.cableFrom();
     if (this.cableArmed() || from) {
@@ -4490,7 +4488,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  selectDevice(d: DeviceState) {
+  private selectDevice(d: DeviceState) {
     if (this.selectedId() !== d.id) {
       this.reach.set(null);
       this.wifiOpen.set(false);
@@ -4628,7 +4626,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     this.pan.set({ x: r.width / 2 - cx * s, y: top + availH / 2 - cy * s, s });
   }
 
-  fitToView() {
+  protected fitToView() {
     const el = this.stage?.nativeElement ?? this.stageEl;
     const devices = this.api.state()?.devices ?? [];
     if (!el || !devices.length) return;
@@ -4659,7 +4657,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // canvas: geometry & rendering helpers
   // ===========================================================================
 
-  linkPath(l: { a: { deviceId: string }; b: { deviceId: string } }) {
+  protected linkPath(l: { a: { deviceId: string }; b: { deviceId: string } }) {
     const st = this.api.state();
     const a = st?.devices.find((d) => d.id === l.a.deviceId);
     const b = st?.devices.find((d) => d.id === l.b.deviceId);
@@ -4670,7 +4668,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Label position for a cable end, ~26% along the segment from that end. */
-  linkLabelPos(l: LinkState, end: 'a' | 'b') {
+  protected linkLabelPos(l: LinkState, end: 'a' | 'b') {
     const st = this.api.state();
     const a = st?.devices.find((d) => d.id === l.a.deviceId);
     const b = st?.devices.find((d) => d.id === l.b.deviceId);
@@ -4681,7 +4679,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return { x: pa.x + (pb.x - pa.x) * t, y: pa.y + (pb.y - pa.y) * t - 6 };
   }
 
-  rubberPath() {
+  protected rubberPath() {
     const from = this.cableFrom();
     const cur = this.cableCursor();
     const st = this.api.state();
@@ -4692,7 +4690,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return `M ${pa.x} ${pa.y} L ${cur.x} ${cur.y}`;
   }
 
-  linkStroke(l: LinkState) {
+  protected linkStroke(l: LinkState) {
     if (this.selectedLinkId() === l.id) return '#22d3ee';
     if (this.linkInTrace(l)) return this.trace()?.ok || !this.trace()?.dropDevice ? '#67e8f9' : '#fb7185';
     if (l.kind === 'radio') return '#a78bfa';
@@ -4702,14 +4700,14 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
     return '#7c8aa5';
   }
 
-  linkDash(l: LinkState) {
+  protected linkDash(l: LinkState) {
     if (l.kind === 'radio') return '6 4';
     if (l.cable === 'crossover') return '8 3';
     if (l.cable === 'fiber') return '2 3';
     return '0';
   }
 
-  linkIsDown(l: LinkState) {
+  protected linkIsDown(l: LinkState) {
     if (l.kind === 'radio') return false;
     const st = this.api.state();
     const da = st?.devices.find((d) => d.id === l.a.deviceId);
@@ -4718,7 +4716,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /** Plays packet hops one after another so the path is readable. Duplicate ids within 3s are ignored. */
-  animate(events: PacketEvent[], force = false) {
+  private animate(events: PacketEvent[], force = false) {
     const st = this.api.state();
     if (!st || !events.length) return;
     const now = Date.now();
@@ -4768,7 +4766,7 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   // dock resize
   // ===========================================================================
 
-  startDockResize(ev: PointerEvent) {
+  protected startDockResize(ev: PointerEvent) {
     ev.preventDefault();
     this.dockDrag = { y: ev.clientY, h: this.dockH() };
     const move = (e: PointerEvent) => {
@@ -4791,24 +4789,24 @@ export class Workspace implements OnInit, AfterViewInit, OnDestroy {
   }
 
   @HostListener('document:pointermove', ['$event'])
-  onDocPaletteDragMove(ev: PointerEvent) {
+  protected onDocPaletteDragMove(ev: PointerEvent) {
     if (this.paletteDrag) this.onPaletteDevicePointerMove(ev);
   }
 
   @HostListener('document:pointerup', ['$event'])
   @HostListener('document:pointercancel', ['$event'])
-  onDocPaletteDragUp(ev: PointerEvent) {
+  protected onDocPaletteDragUp(ev: PointerEvent) {
     if (this.paletteDrag) this.onPaletteDevicePointerUp(ev);
   }
 
   @HostListener('window:mouseup')
-  up() {
+  protected up() {
     if (this.pointers.size) return;
     this.canvasUp();
   }
 
   @HostListener('window:resize')
-  onResize() {
+  protected onResize() {
     const narrow = window.innerWidth < 768;
     const was = this.isNarrow();
     this.isNarrow.set(narrow);

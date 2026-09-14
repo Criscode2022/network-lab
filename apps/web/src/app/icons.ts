@@ -83,9 +83,9 @@ export type IconName =
   templateUrl: './icons.html',
 })
 export class Icon {
-  name = input.required<IconName>();
-  size = input(16);
-  stroke = input(2);
+  public readonly name = input.required<IconName>();
+  public readonly size = input(16);
+  public readonly stroke = input(2);
 }
 
 export const KIND_ICON: Record<string, IconName> = {

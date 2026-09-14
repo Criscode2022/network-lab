@@ -183,21 +183,21 @@ function withContext(device: DeviceState, all: DeviceState[], base: QuickCommand
   templateUrl: './terminal.html',
 })
 export class Terminal {
-  readonly i18n = inject(I18n);
+  private readonly i18n = inject(I18n);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  devices = input<DeviceState[]>([]);
-  deviceId = input<string | null>(null);
-  lines = input<TermLine[]>([]);
-  prompt = input('#');
-  busy = input(false);
+  public readonly devices = input<DeviceState[]>([]);
+  public readonly deviceId = input<string | null>(null);
+  public readonly lines = input<TermLine[]>([]);
+  public readonly prompt = input('#');
+  public readonly busy = input(false);
   /** Words offered for Tab completion (from the cheat sheet of the current device kind). */
-  vocab = input<string[]>([]);
-  quick = input<QuickCommand[]>([]);
-  quickGroups = computed(() => {
+  public readonly vocab = input<string[]>([]);
+  public readonly quick = input<QuickCommand[]>([]);
+  protected readonly quickGroups = computed(() => {
     this.i18n.locale();
     const items = this.quick();
     const labels: Record<QuickCategoryId, MessageKey> = {
@@ -214,17 +214,17 @@ export class Terminal {
     })).filter((g) => g.items.length);
   });
 
-  deviceChange = output<string>();
-  run = output<string>();
-  clear = output<void>();
-  cancel = output<void>();
+  public readonly deviceChange = output<string>();
+  public readonly run = output<string>();
+  public readonly clear = output<void>();
+  public readonly cancel = output<void>();
 
-  text = signal('');
-  private history: string[] = [];
+  protected readonly text = signal('');
+  private readonly history: string[] = [];
   private hIdx = -1;
   private draft = '';
-  private out = viewChild<ElementRef<HTMLElement>>('out');
-  private inp = viewChild<ElementRef<HTMLInputElement>>('inp');
+  private readonly out = viewChild<ElementRef<HTMLElement>>('out');
+  private readonly inp = viewChild<ElementRef<HTMLInputElement>>('inp');
 
   constructor() {
     effect(() => {
@@ -236,20 +236,20 @@ export class Terminal {
     });
   }
 
-  kindIcon(kind: string) {
+  protected kindIcon(kind: string) {
     return KIND_ICON[kind] ?? 'pc';
   }
 
-  focus() {
+  public focus() {
     this.inp()?.nativeElement.focus();
   }
 
-  setText(t: string) {
+  public setText(t: string) {
     this.text.set(t);
     this.focus();
   }
 
-  submit() {
+  protected submit() {
     const line = this.text().trim();
     if (!line) return;
     if (this.history[this.history.length - 1] !== line) this.history.push(line);
@@ -259,7 +259,7 @@ export class Terminal {
     this.run.emit(line);
   }
 
-  onKey(ev: KeyboardEvent) {
+  protected onKey(ev: KeyboardEvent) {
     if (ev.key === 'ArrowUp') {
       ev.preventDefault();
       if (!this.history.length) return;

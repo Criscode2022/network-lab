@@ -23,16 +23,16 @@ export interface Toast {
   templateUrl: './toasts.html',
 })
 export class Toasts {
-  readonly i18n = inject(I18n);
-  items = input<Toast[]>([]);
-  bottom = input('1rem');
-  dismiss = output<number>();
+  protected readonly i18n = inject(I18n);
+  public readonly items = input<Toast[]>([]);
+  public readonly bottom = input('1rem');
+  public readonly dismiss = output<number>();
 
-  icon(kind: ToastKind): IconName {
+  protected icon(kind: ToastKind): IconName {
     return kind === 'success' ? 'circle-check' : kind === 'error' ? 'circle-x' : kind === 'warn' ? 'alert' : 'info';
   }
 
-  runAction(t: Toast) {
+  protected runAction(t: Toast) {
     t.action?.run();
     this.dismiss.emit(t.id);
   }

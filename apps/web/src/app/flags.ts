@@ -12,7 +12,7 @@ import type { Locale } from './i18n/i18n';
   templateUrl: './flags.html',
 })
 export class Flag {
-  locale = input.required<Locale>();
-  width = input(18);
-  height = input(13);
+  public readonly locale = input.required<Locale>();
+  public readonly width = input(18);
+  public readonly height = input(13);
 }

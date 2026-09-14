@@ -15,42 +15,42 @@ import { labBlurb } from './lab-library';
   templateUrl: './mine-picker.html',
 })
 export class MinePicker {
-  readonly i18n = inject(I18n);
+  private readonly i18n = inject(I18n);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  mine = input<SavedLab[]>([]);
-  currentId = input<string | null>(null);
-  localOnly = input(false);
-  compact = input(false);
+  public readonly mine = input<SavedLab[]>([]);
+  public readonly currentId = input<string | null>(null);
+  public readonly localOnly = input(false);
+  public readonly compact = input(false);
 
-  pick = output<string>();
-  deleteMine = output<string>();
-  openLibrary = output<void>();
+  public readonly pick = output<string>();
+  public readonly deleteMine = output<string>();
+  public readonly openLibrary = output<void>();
 
-  open = signal(false);
-  private el = inject<ElementRef<HTMLElement>>(ElementRef);
+  protected readonly open = signal(false);
+  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
 
-  current = computed(() => this.mine().find((m) => m.id === this.currentId()));
-  active = computed(() => !!this.current());
+  protected readonly current = computed(() => this.mine().find((m) => m.id === this.currentId()));
+  protected readonly active = computed(() => !!this.current());
 
-  blurb(lab: SavedLab): string {
+  protected blurb(lab: SavedLab): string {
     return labBlurb(lab);
   }
 
-  choose(id: string) {
+  protected choose(id: string) {
     this.open.set(false);
     this.pick.emit(id);
   }
 
-  openAll() {
+  protected openAll() {
     this.open.set(false);
     this.openLibrary.emit();
   }
 
-  when(iso: string) {
+  protected when(iso: string) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
     const diff = Date.now() - d.getTime();
@@ -61,12 +61,12 @@ export class MinePicker {
   }
 
   @HostListener('document:pointerdown', ['$event'])
-  onDoc(ev: PointerEvent) {
+  protected onDoc(ev: PointerEvent) {
     if (this.open() && !this.el.nativeElement.contains(ev.target as Node)) this.open.set(false);
   }
 
   @HostListener('document:keydown.escape')
-  onEsc() {
+  protected onEsc() {
     this.open.set(false);
   }
 }

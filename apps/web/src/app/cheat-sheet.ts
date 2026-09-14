@@ -13,35 +13,35 @@ import type { MessageKey } from './i18n/en';
   templateUrl: './cheat-sheet.html',
 })
 export class CheatSheet {
-  readonly i18n = inject(I18n);
+  private readonly i18n = inject(I18n);
 
-  t(key: MessageKey, params?: Record<string, string | number>): string {
+  protected t(key: MessageKey, params?: Record<string, string | number>): string {
     return this.i18n.t(key, params);
   }
 
-  kind = input('workstation');
-  kinds = input<{ id: string; kind: string; label: string }[]>([]);
-  rows = input<{ cmd: string; help: string }[]>([]);
-  loading = input(false);
+  public readonly kind = input('workstation');
+  public readonly kinds = input<{ id: string; kind: string; label: string }[]>([]);
+  public readonly rows = input<{ cmd: string; help: string }[]>([]);
+  public readonly loading = input(false);
 
-  close = output<void>();
-  kindChange = output<string>();
-  run = output<string>();
+  public readonly close = output<void>();
+  public readonly kindChange = output<string>();
+  public readonly run = output<string>();
 
-  q = signal('');
+  protected readonly q = signal('');
 
-  filtered = computed(() => {
+  protected readonly filtered = computed(() => {
     const q = this.q().trim().toLowerCase();
     if (!q) return this.rows();
     return this.rows().filter((r) => `${r.cmd} ${r.help}`.toLowerCase().includes(q));
   });
 
-  icon(kind: string) {
+  protected icon(kind: string) {
     return KIND_ICON[kind] ?? 'pc';
   }
 
   /** Strip placeholders like `[add ADDR/P dev IF]` or `A.B.C.D` so what lands in the terminal is typeable. */
-  firstWords(cmd: string) {
+  protected firstWords(cmd: string) {
     return cmd
       .split('|')[0]
       .replace(/\[.*?]/g, '')
